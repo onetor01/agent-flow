@@ -1,5 +1,27 @@
 # Change Log
 
+## [0.0.16] - 2026-05-18
+
+### 新增
+
+- **对话 Fork**：在 Agent 对话中可从任意一条消息（user / text / thinking / turn_end / askUserQuestion 卡片）分叉出新 Flow，原路径保留，便于对比不同提示或模型的效果。
+  - **事件契约**：新增 `flow.command.fork` / `flow.signal.fork`，承载源 Flow id、目标 agent id、fork 切片（message uuid 或 askUserQuestion toolUseId）、新 Flow id 与 RunState；`flow.command.flowStart` 增加 `resumeSessionId` 字段，reducer 在 resume 模式下保留既有 sessions / answered\* / shareValues 不清空，flowStart signal 命中已有 sessionId 时复用而非追加。
+  - **extension 侧**：通过 SDK `forkSession` 拿到新 sessionId，深拷贝源 Flow + 重置 id 入 `currentFlows`，复制并裁剪源 RunState 后通过 `FlowRunStateManager.setRunState` 注入；fork 完成后立即 spawn FlowRunner 拿到 runId 并写入 newRunState，`signal.fork` 携带 runId 让 webview 后续 `sendUserMessage` / `answerQuestion` / `interrupt` 不再因 runId 缺失 silent drop。
+  - **ClaudeExecutor 启动模式重构**：把原 `lazy: boolean` 重构为 `mode: 'eager' | 'lazy' | 'resume-pending'`。普通 fork（user / text / thinking / turn_end）走 `lazy`：构造时不 createQuery，等用户在新 Flow 发消息或答题时再启动，并用 `pendingAnswers` 暂存 lazy 期内 `answerQuestion` 的输出；askUserQuestion fork 走 `resume-pending`：构造时立即 createQuery 并 push 一条 `isSynthetic: true` 的 dummy SDKUserMessage 启动 SDK iteration，让 SDK 自然走到 transcript 末端的悬空 AskUserQuestion tool_use 触发 canUseTool，把 resolver 挂起到 `pendingPermissions`。
+  - **askUserQuestion fork toolUseId 替换**：handleFork 在 askUserQuestion fork 时重新生成 toolUseId 并替换切片末端 tool_use block 的 id 与 pendingQuestions 项，避免 SDK resume 后 canUseTool 触发的 toolUseID 与上层不匹配。
+  - **webview UI**：`MessageBubble` 在 user / text / thinking / turn_end 项与 askUserQuestion 卡片右侧悬挂 fork icon（仅在 messageUuid 存在时）；`ChatPanel` 接管 onFork：sessionCompleted=true 时弹 modal 提示 shareValues 不保证后再发命令；`ChatDrawer` 给 ChatPanel 加 `key=flowId-agentId` 强制跨 Flow 切换重新挂载，避免 AskUserQuestionCard 内部状态在新旧 Flow 间被 React 复用；`ChatDrawer.onSend` 检测 runId 缺失（fork 后未启动 runner）时自动取该 agent 最近 session 的 sessionId 作为 resumeSessionId。
+  - **store**：新增 `forkFlow` action（postMessage 不预提交 reducer）以及 `flow.signal.fork` 处理：深拷贝源 Flow + 改 id 入 flows、写入 newRunState、切 activeFlowId、打开 ChatDrawer 并发 save 持久化。
+
+### 修复
+
+- **AgentComplete 后跳过 SDK result 透传**：AgentComplete 调用后 SDK 仍会发一条用于计费的 result 消息，原本会被 `ClaudeExecutor` 当作普通 aiMessage 透传给 webview，触发 reducer 把 phase 切到 `result` 并误发 reason=`result` 的"生成完毕"通知，与紧随其后的 agentComplete signal 语义重叠。改为让 agentComplete signal 携带整条 SDK result 消息：`ClaudeExecutor` 在 AgentComplete 已暂存（`pendingCompleteResult`）时跳过该 result 的 onMessage 透传，通过 onComplete 一并上抛；`FlowRunner` 把 result 写入 agentComplete signal 的 `result` 字段；reducer 处理 agentComplete 时把 result 包装成独立 aiMessage 写入当前 `session.messages`（放在 agentComplete signal 之前），`buildRenderItems` 仍能取到 result 累计 token 并填充 `agent_complete` 项的 modelBreakdown / totalCost。
+- **FlowEditor 跨 flow 切换 shareValues 残留**：`form.setFieldsValue` 对 nested 字段是合并语义，空对象不会清除旧子 key；form 实例又不随 `editingFlowId` 重建，导致打开新 flow 抽屉时仍能看到上一个 flow 的 shareValues。改为先 `resetFields` 再赋值。
+- **fork 后 uuid 对齐**：extension 端 fork 后用 `getSessionMessages` 拿新 session 的真实 transcript，把 webview 切片末端 session 的 user / assistant message uuid 替换为 SDK remap 后的新值，修复在 fork 出的 Flow 中再次 fork 以及 turn_end fork 失败时 SDK 报 `Message <uuid> not found in session` 的问题。
+- **findPrevUuid 排除 stream_event uuid**：`includePartialMessages=true` 时 SDK 流出的 `SDKPartialAssistantMessage`（type='stream_event'）也带 uuid 但不在 transcript 里，原 findPrevUuid 不区分类型会误命中导致 forkSession `Message <uuid> not found`。改为加白名单：只允许 `SDKUserMessage` / `SDKUserMessageReplay` / `SDKAssistantMessage` 进入。
+- **user fork 锚点**：`buildRenderItems` 给 user item 的 messageUuid 取「上一条 SDK 消息」的 uuid（不是 user 自己的 uuid，因 `SDKUserMessage.uuid` 经常缺失）；user fork 语义 = 让用户重新说一次 = upToMessageId 截到上一条消息（含）。
+- **fork icon 渲染重构**：去掉 `ForkWrap` 的 absolute 定位，改为 inline 元素 `ForkButton`；`Copyable` 加 extra 槽，fork icon 与 copy icon 同列垂直堆叠不再遮挡；turn_end 因 antd-x DividerBubble 用 antd Divider 包裹会让 absolute 子元素被遮挡 + group hover 失效，改为 inline 渲染在 content 内；text/thinking/turn_end 移除 turnClosed 守卫，只校验 messageUuid，避免切片末端项 turnClosed=false 时无 fork icon。
+- **interruptAndAwaitResult 超时缩短**：增加 `timeoutMs` 参数，用户主动 interrupt 路径传 800ms（原 3000ms 兜底过长，fork lazy 启动后立即打断时 SDK result 不一定到达，体感卡）；AgentComplete 内部 interrupt 仍走默认 3000ms 兜底保本回合 token 统计。
+
 ## [0.0.15] - 2026-05-17
 
 ### 修复

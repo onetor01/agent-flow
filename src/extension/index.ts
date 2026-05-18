@@ -1,6 +1,6 @@
+import { forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
 import { match, P } from 'ts-pattern'
 import * as vscode from 'vscode'
-import { forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AskUserQuestionInput,
   ExtensionFlowCommandEvents,

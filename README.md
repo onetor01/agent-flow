@@ -67,6 +67,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **Token 消耗可视化**：消息级、回合级、Flow 级三层展示 token 用量与费用，AI 气泡自动回填实际消耗，优先显示 SDK 实际费用而非估算；`agent_complete` 时展示按模型分组的 session 累计 breakdown。
 - **Starting 阶段节点高亮与红点**：启动阶段（session 尚未建立）Agent 节点也能正确高亮显示，对话框同步展示红点提示。
 - **AskUserQuestion 字体优化**：调整提问卡片字体样式，提升可读性。
+- **对话 Fork**：在 Agent 对话中可从任意一条消息（user / text / thinking / turn_end / askUserQuestion 卡片）右上角的 fork 按钮分叉出新 Flow，原路径保留。普通消息 fork 走 lazy 模式（用户在新 Flow 发消息时再启动 SDK），askUserQuestion fork 走 resume-pending 模式（立即接续 SDK，让用户可以在新 Flow 重答上一题）。可用来对比不同提示或不同模型的效果。
 
 ### 4. 内置示例工作流
 
@@ -83,12 +84,6 @@ pnpm build-extension   # 生成 .vsix 文件
 - **有选中文字**：将选区作为带行号的代码引用追加到当前活跃的聊天输入框。
 - **无选中文字**：将当前文件的全部内容作为代码引用追加，不附带行号。
 - **点击代码片段 Tag**：带行号时打开文件并选中对应行，整个文件片段则仅打开文件。
-
----
-
-## 计划中功能
-
-- **对话 fork**：在 Agent 对话中从任意一条消息分叉出新分支，同时保留原路径，用来对比不同提示或不同模型的效果。
 
 ---
 

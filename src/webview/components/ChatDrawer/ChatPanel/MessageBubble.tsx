@@ -46,7 +46,9 @@ export type BubbleCtx = {
    * 用于让 fork 触发方决定是否弹 modal 提示「shareValues 一致性不保证」。
    */
   onFork?: (
-    target: { kind: 'message'; messageUuid: string } | { kind: 'askUserQuestion'; toolUseId: string },
+    target:
+      | { kind: 'message'; messageUuid: string }
+      | { kind: 'askUserQuestion'; toolUseId: string },
     sessionCompleted: boolean,
   ) => void
 }
