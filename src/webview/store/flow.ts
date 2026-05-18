@@ -127,7 +127,16 @@ type FlowStoreType = StoreState & {
   init: (app: AppApi) => () => void
   setActiveFlowId: (id: string) => void
   setFlowListCollapsed: (collapsed: boolean) => void
-  runFlow: (flowId: string, agentId: string, initMessage: UserMessageType) => void
+  /**
+   * 启动 Flow 运行。
+   * `resumeSessionId` 存在时表示 resume fork 出的新 Flow（不清空 sessions / 不重置 build cache）。
+   */
+  runFlow: (
+    flowId: string,
+    agentId: string,
+    initMessage: UserMessageType,
+    resumeSessionId?: string,
+  ) => void
   save: (updateFn: (val: Flow[]) => void) => void
   sendUserMessage: (flowId: string, content: UserMessageType['message']['content']) => void
   answerQuestion: (flowId: string, toolUseId: string, output: AskUserQuestionOutput) => void
@@ -135,6 +144,17 @@ type FlowStoreType = StoreState & {
   interruptAgent: (flowId: string) => void
   killFlow: (flowId: string) => void
   setShareValues: (flowId: string, values: Record<string, string>) => boolean
+  /**
+   * 触发会话 fork —— 从源 Flow 当前 transcript 切片复制出新 Flow。
+   * 仅 post command,本地不预提交 reducer,等 extension 回 `flow.signal.fork` 后再写入新 Flow。
+   */
+  forkFlow: (
+    sourceFlowId: string,
+    agentId: string,
+    target:
+      | { kind: 'message'; messageUuid: string }
+      | { kind: 'askUserQuestion'; toolUseId: string },
+  ) => void
   openChatDrawer: (flowId: string, agentId: string, agentName: string) => void
   closeChatDrawer: () => void
   setEditingAgent: (agent?: { flowId: string; agentId: string }) => void
@@ -298,6 +318,30 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
           })
           return
         }
+        // fork signal：源 Flow 状态不变，需要在 store 中复制 sourceFlow 定义、
+        // 写入新 RunState、切到新 Flow、打开 ChatDrawer，并触发 save 持久化。
+        if (msg.type === 'flow.signal.fork') {
+          const { flowId: sourceFlowId, newFlowId, newRunState, agentId } = msg.data
+          const { flows } = get()
+          const sourceFlow = flows.find((f) => f.id === sourceFlowId)
+          if (!sourceFlow) return
+          const newFlow: Flow = { ...structuredClone(sourceFlow), id: newFlowId }
+          const nextAgent = newFlow.agents?.find((a) => a.id === agentId)
+          immerSet((draft) => {
+            draft.flows.push(newFlow)
+            draft.flowRunStates[newFlowId] = newRunState
+            draft.activeFlowId = newFlowId
+            draft.chatDrawer = {
+              flowId: newFlowId,
+              agentId,
+              agentName: nextAgent?.agent_name ?? '',
+            }
+            draft.editingAgent = undefined
+          })
+          // 持久化新 flow 列表
+          postMessageToExtension({ type: 'save', data: get().flows })
+          return
+        }
         // 其余皆为 flow.signal.*：交给 updateFlowRunState 这一信号驱动的 reducer
         const { flows, flowRunStates, chatDrawer } = get()
         const flowId = msg.data.flowId
@@ -343,7 +387,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       postMessageToExtension({ type: 'load', data: undefined })
       return cleanup
     },
-    runFlow: (flowId, agentId, initMessage) => {
+    runFlow: (flowId, agentId, initMessage, resumeSessionId) => {
       const { flows, flowRunStates } = get()
       const flow = flows.find((f) => f.id === flowId)
       if (!flow) return
@@ -355,15 +399,24 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
             parent_tool_use_id: null,
           }
         : initMessage
-      // 清除该 flow 旧 session 的 build 缓存
-      const existingState = flowRunStates[flowId]
-      if (existingState?.sessions?.length) {
-        clearBuildCacheForSessions(existingState.sessions.map((s) => s.sessionId))
+      // resume 模式保留 fork 切片对应 sessions 的 build 缓存（按 newSessionId 索引），
+      // 普通启动则清除该 flow 旧 sessions 的缓存以避免内存泄漏
+      if (!resumeSessionId) {
+        const existingState = flowRunStates[flowId]
+        if (existingState?.sessions?.length) {
+          clearBuildCacheForSessions(existingState.sessions.map((s) => s.sessionId))
+        }
       }
       const runKey = crypto.randomUUID()
       dispatchCommand({
         type: 'flow.command.flowStart',
-        data: { flowId, runKey, agentId, initMessage: effectiveInitMessage },
+        data: {
+          flowId,
+          runKey,
+          agentId,
+          initMessage: effectiveInitMessage,
+          resumeSessionId,
+        },
       })
     },
     setActiveFlowId: (id) => {
@@ -468,6 +521,14 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         data: { flowId, values },
       })
       return true
+    },
+    forkFlow: (sourceFlowId, agentId, target) => {
+      // 不本地预提交：fork 由 extension 完成 SDK forkSession + 准备 newRunState 后回 signal,
+      // 由 onMessage 中的 'flow.signal.fork' 路径写入新 Flow / 切 activeFlowId / 打开 ChatDrawer。
+      postMessageToExtension({
+        type: 'flow.command.fork',
+        data: { flowId: sourceFlowId, agentId, target },
+      })
     },
     copyAgents: (newAgents, flowId) => {
       let remapped: Agent[] = []

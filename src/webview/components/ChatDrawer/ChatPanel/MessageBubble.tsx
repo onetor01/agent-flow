@@ -1,6 +1,6 @@
 import { memo, type FC, type ReactNode } from 'react'
-import { Tag } from 'antd'
-import { CheckCircleOutlined } from '@ant-design/icons'
+import { Tag, Tooltip } from 'antd'
+import { BranchesOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { Bubble, Think } from '@ant-design/x'
 import type { AskUserQuestionOutput, ExtensionToWebviewMessage, ModelTokenUsage } from '@/common'
 import { formatTokenCount, formatTokenCost } from '@/common'
@@ -37,6 +37,18 @@ export type BubbleCtx = {
   answeredToolPermissions?: Record<string, { allow: boolean }>
   onToolPermissionAllow?: (toolUseId: string) => void
   onToolPermissionDeny?: (toolUseId: string) => void
+  /**
+   * 触发会话 fork。target.kind:
+   * - `message`：以 SDK 消息 UUID 为切片终点
+   * - `askUserQuestion`：以包含该 toolUseId 的 assistant message 为切片终点（不含 tool_result）
+   *
+   * 第二个参数 sessionCompleted 由 ChatPanel 在每个 session 上下文中注入，
+   * 用于让 fork 触发方决定是否弹 modal 提示「shareValues 一致性不保证」。
+   */
+  onFork?: (
+    target: { kind: 'message'; messageUuid: string } | { kind: 'askUserQuestion'; toolUseId: string },
+    sessionCompleted: boolean,
+  ) => void
 }
 
 type RenderedBubble = {
@@ -227,27 +239,80 @@ function ModelUsageRow({ model, usage }: { model: string; usage: ModelTokenUsage
   )
 }
 
+/** fork 触发按钮 —— inline 元素,作为 Copyable.extra 与 CopyButton 同列垂直堆叠 */
+function ForkButton({ onFork }: { onFork: () => void }): ReactNode {
+  return (
+    <Tooltip title='从此处 fork 出新工作流'>
+      <button
+        type='button'
+        onClick={(e) => {
+          e.stopPropagation()
+          onFork()
+        }}
+        className='cursor-pointer text-[11px] text-[#6c7086] transition-colors hover:text-[#cdd6f4]'
+      >
+        <BranchesOutlined />
+      </button>
+    </Tooltip>
+  )
+}
+
 function renderItemToBubble(
   item: RenderItem,
   ctx?: BubbleCtx,
   sessionCompleted = false,
 ): RenderedBubble | null {
+  /**
+   * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素,作为 Copyable.extra 注入。
+   * fork icon 与 CopyButton 同列垂直堆叠（见 Copyable 组件实现）,不再用 absolute 定位。
+   */
+  const buildForkIcon = (
+    target:
+      | { kind: 'message'; messageUuid: string }
+      | { kind: 'askUserQuestion'; toolUseId: string },
+  ): ReactNode | undefined => {
+    if (!ctx?.onFork) return undefined
+    return <ForkButton onFork={() => ctx.onFork!(target, sessionCompleted)} />
+  }
   switch (item.kind) {
     case 'user': {
       const { copyText, node } = renderUserContent(item.rawContent)
+      // user fork 语义 = 「让用户重新说一次」= 切到上一条 SDK 消息为止。
+      // 只要 messageUuid（findPrevUuid 找到的上一条 SDK 消息 uuid）存在就合法,
+      // 不依赖 turn 是否闭环（thinking/text fork 后切片末端 user / agent running 中
+      // 的当前 user 都属于 turn 未闭环但 fork 合法的场景）。
+      const fork = item.messageUuid
+        ? buildForkIcon({ kind: 'message', messageUuid: item.messageUuid })
+        : undefined
       return {
         key: item.key,
         role: 'user',
-        content: <Copyable text={copyText}>{node}</Copyable>,
+        content: (
+          <Copyable text={copyText} extra={fork}>
+            {node}
+          </Copyable>
+        ),
       }
     }
     case 'text': {
       const md = <Md content={item.text} />
-      const content = item.streaming ? md : <Copyable text={item.text}>{md}</Copyable>
+      if (item.streaming) {
+        return { key: item.key, role: 'ai', content: md }
+      }
+      // 与 user 对齐:只要 messageUuid 存在即放行 fork。turn 是否闭环不再作为
+      // 守卫条件 —— fork 切片末端的 text 项 turnClosed=false（切片不含后续 result）,
+      // 但 fork 本身合法,不能因此拦下。
+      const fork = item.messageUuid
+        ? buildForkIcon({ kind: 'message', messageUuid: item.messageUuid })
+        : undefined
       return {
         key: item.key,
         role: 'ai',
-        content,
+        content: (
+          <Copyable text={item.text} extra={fork}>
+            {md}
+          </Copyable>
+        ),
       }
     }
     case 'thinking': {
@@ -260,11 +325,21 @@ function renderItemToBubble(
           <Md content={item.text} />
         </Think>
       )
-      const content = item.streaming ? inner : <Copyable text={item.text}>{inner}</Copyable>
+      if (item.streaming) {
+        return { key: item.key, role: 'ai', content: inner }
+      }
+      // 与 user 对齐:只要 messageUuid 存在即放行 fork。同 text 分支说明。
+      const fork = item.messageUuid
+        ? buildForkIcon({ kind: 'message', messageUuid: item.messageUuid })
+        : undefined
       return {
         key: item.key,
         role: 'ai',
-        content,
+        content: (
+          <Copyable text={item.text} extra={fork}>
+            {inner}
+          </Copyable>
+        ),
       }
     }
     case 'ask_user_question': {
@@ -282,16 +357,28 @@ function renderItemToBubble(
       // pending 卡片不在消息列表中渲染（改为固定在输入框上方），只渲染已回答的历史卡片
       if (isPending) return null
       const answered = ctx.answeredMap.get(item.toolUseId)
+      const card = (
+        <AskUserQuestionCard
+          input={item.input}
+          mode='historical'
+          answeredValues={answered?.values}
+        />
+      )
+      const fork = buildForkIcon({ kind: 'askUserQuestion', toolUseId: item.toolUseId })
+      // ask_user_question 卡片自带样式,不通过 Copyable 包裹（无文本可复制）;
+      // fork icon 用 inline-flex 直接挂在卡片右侧。
+      const content = fork ? (
+        <div className='flex items-start gap-1'>
+          <div className='min-w-0 flex-1'>{card}</div>
+          <div className='shrink-0 pt-1'>{fork}</div>
+        </div>
+      ) : (
+        card
+      )
       return {
         key: item.key,
         role: 'system',
-        content: (
-          <AskUserQuestionCard
-            input={item.input}
-            mode='historical'
-            answeredValues={answered?.values}
-          />
-        ),
+        content,
       }
     }
     case 'tool_use': {
@@ -330,11 +417,15 @@ function renderItemToBubble(
     }
     case 'turn_end': {
       const modelUsages = item.modelUsages ?? []
-      return {
-        key: item.key,
-        role: 'divider',
-        content: (
-          <div className='flex flex-col gap-0.5'>
+      const fork = item.messageUuid
+        ? buildForkIcon({ kind: 'message', messageUuid: item.messageUuid })
+        : undefined
+      // turn_end 由 antd-x DividerBubble 包装（用 antd Divider 渲染 content）,
+      // antd Divider 的 ::before/::after 横线会让 absolute 子元素被遮挡,group-hover
+      // 在 divider 容器层级也会失效。所以 fork icon 必须 inline 渲染在 content 内。
+      const inner = (
+        <div className='inline-flex items-center gap-2'>
+          <span className='flex flex-col gap-0.5 text-left'>
             {modelUsages.map((m) => (
               <ModelUsageRow key={m.model} model={m.model} usage={m.usage} />
             ))}
@@ -342,8 +433,14 @@ function renderItemToBubble(
               <CheckCircleOutlined className={item.isError ? 'text-[#f38ba8]' : 'text-[#a6e3a1]'} />
               <span className='ml-1'>{item.isError ? '执行出错' : '回合结束'}</span>
             </span>
-          </div>
-        ),
+          </span>
+          {fork && <span className='shrink-0'>{fork}</span>}
+        </div>
+      )
+      return {
+        key: item.key,
+        role: 'divider',
+        content: inner,
       }
     }
     case 'agent_complete': {

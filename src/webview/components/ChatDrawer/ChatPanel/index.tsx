@@ -8,8 +8,8 @@ import {
   type FC,
   type WheelEventHandler,
 } from 'react'
-import { Button, Skeleton, Tag, Tooltip } from 'antd'
-import { CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
+import { App, Button, Skeleton, Tag, Tooltip } from 'antd'
+import { BranchesOutlined, CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import type { BubbleListRef } from '@ant-design/x/es/bubble/interface'
 import { AnimatePresence, motion } from 'motion/react'
@@ -65,6 +65,8 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
   const killFlow = useFlowStore((s) => s.killFlow)
   const answerQuestion = useFlowStore((s) => s.answerQuestion)
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
+  const forkFlow = useFlowStore((s) => s.forkFlow)
+  const { modal } = App.useApp()
 
   const phase = useFlowStore(selectAgentPhase(flowId, agentId))
   const flowPhase = useFlowStore(selectFlowPhase(flowId))
@@ -159,6 +161,33 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
     [answerToolPermission, flowId],
   )
 
+  /**
+   * fork 触发入口：sessionCompleted=true（历史 session）时弹 modal 提示
+   * 「shareValues 一致性不保证」并由用户确认后再发 command；当前 session 直接发。
+   */
+  const onForkRequest = useCallback(
+    (
+      target:
+        | { kind: 'message'; messageUuid: string }
+        | { kind: 'askUserQuestion'; toolUseId: string },
+      sessionCompleted: boolean,
+    ) => {
+      const doFork = () => forkFlow(flowId, agentId, target)
+      if (!sessionCompleted) {
+        doFork()
+        return
+      }
+      modal.confirm({
+        title: '从历史会话 fork',
+        content: '该会话已完成，shareValues 在 fork 后可能与原值不一致。是否继续？',
+        okText: 'fork',
+        cancelText: '取消',
+        onOk: doFork,
+      })
+    },
+    [forkFlow, flowId, agentId, modal],
+  )
+
   // 消息列表自动滚动控制:默认贴底,用户向上滚后停止跟随,滚回底部时恢复
   const messageListRef = useRef<BubbleListRef>(null)
   const shouldScrollRef = useRef(true)
@@ -229,6 +258,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
+      onFork: onForkRequest,
     }),
     [
       pendingToolUseId,
@@ -239,6 +269,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
+      onForkRequest,
     ],
   )
 
@@ -384,7 +415,25 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
             >
               <div className='h-0.5 w-8 rounded-full bg-[#6c7086]' />
             </motion.div>
-            <div className='flex-1 overflow-auto px-3 py-2'>
+            <div className='relative flex-1 overflow-auto px-3 py-2'>
+              {/* pending ask_user_question fork icon —— 当前 session 的 pending,不弹 modal */}
+              {pendingQuestions.length > 0 && (
+                <Tooltip title='从此处 fork 出新工作流（保留当前问题）'>
+                  <Button
+                    size='small'
+                    type='text'
+                    icon={<BranchesOutlined />}
+                    onClick={() =>
+                      onForkRequest(
+                        { kind: 'askUserQuestion', toolUseId: pendingQuestions[0].toolUseId },
+                        false,
+                      )
+                    }
+                    className='absolute top-1 right-1 z-10'
+                    style={{ color: '#6c7086' }}
+                  />
+                </Tooltip>
+              )}
               <AskUserQuestionCard
                 input={mergedInput}
                 mode='active'

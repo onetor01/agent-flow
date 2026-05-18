@@ -16,13 +16,22 @@ import {
   UserMessageType,
 } from '@/common'
 import { buildAgentMcpServer } from '@/common/extension'
-import { logError } from '../../logger'
+import { log, logError } from '../../logger'
 
 export type ExecutorResult = {
   outputName?: string
   content: string
   shareValues?: Record<string, string>
 }
+
+/**
+ * ClaudeExecutor 启动模式:
+ * - 'eager'(默认): 普通启动,构造时立即 createQuery 并 push initMessage
+ * - 'lazy': 构造时不 createQuery,等用户首次操作触发(普通 fork:user/text/thinking/turn_end)
+ * - 'resume-pending': 构造时立即 createQuery 并 push isSynthetic dummy 启动 SDK
+ *   iteration 但不创建新 user turn(askUserQuestion fork,SDK 看到悬空 tool_use 自动调 canUseTool)
+ */
+export type ExecutorMode = 'eager' | 'lazy' | 'resume-pending'
 
 export type ExecutorEvents = {
   /** 首次获取到 SDK session_id 时触发，保证先于任何 onMessage */
@@ -57,6 +66,14 @@ export class ClaudeExecutor {
   private queryInstance: Query | null = null
   private completed = false
   private disposed = false
+  /**
+   * 首次会话握手是否已对外发出。
+   * - 新 session：在 SDK 流出第一条带 session_id 的消息时设为 true，
+   *   同时调用 `onSessionId` + 首次透传 `initMessage` 给上层。
+   * - resume 模式：构造时直接置 true（_sessionId 已知），由构造函数异步 emit
+   *   onSessionId + initMessage，避免 createQuery 内重复透传。
+   */
+  private initEmitted = false
   /**
    * MCP 端 AgentComplete 工具触发后暂存 result，等本回合的 SDK result 消息到达再
    * fire onComplete。否则上层立即 killCurrentExecutor，最后一条 result（含
@@ -93,10 +110,36 @@ export class ClaudeExecutor {
   >()
 
   /**
+   * fork 模式（lazy）：构造时**不**调 createQuery、也不 push initMessage。
+   * - 等用户首次 sendUserMessage 时才 createQuery + push（resume 模式下接续 SDK 会话）
+   * - 普通 fork（user/text/thinking/turn_end）走此路径
+   *
+   * fork 模式（resume-pending）：构造时立即 createQuery 启动 SDK,但 push 一条
+   * `isSynthetic: true` 的 dummy 消息让 SDK iteration 启动而**不创建新 user turn**。
+   * SDK resume 后读取 transcript 末端的悬空 AskUserQuestion tool_use,自动调
+   * canUseTool,我们把 resolver 挂起到 pendingPermissions。用户在新 Flow 提交答案
+   * 时,answerQuestion 找到 resolver 直接 resolve(走最直接路径,与原 Flow 中
+   * askUserQuestion 答题路径一致)。代价:fork 出来即占用一次 SDK resume 连接,
+   * 但 token 消耗仅 transcript resume 一次,可接受。askUserQuestion fork 走此路径。
+   *
+   * pendingAnswers 兜底：极小概率下用户在 SDK 还没调 canUseTool 就提交答案,
+   * 此时 resolver 还没挂起,把 output 暂存到 pendingAnswers,canUseTool 触发时消费。
+   */
+  /** lazy / resume-pending 模式下,user 抢先于 SDK canUseTool 提交答案时的暂存 */
+  private pendingAnswers = new Map<string, AskUserQuestionOutput>()
+  private readonly initMessage: UserMessageType
+
+  /**
    * @param runId - FlowRunner 分配的本次运行 ID,贯穿整个 Flow 直到结束
    * @param agent - Agent 定义(model、outputs、prompt 等)
    * @param currentShareValues - Flow 全局共享上下文(仅用于注入系统提示词)
-   * @param previousOutput - 上一个 Agent 的输出,用于注入 prompt 上下文
+   * @param resumeSessionId - 若提供，构造时即以该 sessionId resume 已有 SDK 会话
+   *   （fork 后的延续启动走此路径）；否则首次握手由 SDK 分配。
+   * @param mode - fork 路径专用模式:
+   *   - 'eager'(默认):构造时立即 createQuery 并 push initMessage(原非 fork 路径)
+   *   - 'lazy':构造时不 createQuery、不 push initMessage,等用户首次操作触发(普通 fork)
+   *   - 'resume-pending':构造时立即 createQuery,push 一条 isSynthetic:true 的 dummy
+   *     消息启动 SDK iteration 但不创建新 user turn(askUserQuestion fork)
    */
   constructor(
     runId: string,
@@ -104,15 +147,45 @@ export class ClaudeExecutor {
     agent: Agent,
     currentShareValues: Record<string, string>,
     events: ExecutorEvents,
+    resumeSessionId?: string,
+    mode: ExecutorMode = 'eager',
   ) {
     this.runId = runId
     this.agentId = agent.id
     this.agent = agent
     this.events = events
+    this.initMessage = initMessage
     this.userInputStream = createMessageChannel<SDKUserMessage>()
     // shareValues是写在系统提示词里的 不能即时读写 可以直接构造
     this.prompt = buildAgentSystemPrompt(agent, currentShareValues)
-    this.createQuery(initMessage)
+    if (resumeSessionId) {
+      // resume 模式：sessionId 已知，立即通知上层。fork 路径(lazy/resume-pending)
+      // 不透传 initMessage —— sessions.messages 切片已有真实历史,initMessage 只是
+      // 接口占位/dummy。
+      this._sessionId = resumeSessionId
+      this.initEmitted = true
+      queueMicrotask(() => {
+        this.events.onSessionId(resumeSessionId)
+        if (mode === 'eager') {
+          this.events.onMessage(initMessage)
+        }
+      })
+    }
+    if (mode === 'eager') {
+      this.createQuery(initMessage)
+    } else if (mode === 'resume-pending') {
+      // 用 isSynthetic dummy 启动 SDK iteration 但不创建新 user turn。
+      // SDK resume 看到 transcript 末端悬空 AskUserQuestion tool_use 会自动调
+      // canUseTool,我们挂起到 pendingPermissions,等用户在 webview 提交答案。
+      const synthetic: SDKUserMessage = {
+        type: 'user',
+        message: { role: 'user', content: '' },
+        parent_tool_use_id: null,
+        isSynthetic: true,
+      }
+      this.createQuery(synthetic)
+    }
+    // mode === 'lazy': 不 createQuery,等用户操作触发
   }
 
   /** 转发用户消息 */
@@ -122,8 +195,58 @@ export class ClaudeExecutor {
       // 当前 query 仍在运行（如等待 AskUserQuestion 的 tool_result），直接推入流
       this.userInputStream.push(message)
     } else {
-      // query 已结束（中断/完成），创建新 query 并 resume
+      // query 已结束（中断/完成）或 lazy 模式尚未启动，创建新 query 并 resume
       this.createQuery(message)
+    }
+  }
+
+  /**
+   * 回答当前挂起的 AskUserQuestion：
+   * - SDK 已挂起（pendingPermissions 有 resolver）：直接 resolve（'resume-pending' 模式
+   *   下,SDK 启动后调 canUseTool 已挂起 resolver,这是主路径）
+   * - lazy 模式 SDK 还没启动 / pending 已被 reset / 'resume-pending' 但用户抢先一步：
+   *   把 output 暂存到 pendingAnswers,并触发 createQuery 启动 SDK（resume 模式 +
+   *   isSynthetic dummy 启动 iteration 不创建新 user turn）。SDK 看到悬空 tool_use
+   *   重新调 canUseTool 时,canUseTool 内消费 pendingAnswers 直接 resolve。
+   */
+  answerQuestion(toolUseId: string, output: AskUserQuestionOutput): void {
+    log('[ClaudeExecutor] answerQuestion', {
+      toolUseId,
+      hasResolver: this.pendingPermissions.has(toolUseId),
+      pendingPermissionKeys: Array.from(this.pendingPermissions.keys()),
+      pendingAnswerKeys: Array.from(this.pendingAnswers.keys()),
+      hasQueryInstance: !!this.queryInstance,
+      sessionId: this._sessionId,
+    })
+    const resolver = this.pendingPermissions.get(toolUseId)
+    if (resolver) {
+      this.pendingPermissions.delete(toolUseId)
+      resolver({
+        behavior: 'allow',
+        updatedInput: {
+          questions: output.questions,
+          answers: output.answers,
+          ...(output.annotations ? { annotations: output.annotations } : {}),
+        },
+      })
+      return
+    }
+    // 找不到 resolver: lazy 模式 SDK 还没启动,把答案暂存,createQuery 后由 canUseTool 消费
+    this.pendingAnswers.set(toolUseId, output)
+    if (!this.queryInstance && !this.disposed && !this.completed) {
+      log('[ClaudeExecutor] answerQuestion → createQuery (lazy resume)', {
+        toolUseId,
+        sessionId: this._sessionId,
+      })
+      // 用 isSynthetic dummy 启动 SDK iteration 不创建新 user turn,与 'resume-pending'
+      // 路径一致 —— 让 SDK 自然走到 transcript 末端的悬空 tool_use 触发 canUseTool。
+      const synthetic: SDKUserMessage = {
+        type: 'user',
+        message: { role: 'user', content: '' },
+        parent_tool_use_id: null,
+        isSynthetic: true,
+      }
+      this.createQuery(synthetic)
     }
   }
 
@@ -140,15 +263,20 @@ export class ClaudeExecutor {
     // 不要继续切到下一个 agent / 完成 flow。
     this.pendingCompleteResult = null
     this.rejectAllPendingPermissions('interrupted')
-    await this.interruptAndAwaitResult()
+    // 用户主动 interrupt：fork lazy 启动后短期内主动打断,SDK 端的 result 可能不会到,
+    // 等满 3s 兜底体感很卡。缩短到 800ms,代价是该回合 token 统计可能丢失,但
+    // 用户主动打断时这是可接受的。AgentComplete 触发的内部 interrupt 仍保留 3s。
+    await this.interruptAndAwaitResult(800)
   }
 
   /**
    * 触发 SDK interrupt 并阻塞到本回合 result 消息(含 modelUsage / total_cost_usd)
-   * 被 for-await 透传给 onMessage 后才 close,否则 token 统计会被丢。3s 兜底防止
-   * SDK 异常导致 hang。两类调用方:用户主动 interrupt + AgentComplete onComplete。
+   * 被 for-await 透传给 onMessage 后才 close,否则 token 统计会被丢。timeout 兜底防止
+   * SDK 异常导致 hang。两类调用方:
+   * - 用户主动 interrupt: 800ms（响应优先,token 统计可丢）
+   * - AgentComplete 内部 interrupt: 3000ms（保住 token 统计）
    */
-  private async interruptAndAwaitResult(): Promise<void> {
+  private async interruptAndAwaitResult(timeoutMs = 3000): Promise<void> {
     if (!this.queryInstance) return
     const resultArrived = new Promise<void>((r) => {
       this.resolveResultArrived = r
@@ -158,7 +286,7 @@ export class ClaudeExecutor {
     } catch (err) {
       logError('[ClaudeExecutor] queryInstance.interrupt() failed:', err)
     }
-    await Promise.race([resultArrived, new Promise<void>((r) => setTimeout(r, 3000))])
+    await Promise.race([resultArrived, new Promise<void>((r) => setTimeout(r, timeoutMs))])
     this.resolveResultArrived = null
     this.queryInstance?.close()
     this.queryInstance = null
@@ -168,30 +296,13 @@ export class ClaudeExecutor {
   kill(): void {
     this.disposed = true
     this.pendingCompleteResult = null
+    this.pendingAnswers.clear()
     this.rejectAllPendingPermissions('executor disposed')
     this.abortCurrentQuery()
     this.mcpServer?.instance.close().catch((err) => {
       logError('[ClaudeExecutor] mcp server close failed:', err)
     })
     this.mcpServer = null
-  }
-
-  /**
-   * 回答当前挂起的 AskUserQuestion：resolve 对应的 canUseTool Promise，
-   * SDK 随后用带 answers 的 updatedInput 执行工具并发出正规 tool_result。
-   */
-  answerQuestion(toolUseId: string, output: AskUserQuestionOutput): void {
-    const resolver = this.pendingPermissions.get(toolUseId)
-    if (!resolver) return
-    this.pendingPermissions.delete(toolUseId)
-    resolver({
-      behavior: 'allow',
-      updatedInput: {
-        questions: output.questions,
-        answers: output.answers,
-        ...(output.annotations ? { annotations: output.annotations } : {}),
-      },
-    })
   }
 
   /**
@@ -222,6 +333,24 @@ export class ClaudeExecutor {
 
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
     if (toolName === 'AskUserQuestion') {
+      log('[ClaudeExecutor] canUseTool AskUserQuestion', {
+        toolUseID,
+        hasPendingAnswer: this.pendingAnswers.has(toolUseID),
+        pendingAnswerKeys: Array.from(this.pendingAnswers.keys()),
+      })
+      // lazy 模式（fork 重答场景）下用户已先一步提交答案：直接 resolve,跳过挂起
+      const pending = this.pendingAnswers.get(toolUseID)
+      if (pending) {
+        this.pendingAnswers.delete(toolUseID)
+        return Promise.resolve<PermissionResult>({
+          behavior: 'allow',
+          updatedInput: {
+            questions: pending.questions,
+            answers: pending.answers,
+            ...(pending.annotations ? { annotations: pending.annotations } : {}),
+          },
+        })
+      }
       // 挂起，等待 answerQuestion() 被调用
       return new Promise<PermissionResult>((resolve) => {
         this.pendingPermissions.set(toolUseID, resolve)
@@ -256,7 +385,7 @@ export class ClaudeExecutor {
 
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
-  private async createQuery(message: UserMessageType) {
+  private async createQuery(message: UserMessageType, silent = false) {
     // 同一个 MCP Server 实例不能被 connect 两次（@modelcontextprotocol/sdk
     // Protocol.connect 在 _transport 已存在时直接 throw 'Already connected
     // to a transport'，SDK 把异常吞进 .catch 后只打日志，导致 system message
@@ -305,15 +434,18 @@ export class ClaudeExecutor {
         prompt: this.userInputStream.iterable,
         options,
       })
-      this.userInputStream.push(message)
+      if (!silent) {
+        this.userInputStream.push(message)
+      }
       for await (const msg of this.queryInstance) {
         if (this.disposed) break
-        if (!this._sessionId) {
+        if (!this.initEmitted) {
           if (!msg.session_id) {
             this.events.onError(new Error(JSON.stringify(msg)))
             break
           }
           this._sessionId = msg.session_id
+          this.initEmitted = true
           this.events.onSessionId(msg.session_id)
           this.events.onMessage(message)
         }

@@ -7,15 +7,28 @@ import { useFlowStore, selectFlowPhase, type FlowPhase } from '@/webview/store/f
  * 启动 Flow 的公共逻辑：
  * - idle → 直接调用 runFlow
  * - 非 idle → 弹确认框，确认后清空运行数据再启动
+ *
+ * `resumeSessionId` 存在时（fork 出的新 Flow 首次发消息）跳过确认弹窗直接 resume，
+ * runFlow 内部不会重置 sessions。
  */
 export function useStartFlow() {
   const { modal } = App.useApp()
 
   const startFlow = useCallback(
-    (flowId: string, agentId: string, initMessage: UserMessageType): boolean | Promise<boolean> => {
+    (
+      flowId: string,
+      agentId: string,
+      initMessage: UserMessageType,
+      resumeSessionId?: string,
+    ): boolean | Promise<boolean> => {
       const st = useFlowStore.getState()
       const { runFlow } = st
       const flowPhase: FlowPhase = selectFlowPhase(flowId)(st)
+
+      if (resumeSessionId) {
+        runFlow(flowId, agentId, initMessage, resumeSessionId)
+        return true
+      }
 
       if (flowPhase === 'idle') {
         runFlow(flowId, agentId, initMessage)

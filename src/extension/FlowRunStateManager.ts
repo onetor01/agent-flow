@@ -25,6 +25,16 @@ export class FlowRunStateManager {
     return this.flowRunStates
   }
 
+  /**
+   * 直接注入指定 flowId 的运行态。fork 路径专用：fork 出的新 Flow 复制源 Flow
+   * 的 RunState 切片后以新 flowId 写入,绕过 reducer。
+   */
+  setRunState(flowId: string, state: FlowRunState): void {
+    this.flowRunStates = produce(this.flowRunStates, (draft) => {
+      draft[flowId] = state
+    })
+  }
+
   /** 应用一条 flow.command.* 消息：command 路径由 caller 在派发 runner 前调用，不产生通知 */
   applyCommand(msg: ExtensionFlowCommandMessage): void {
     const flowId = msg.data.flowId

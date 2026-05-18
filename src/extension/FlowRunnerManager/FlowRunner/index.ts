@@ -8,7 +8,7 @@ import {
   UserMessageType,
 } from '@/common'
 import { logError } from '../../logger'
-import { ClaudeExecutor, type ExecutorResult } from './ClaudeExecutor'
+import { ClaudeExecutor, type ExecutorMode, type ExecutorResult } from './ClaudeExecutor'
 
 const MessageSchema = z.object({
   role: z.enum(['user', 'agent']),
@@ -127,6 +127,9 @@ export class FlowRunner {
         // FlowRunner 不再维护 shareValues 副本：reducer（webview/FlowRunStateManager）
         // 是唯一真相源，构造 ClaudeExecutor 时通过 getLatestShareValues() 实时取。
       })
+      .with('flow.command.fork', () => {
+        // fork 由 extension 端 handleFork 直接处理，不进入 FlowRunner
+      })
       .exhaustive()
   }
 
@@ -135,6 +138,80 @@ export class FlowRunner {
     this.killCurrentExecutor()
     this.signalListeners.clear()
     this.wildcardListeners.clear()
+  }
+
+  /**
+   * fork 路径专用：以 resume 模式启动一个 ClaudeExecutor，runId / sessionId
+   * 都已知，不 fire flow.signal.flowStart（fork 由 extension 端用 flow.signal.fork
+   * 替代）。
+   *
+   * mode:
+   * - 'lazy': 普通 fork(user/text/thinking/turn_end)。executor 处于 lazy 态:构造
+   *   时不 createQuery、不 push initMessage,等用户首次 sendUserMessage 触发 SDK 启动。
+   * - 'resume-pending': askUserQuestion fork。executor 构造时即 createQuery + push
+   *   isSynthetic dummy 启动 SDK 但不创建新 user turn,SDK 看到 transcript 末端悬空
+   *   tool_use 自动调 canUseTool 挂起 resolver,等用户答题。
+   */
+  spawnForFork(params: {
+    runId: string
+    agentId: string
+    resumeSessionId: string
+    mode: ExecutorMode
+  }): void {
+    const { runId, agentId, resumeSessionId, mode } = params
+    const agent = this.findAgentById(agentId)
+    if (!agent) {
+      this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
+      return
+    }
+    this.killCurrentExecutor()
+    this.runState = { steps: [{ agentName: agent.agent_name, messages: [] }] }
+    this.updateAgentStatus(agent.id, 'generating')
+    // dummy initMessage：fork 模式下不会被透传到上层、也不会作为 SDK prompt push,
+    // 仅作为 ClaudeExecutor 接口占位。'resume-pending' 模式会用单独的 isSynthetic
+    // dummy push 给 SDK,'lazy' 模式则等用户首次 sendUserMessage 时以真实消息覆盖。
+    const dummyInit: UserMessageType = {
+      type: 'user',
+      message: { role: 'user', content: '' },
+      parent_tool_use_id: null,
+    }
+    const executor: ClaudeExecutor = new ClaudeExecutor(
+      runId,
+      dummyInit,
+      agent,
+      this.getLatestShareValues(),
+      {
+        onSessionId: () => {
+          // fork 路径不 fire flow.signal.flowStart;sessionId 已通过 signal.fork 同步
+        },
+        onMessage: (message) => {
+          if (!executor.sessionId) return
+          this.fire('flow.signal.aiMessage', { runId, sessionId: executor.sessionId, message })
+        },
+        onComplete: (result) => {
+          if (this.currentExecutor !== executor) return
+          this.onAgentComplete(executor, agent, result)
+        },
+        onToolPermissionRequest: ({ toolUseId, toolName, input }) => {
+          if (!executor.sessionId) return
+          this.fire('flow.signal.toolPermissionRequest', {
+            runId,
+            sessionId: executor.sessionId,
+            toolUseId,
+            toolName,
+            input,
+          })
+        },
+        onError: (err) => {
+          logError(`[FlowRunner] agent ${agent.id} error:`, err)
+          this.fire('flow.signal.agentError', { runId, agentId: agent.id, err })
+          this.updateAgentStatus(agent.id, 'completed')
+        },
+      },
+      resumeSessionId,
+      mode,
+    )
+    this.currentExecutor = executor
   }
 
   // ── signal 发射 ─────────────────────────────────────────────────────────
@@ -168,6 +245,7 @@ export class FlowRunner {
     runKey,
     agentId,
     initMessage,
+    resumeSessionId,
   }: FlowRunnerCommandEvents['flow.command.flowStart']): void {
     // 中断当前运行
     this.killCurrentExecutor()
@@ -192,14 +270,21 @@ export class FlowRunner {
           parent_tool_use_id: null,
         }
       : initMessage
-    this.runAgent(runId, effectiveInitMessage, agent, this.getLatestShareValues(), (sessionId) => {
-      this.fire('flow.signal.flowStart', {
-        runId,
-        runKey,
-        sessionId,
-        agentId: agent.id,
-      })
-    })
+    this.runAgent(
+      runId,
+      effectiveInitMessage,
+      agent,
+      this.getLatestShareValues(),
+      (sessionId) => {
+        this.fire('flow.signal.flowStart', {
+          runId,
+          runKey,
+          sessionId,
+          agentId: agent.id,
+        })
+      },
+      resumeSessionId,
+    )
   }
 
   private handleUserMessage({
@@ -257,6 +342,7 @@ export class FlowRunner {
     agent: Agent,
     currentShareValues: Record<string, string>,
     onSessionId: (sessionId: string) => void,
+    resumeSessionId?: string,
   ): void {
     this.updateAgentStatus(agent.id, 'preparing')
 
@@ -300,6 +386,7 @@ export class FlowRunner {
           this.updateAgentStatus(agent.id, 'completed')
         },
       },
+      resumeSessionId,
     )
     this.currentExecutor = executor
   }

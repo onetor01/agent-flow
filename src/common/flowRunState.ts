@@ -274,6 +274,18 @@ export function updateFlowRunState(
 
   // ── command.flowStart：覆盖式初始化（可在任何 state 下进入，包括 undefined） ──
   if (msg.type === 'flow.command.flowStart') {
+    // resumeSessionId 存在 → fork 后的延续启动，保留既有 sessions / answered* / shareValues
+    if (msg.data.resumeSessionId && state) {
+      return {
+        state: {
+          ...state,
+          runKey: msg.data.runKey,
+          phase: 'starting',
+          currentAgentId: msg.data.agentId,
+        },
+        effects,
+      }
+    }
     return {
       state: {
         runKey: msg.data.runKey,
@@ -348,12 +360,19 @@ export function updateFlowRunState(
       draft.phase = 'running'
       draft.currentAgentId = msg.data.agentId
       clearPendings()
-      draft.sessions.push({
-        sessionId: msg.data.sessionId,
-        agentId: msg.data.agentId,
-        messages: [],
-        completed: false,
-      })
+      // resume 模式：sessions 里已有匹配 sessionId（fork 切片）的会话则复用
+      const existing = draft.sessions.find((s) => s.sessionId === msg.data.sessionId)
+      if (existing) {
+        existing.completed = false
+        existing.outputName = undefined
+      } else {
+        draft.sessions.push({
+          sessionId: msg.data.sessionId,
+          agentId: msg.data.agentId,
+          messages: [],
+          completed: false,
+        })
+      }
       return
     }
 
@@ -502,6 +521,9 @@ export function updateFlowRunState(
         }
         draft.phase = 'running'
       })
+      // ── fork：源 Flow 状态完全不变，新 Flow 的 RunState 由调用方在 store 外侧写入 ──
+      .with({ type: 'flow.signal.fork' }, () => {})
+      .with({ type: 'flow.command.fork' }, () => {})
       .exhaustive()
   })
 

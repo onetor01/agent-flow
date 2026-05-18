@@ -131,6 +131,25 @@ type FlowSignalPayload = {
     toolName: string
     input: unknown
   }
+  /**
+   * 会话 fork 完成：从源 Flow 复制 transcript 切片到新 Flow。
+   * - flowId（由 WithFlowId 注入）= sourceFlowId（源 Flow id）
+   * - newFlowId / newRunState：新 Flow 的 id 与对应运行态
+   * - agentId：fork 起点所在的 agent id（用于 webview 自动打开 ChatDrawer）
+   * - runId：extension 端 fork 时同步 spawn FlowRunner 分配的运行 ID（运行时必须）;
+   *   webview 收到后写入 newRunState.runId,后续 sendUserMessage / answerQuestion /
+   *   interrupt 都基于此 runId 派发到 runner。FlowRunState.runId 类型保持
+   *   `string | undefined` 兼容空闲态,但 fork 信号中此字段必有值。
+   *
+   * 不携带 newFlow 定义；webview 端自行根据 sourceFlowId 深拷贝 Flow 后将 id 改为
+   * newFlowId 加入 flows，并通过既有 save 通道持久化。
+   */
+  fork: {
+    newFlowId: string
+    newRunState: FlowRunState
+    agentId: string
+    runId: string
+  }
 }
 
 /** FlowRunner 内部信号（不含 flowId，由 FlowRunnerManager 外部注入） */
@@ -147,8 +166,18 @@ export type ExtensionFlowSignalMessage = EventMessageType<ExtensionFlowSignalEve
 
 /** Flow 指令基础 payload（不含 flowId） */
 type FlowCommandPayload = {
-  /** webview 发起启动，key 传入 flow 内部用于校验响应归属 */
-  flowStart: { runKey: string; agentId: string; initMessage: UserMessageType }
+  /**
+   * webview 发起启动，key 传入 flow 内部用于校验响应归属。
+   * `resumeSessionId` 存在时表示 resume 一个已存在的 SDK 会话（fork 出的新 Flow
+   * 在用户首次发消息时走此路径），reducer 保留既有 sessions / answeredQuestions
+   * / shareValues 不重置。
+   */
+  flowStart: {
+    runKey: string
+    agentId: string
+    initMessage: UserMessageType
+    resumeSessionId?: string
+  }
   /** 向当前 Agent 发送用户消息，必须在 runId + sessionId 对齐下发生 */
   userMessage: { runId: string; sessionId: string; message: UserMessageType }
   /** 中断当前 Agent，使其等待用户输入 */
@@ -171,6 +200,21 @@ type FlowCommandPayload = {
   killFlow: object
   /** webview 编辑 shareValues 后同步到 extension */
   setShareValues: { values: Record<string, string> }
+  /**
+   * 从源 Flow 的某个切片 fork 出新 Flow。
+   * - flowId（由 WithFlowId 注入）= 源 Flow id
+   * - agentId：fork 起点所在的 agent id（用于 webview 自动打开 ChatDrawer）
+   * - target：fork 目标
+   *   - `message`：以指定 SDK 消息 UUID 为切片终点（含），fork 后新 Flow 进入 `result` 态
+   *   - `askUserQuestion`：以包含该 toolUseId 的 assistant message 为切片终点（不含 tool_result），
+   *     新 Flow 进入 `awaiting-question` 态，问题在输入区上方重弹
+   */
+  fork: {
+    agentId: string
+    target:
+      | { kind: 'message'; messageUuid: string }
+      | { kind: 'askUserQuestion'; toolUseId: string }
+  }
 }
 
 /** FlowRunner 内部指令（不含 flowId） */
