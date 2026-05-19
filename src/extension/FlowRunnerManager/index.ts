@@ -16,7 +16,15 @@ export class FlowRunnerManager {
     this.getLatestShareValues = getLatestShareValues
   }
 
-  handleCommand(type: string, data: any): void {
+  /**
+   * type 形参必须用 `keyof ExtensionFlowCommandEvents` 约束,
+   * 让 .with(...) 的字符串实参与事件契约的 key 编译期对齐;
+   * 末尾 .exhaustive() 强制穷尽所有分支(包括 flow.command.fork —— 虽然
+   * 已在外层 handleFork 截获,这里仍需 noop 分支以满足穷尽校验)。
+   * 任何字符串错配(如曾经的 'killFlow')或新增分支遗漏都会编译期失败,
+   * 防止 .otherwise 把命令静默吞掉(参见 CLAUDE.md「易踩坑」节)。
+   */
+  handleCommand(type: keyof ExtensionFlowCommandEvents, data: any): void {
     match(type)
       .with('flow.command.flowStart', () => {
         const { flowId, runKey, agentId, flow, initMessage } =
@@ -57,13 +65,14 @@ export class FlowRunnerManager {
           data as ExtensionFlowCommandEvents['flow.command.setShareValues']
         this.runners.get(flowId)?.emit('flow.command.setShareValues', rest)
       })
-      .with('killFlow', () => {
-        const { flowId } = data as ExtensionFlowCommandEvents['flow.command.killFlow'] & {
-          flowId: string
-        }
+      .with('flow.command.killFlow', () => {
+        const { flowId } = data as ExtensionFlowCommandEvents['flow.command.killFlow']
         this.disposeRunner(flowId)
       })
-      .otherwise(() => {})
+      .with('flow.command.fork', () => {
+        // fork 由 extension 顶层 handleFork 处理,不会进入 runnerManager
+      })
+      .exhaustive()
   }
 
   disposeAll(): void {

@@ -161,7 +161,7 @@ const PresetFlows: Flow[] = [
         model: 'glm-5.1',
         effort: 'low',
         agent_name: '释放资源',
-        agent_prompt: '清理worktreePath所指向的worktree',
+        agent_prompt: '清理worktreePath所指向的worktree，不删除分支',
         outputs: [],
         auto_allowed_tools: true,
         work_mode: 'auto_complete',

@@ -79,6 +79,11 @@ Agent schema 字段用 snake_case 与 prompt 对齐，**不要**改成 camelCase
 
 ## 易踩坑
 
+- **FlowRunnerManager.handleCommand 必须用 `keyof` + `.exhaustive()`**：[FlowRunnerManager.handleCommand](src/extension/FlowRunnerManager/index.ts) 的 `type` 形参类型必须是 `keyof ExtensionFlowCommandEvents`，分支字符串写完整 `flow.command.*` 形式，末尾以 `.exhaustive()` 结尾（不要用 `.otherwise`）。否则任何字符串错配（例如曾经写成短名 `'killFlow'`）会落到兜底分支被静默吞掉，而 reducer 已把 phase 推到 `stopped`，造成 ClaudeExecutor 残留烧 token、interrupt 静默失效、新旧 runner 信号污染等连锁症状。
+- **killFlow 与 flowStart 语义对照**：两者是独立动作，不可串联。
+  - `flow.command.killFlow`：phase→`stopped`、`runId` 清空，但保留 `sessions` / `messages` / `shareValues`；不会清空 messages，留作历史回看。
+  - `flow.command.flowStart`：`sessions` 覆盖式重置为 `[]`（messages 因此清空）、`shareValues` 透传保留（用于未运行时编辑后带入新 run）、`currentAgentId` 设为目标 agent、phase→`starting`。
+  - 即：messages 仅在下次 `flowStart` 时清空；`shareValues` 在 `flowStart` 不动，仅在 phase 转 `completed` 时由 reducer 清空。reducer 实现见 [flowRunState.ts](src/common/flowRunState.ts) 的 `killFlow` / `flowStart` 分支，修改时务必保持上述语义。
 - **next_agent 是 id 不是 name**：复制 Agent 节点时（[useFlowStore.copyAgents](src/webview/store/flow.ts)）必须重新生成 id 并通过 `idMap` 重映射 `next_agent` 引用
 - **破坏性编辑锁**：`phase === 'starting' | 'running'` 时禁止删节点 / 删边 / 改连接（[flowIsDestructiveReadOnly](src/webview/store/flow.ts)）
 - **ExtensionMessage 的 sessionId 索引**：[ExtensionMessage.ts](src/webview/utils/ExtensionMessage.ts) 按 `sessionId` 分桶保存消息；没有 `sessionId` 的 signal（如 `flow.signal.error`）不会进桶
