@@ -65,6 +65,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **Flow 编辑器**：Flow 列表项的数据库按钮打开 FlowEditor 抽屉，集中编辑工作流名称、Flow 简介、`shareValuesKeys`（拖拽列表维护，每项支持 `key` / `desc`、重复校验、一键清空）以及运行中各 key 的当前值；删除 key 时自动清理所有 Agent 的 `allowed_read/write_share_values_keys` 引用。
 - **AgentComplete 完成卡片**：每个 Agent 完成时的卡片直接展示本回合写入的共享数据（按 `key/value` 列出），便于回看数据流转；`AgentComplete` 后立即中断 SDK，避免模型继续生成多余文字，且中断回合的 token / 费用统计不会丢。
 - **Token 消耗可视化**：消息级、回合级、Flow 级三层展示 token 用量与费用，AI 气泡自动回填实际消耗，优先显示 SDK 实际费用而非估算；`agent_complete` 时展示按模型分组的 session 累计 breakdown。
+- **上下文窗口占用展示**：每条 assistant 消息及 turn_end / agent_complete 卡片旁追加上下文占用条，展示「最后一次 API 调用真实喂给模型的 input + cache 总量 / 模型上下文窗口」，按占用率以红 / 黄 / 灰渐变上色（≥80% 红、≥50% 黄）。
 - **Starting 阶段节点高亮与红点**：启动阶段（session 尚未建立）Agent 节点也能正确高亮显示，对话框同步展示红点提示。
 - **AskUserQuestion 字体优化**：调整提问卡片字体样式，提升可读性。
 - **对话 Fork**：在 Agent 对话中可从任意一条消息（user / text / thinking / turn_end / askUserQuestion 卡片）右上角的 fork 按钮分叉出新 Flow，原路径保留。普通消息 fork 走 lazy 模式（用户在新 Flow 发消息时再启动 SDK），askUserQuestion fork 走 resume-pending 模式（立即接续 SDK，让用户可以在新 Flow 重答上一题）。可用来对比不同提示或不同模型的效果。

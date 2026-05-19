@@ -179,9 +179,7 @@ function readUsageInputTotal(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0
   const u = usage as Record<string, number | undefined>
   return (
-    (u.input_tokens ?? 0) +
-    (u.cache_read_input_tokens ?? 0) +
-    (u.cache_creation_input_tokens ?? 0)
+    (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
   )
 }
 

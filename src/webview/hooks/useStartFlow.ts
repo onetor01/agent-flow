@@ -12,11 +12,7 @@ export function useStartFlow() {
   const { modal } = App.useApp()
 
   const startFlow = useCallback(
-    (
-      flowId: string,
-      agentId: string,
-      initMessage: UserMessageType,
-    ): boolean | Promise<boolean> => {
+    (flowId: string, agentId: string, initMessage: UserMessageType): boolean | Promise<boolean> => {
       const st = useFlowStore.getState()
       const { runFlow } = st
       const flowPhase: FlowPhase = selectFlowPhase(flowId)(st)

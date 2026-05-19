@@ -1,5 +1,21 @@
 # Change Log
 
+## [0.0.17] - 2026-05-19
+
+### 新增
+
+- **上下文窗口占用展示**：在每条 assistant 相关消息以及 turn_end / agent_complete 卡片中追加 `ContextUsageBar`，展示「最后一次 API 调用真实喂给模型的 input + cache 总量 / 模型上下文窗口」，并按占用率以红 / 黄 / 灰渐变上色（≥80% 红、≥50% 黄、其余灰）。`buildRenderItems` 同步暴露 `getContextUsage(sessionId, itemKey)`，turn_end / agent_complete 内嵌一份，其它命中 cache 的 item（user / text / thinking / tool_use / ask_user_question）追加一条独立的 divider 行。
+
+### 修复
+
+- **killFlow 命令字符串错配致 runner 永不释放**：`FlowRunnerManager.handleCommand` 中 `.with('killFlow', ...)` 与实际事件名 `'flow.command.killFlow'` 不匹配，落到 `.otherwise` 静默吞掉——reducer 已 phase=stopped 但 ClaudeExecutor 仍存活继续烧 token、interrupt 静默失效，新 flowStart 抢跑前的旧 in-flight signal 还会污染 webview state。改为 `type` 形参类型限定 `keyof ExtensionFlowCommandEvents`、所有分支写完整 `flow.command.*` 形式，末尾以 `.exhaustive()` 替代 `.otherwise`，任何字符串错配或新增分支遗漏都在编译期失败。
+
+### 优化
+
+- **清理 fork 路线 A 下永不触发的 `resumeSessionId` 死代码**：fork 出的新 Flow 在 `handleFork` 阶段已写入 runId 并 spawn `FlowRunner`，首次发消息走 `sendUserMessage` 同会话追问，不再经 flowStart command；webview / reducer / `useStartFlow` / `FlowRunner.handleFlowStart` / `runAgent` 全链路的 `resumeSessionId` 兜底分支均不会命中。彻底删除 `flow.command.flowStart` 的 `resumeSessionId` 字段及其全链路引用，同步删除 reducer 中永不命中的 existing session 复用分支。
+- **默认工作流措辞与样式**：`defaultStore` 预设 prompt 中的 url、链接关键词用星号包裹，提升 Agent 对飞书 url 字段的识别强度；继续微调内置 flow 的 prompt 措辞。
+- **CLAUDE.md 写作风格整改**：移除"不再走"/"改为"/"原本"等变化叙事，改为只描述当前状态；修正 fork 切片 uuid 段（`tool_use.id` 不参与 SDK forkSession remap，askUserQuestion fork 保留源 toolUseId 与 SDK transcript 对齐）；「易踩坑」节追加 handleCommand 的 `keyof + exhaustive` 要求与 killFlow / flowStart 的语义对照（messages 何时清、shareValues 何时清）。
+
 ## [0.0.16] - 2026-05-18
 
 ### 新增
