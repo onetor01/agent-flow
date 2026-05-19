@@ -274,18 +274,6 @@ export function updateFlowRunState(
 
   // ── command.flowStart：覆盖式初始化（可在任何 state 下进入，包括 undefined） ──
   if (msg.type === 'flow.command.flowStart') {
-    // resumeSessionId 存在 → fork 后的延续启动，保留既有 sessions / answered* / shareValues
-    if (msg.data.resumeSessionId && state) {
-      return {
-        state: {
-          ...state,
-          runKey: msg.data.runKey,
-          phase: 'starting',
-          currentAgentId: msg.data.agentId,
-        },
-        effects,
-      }
-    }
     return {
       state: {
         runKey: msg.data.runKey,

@@ -50,26 +50,13 @@ export const ChatDrawer: FC = () => {
         return true
       }
 
-      // fork 后的延续启动：runId 缺失但 sessions 已含 fork 切片，
-      // 取该 agent 最近一条 session 的 sessionId 作为 resumeSessionId
-      let resumeSessionId: string | undefined
-      if (!hasRunId && fs?.sessions?.length) {
-        const lastForAgent = [...fs.sessions].reverse().find((s) => s.agentId === agentId)
-        if (lastForAgent) resumeSessionId = lastForAgent.sessionId
-      }
-
       // ready (idle / 非活跃 agent 的 result) 或 confirm-required → 启动 flow
-      // useStartFlow 内部会根据 FlowPhase !== idle 弹窗确认（resume 模式跳过弹窗）
-      const started = await startFlow(
-        flowId,
-        agentId,
-        {
-          type: 'user',
-          message: { role: 'user', content },
-          parent_tool_use_id: null,
-        },
-        resumeSessionId,
-      )
+      // useStartFlow 内部会根据 FlowPhase !== idle 弹窗确认
+      const started = await startFlow(flowId, agentId, {
+        type: 'user',
+        message: { role: 'user', content },
+        parent_tool_use_id: null,
+      })
       if (started) chatPanelRef.current?.forceScrollToBottom()
       return started
     },
