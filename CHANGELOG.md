@@ -1,5 +1,12 @@
 # Change Log
 
+## [0.0.18] - 2026-05-19
+
+### 优化
+
+- **上下文窗口占用展示精简至回合结束**：原方案在每条 assistant 相关消息（user / text / thinking / tool_use / ask_user_question）后都追加一条独立 `ContextUsageBar` divider 行，信息冗余且容易让人误以为是单条 block 的开销。改为仅在 turn_end / agent_complete 卡片内部展示一份，其余气泡不再追加独立 ctx 行。`buildRenderItems` 缓存模型同步重构：以 sessionId 为 key 维护 `sessionContextWindow`（首次拿到上下文窗口后 sticky 缓存）+ `lastObservedUsed`（每条 assistant.message.usage 的 input + cache_read + cache_creation 总量），turn_end / agent_complete 时直接用此对计算 used / total，确保非空稳定展示；`agent_complete` 项不再因 result.usage 缺失而无法显示占用。
+- **默认「修改代码」工作流需求确认提示词细化**：内置 PresetFlows 中「需求分析」Agent 的「需要确认需求」分支提示词补充"在业务上有什么要求"，并明确"将需要确认的内容放在题干里"，引导 AI 在 AskUserQuestion 题干里自带摘要而不是放到选项注释里。
+
 ## [0.0.17] - 2026-05-19
 
 ### 新增
