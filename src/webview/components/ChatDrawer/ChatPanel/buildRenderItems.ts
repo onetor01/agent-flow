@@ -266,11 +266,14 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
     }
 
     if (msg.type !== 'flow.signal.aiMessage') continue
-    // AgentComplete tool_use 一旦出现就视为本 session 收尾,后续 ai 消息（含
-    // 中断时序产生的多余 text / 重试 tool_use / MCP AbortError tool_result）一律丢弃。
-    if (cached.agentCompleteSeen) continue
     const { message } = msg.data
     const messageUuid = (message as { uuid?: string }).uuid
+    // AgentComplete tool_use 一旦出现就视为本 session 收尾,后续 ai 消息（含
+    // 中断时序产生的多余 text / 重试 tool_use / MCP AbortError tool_result）一律丢弃。
+    // 例外：reducer 把 SDK 的 result 包装成独立 aiMessage push 进 session.messages,
+    // result 必须穿透此守卫去更新 prevModelUsage / lastTotalCost / sessionContextWindow,
+    // 否则单轮直接 AgentComplete 的 agent_complete 卡片会缺失上下文条 / 模型分布 / 总成本。
+    if (cached.agentCompleteSeen && message.type !== 'result') continue
 
     if (message.type === 'user') {
       const rawContent = message.message.content
@@ -450,6 +453,13 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         if (it.kind === 'user' || it.kind === 'text' || it.kind === 'thinking') {
           items[j] = { ...it, turnClosed: true }
         }
+      }
+
+      // AgentComplete 已发生时,reducer 包装的这条 result 仅用于更新 cached(供 agent_complete
+      // 卡片读取 modelBreakdown / totalCost / contextUsage),不 push turn_end —— 避免在
+      // agent_complete 卡片之外多出一个回合结束卡片。
+      if (cached.agentCompleteSeen) {
+        continue
       }
 
       const turnEndKey = `${mIdx}-result`
