@@ -247,10 +247,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         key: completeKey,
         outputName: data.output?.name,
         displayContent: data.content,
-        values:
-          data.values && Object.keys(data.values).length > 0
-            ? data.values
-            : undefined,
+        values: data.values && Object.keys(data.values).length > 0 ? data.values : undefined,
         modelBreakdown: modelBreakdown.length > 0 ? modelBreakdown : undefined,
         totalCost: cached.lastTotalCost > 0 ? cached.lastTotalCost : undefined,
       })

@@ -255,12 +255,7 @@ export class FlowRunner {
     fireFlowStartSignal: boolean,
   ): void {
     const events = this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal)
-    const executor: ClaudeExecutor = new ClaudeExecutor(
-      initMessage,
-      agent,
-      currentValues,
-      events,
-    )
+    const executor: ClaudeExecutor = new ClaudeExecutor(initMessage, agent, currentValues, events)
     this.executors.set(runId, executor)
   }
 

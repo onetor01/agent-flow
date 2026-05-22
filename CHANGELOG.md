@@ -1,5 +1,28 @@
 # Change Log
 
+## [0.0.19] - 2026-05-22
+
+### 破坏性变更
+
+- **Agent 视角字段统一为 `values`，与 Flow 视角的 `shareValues` 解耦**：
+  - Agent 配置 `allowed_read_share_values_keys` / `allowed_write_share_values_keys` 重命名为 `allowed_read_values_keys` / `allowed_write_values_keys`。
+  - `AgentComplete` 工具参数 `shareValues` 重命名为 `values`；事件 `flow.signal.agentComplete.shareValues` 重命名为 `values`（reducer 仍合并到 `FlowRunState.shareValues`）。
+  - 系统提示词中「# 可写数据」节的措辞同步切到 `values`。命名约定：Flow 全局存储称作 `shareValues`（`FlowRunState.shareValues` / `Flow.shareValuesKeys` / `flow.command.setShareValues` / `getLatestShareValues`），Agent 视角统一称作 `values`。
+- **运行时改为按 `runId` 寻址会话（#18）**：原 `AgentSession[]` 调整为 `AgentRun[]`，`runId` 是一次 Agent 运行的唯一主键、所有 signal/command 载荷以此寻址；`sessionId` 仅作为运行时属性挂在 `AgentRun.sessionId` 上、每切一次 Agent 就换一次。`flow.command.flowStart` 由 webview 生成 `runId` 随命令下发；`next_agent` / `fork` 路径由 extension 生成。`ClaudeExecutor` 自带 `(runId, sessionId)` 校验，`FlowRunner` 持有 `executors: Map<runId, ClaudeExecutor>`（本期单 executor 约束 `executors.size <= 1`，Map 容器为后期并发触发能力预留）。
+- **store 命令派发强制传 `runId`**：`sendUserMessage` / `interruptAgent` / `answerQuestion` / `answerToolPermission` 调用方必须明确传入 `runId`，store 不再做"末位非终态 run 回退"。`ChatDrawer` 用 `activeRunId`（末位 run 且 agentId 命中 chatDrawer.agentId）派发；`answerQuestion` 用 `pendingQuestion.runId`，`answerToolPermission` 在 `pendingToolPermissions` 中按 `toolUseId` 反查 runId。
+- **`pendingToolPermission` 数组化**：单字段 `pendingToolPermission?` 变为 `pendingToolPermissions[]`，按 `runId` 区分归属，与 `pendingQuestions` 对称；`getPendingToolPermissionFor` 重命名为 `getPendingToolPermissionsFor`，`MessageBubble.pendingToolPermissionToolUseId` 调整为 `pendingToolPermissionToolUseIds: Set`。
+- **fork 终点限定为消息，移除 askUserQuestion fork**：SDK 不支持把 askUserQuestion 作为 fork 终点（fork 切片末端只可能是 user / text / thinking / turn_end）。`flow.command.fork.target` 收敛为 `{ kind: 'message', runId, messageUuid }`，删除顶层 `agentId`；`flow.signal.fork` 同样删除 `agentId`，webview 从 `newRunState.runs.at(-1).agentId` 反推。`ExecutorMode` 收敛为 `eager | lazy`，删除 `resume-pending` 模式以及 `pendingAnswers` / `isSynthetic` dummy 启动等兜底路径与对应 UI。
+
+### 修复
+
+- **ChatPanel 顶部 tokens 重复累加且漏算 `cache` 字段**：`modelUsage` 是 session 累计快照，原本对所有 result 求和会重复累加；改为每个 session 取最后一条 result，并把 `cacheCreation` / `cacheRead` 也算上，与 turn_end / agent_complete 卡片口径对齐。
+- **单轮直接 AgentComplete 的结束卡片缺失上下文 / 用量 / 成本**：reducer 把 SDK result 包装成独立 aiMessage push 进 session.messages 后，`buildRenderItems` 的 `agentCompleteSeen` 守卫会把这条 result 也吞掉，导致单轮场景 `cached.prevModelUsage` / `lastTotalCost` / `sessionContextWindow` 全部未更新。让 `message.type === 'result'` 的 aiMessage 穿透 `agentCompleteSeen` 守卫进入 result 处理分支正常更新 cached；但在 `agentCompleteSeen=true` 时跳过 push turn_end item，避免在 agent_complete 卡片之外多出一个回合结束卡片。
+- **AgentRun 改造后第一条消息无法展示**：`flowStart` reducer 路径在覆盖式重置 `runs` 时未正确创建首个 `AgentRun`，导致首条 SDK 消息找不到归属 run 而被丢弃，已修复。
+
+### 优化
+
+- **去掉 `getActiveAgentId` 改按场景内联判断**：每个 agent 可能并行多个 run，"唯一活跃 agent" 不是稳定概念。AgentNode 高亮（`isAgentActive`）/ ChatDrawer 同会话追问（`activeRunId`）/ ChatDrawer 监听 `activeFlowId` 自动开关 ChatPanel 都改为本地按 `runs` 末位 agent 内联，AgentFlow 不再负责 ChatPanel 自动开关。
+
 ## [0.0.18] - 2026-05-19
 
 ### 优化

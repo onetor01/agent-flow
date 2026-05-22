@@ -192,7 +192,10 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
    * target 已携带 runId,extension 端按 runId 单 loop 定位 run,无需再传 agentId。
    */
   const onForkRequest = useCallback(
-    (target: { kind: 'message'; runId: string; messageUuid: string }, sessionCompleted: boolean) => {
+    (
+      target: { kind: 'message'; runId: string; messageUuid: string },
+      sessionCompleted: boolean,
+    ) => {
       const doFork = () => forkFlow(flowId, target)
       if (!sessionCompleted) {
         doFork()
