@@ -3,13 +3,12 @@ import { Typography } from 'antd'
 import { HolderOutlined, DeleteOutlined, BlockOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { Flow } from '@/common'
-import type { FlowRunState } from '@/webview/store/flow'
+import type { Flow, FlowPhase } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 
 const PHASE_CONFIG: Record<
-  Exclude<FlowRunState['phase'], 'idle'>,
+  Exclude<FlowPhase, 'idle'>,
   { color: string; label: string; animate: boolean }
 > = {
   starting: { color: 'bg-[#f9e2af]', label: '启动中', animate: true },
@@ -26,7 +25,7 @@ const PHASE_CONFIG: Record<
 export type SortableFlowItemProps = {
   flow: Flow
   isActive: boolean
-  phase?: FlowRunState['phase']
+  phase?: FlowPhase
   onClick: () => void
   onDelete: () => void
   onRename: (name: string) => void

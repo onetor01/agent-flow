@@ -2,11 +2,11 @@ import { forwardRef, useMemo, type WheelEventHandler } from 'react'
 import { Divider } from 'antd'
 import { Bubble } from '@ant-design/x'
 import type { BubbleItemType, BubbleListRef } from '@ant-design/x/es/bubble/interface'
-import type { AgentSession } from '@/webview/store/flow'
+import type { AgentRun } from '@/webview/store/flow'
 import { toBubbleItems, type BubbleCtx } from './MessageBubble'
 
 type Props = {
-  sessions: AgentSession[]
+  runs: AgentRun[]
   ctx?: BubbleCtx
   loading?: boolean
   onWheel?: WheelEventHandler<HTMLDivElement>
@@ -29,36 +29,37 @@ const roleMap = {
 }
 
 export const MessageList = forwardRef<BubbleListRef, Props>(function MessageList(
-  { sessions, ctx, loading, onWheel },
+  { runs, ctx, loading, onWheel },
   ref,
 ) {
   const items = useMemo<BubbleItemType[]>(() => {
     const result: BubbleItemType[] = []
-    sessions.forEach((session, idx) => {
+    runs.forEach((run, idx) => {
       if (idx > 0) {
         result.push({
-          key: `divider-${session.sessionId}`,
+          key: `divider-${run.runId}`,
           role: 'divider',
           content: (
             <Divider className='my-1 text-[10px]! text-[#6c7086]!'>第 {idx + 1} 次执行</Divider>
           ),
         })
       }
-      toBubbleItems(session.sessionId, session.messages, ctx, session.completed).forEach((item) => {
+      // buildRenderItems 内部按 cacheKey 缓存(用 runId 作 key,与 store 端 clearBuildCacheForRuns 对齐)
+      toBubbleItems(run.runId, run.messages, ctx, run.completed).forEach((item) => {
         result.push({
-          key: `${session.sessionId}-${item.key}`,
+          key: `${run.runId}-${item.key}`,
           role: item.role,
           content: item.content,
         })
       })
     })
     return result
-  }, [sessions, ctx])
+  }, [runs, ctx])
 
-  const lastSessionCompleted = sessions.at(-1)?.completed
+  const lastRunCompleted = runs.at(-1)?.completed
 
   const finalItems = useMemo<BubbleItemType[]>(() => {
-    if (!loading || lastSessionCompleted) return items
+    if (!loading || lastRunCompleted) return items
     return [
       ...items,
       {
@@ -68,7 +69,7 @@ export const MessageList = forwardRef<BubbleListRef, Props>(function MessageList
         loading: true,
       },
     ]
-  }, [items, loading, lastSessionCompleted])
+  }, [items, loading, lastRunCompleted])
 
   return (
     <div className='flex min-h-0 flex-1 flex-col' onWheel={onWheel}>

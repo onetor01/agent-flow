@@ -40,8 +40,8 @@ export type ExecutorResult = {
 export type ExecutorMode = 'eager' | 'lazy' | 'resume-pending'
 
 export type ExecutorEvents = {
-  /** 首次获取到 SDK session_id 时触发，保证先于任何 onMessage */
-  onSessionId: (sessionId: string) => void
+  /** 首条 SDK 消息抵达时触发(eager 模式),用于上层在透传前发 flow.signal.flowStart */
+  onStarted: () => void
   /** SDK 原始消息透传，不做拆解或缩减 */
   onMessage: (message: AIMessageType) => void
   /** Agent 完成，选择了输出分支 */
@@ -53,17 +53,17 @@ export type ExecutorEvents = {
 }
 
 /**
- * Claude SDK 中间层
+ * Claude SDK 中间层 —— 纯 AI 调度工具,不持有任何 run 路由信息。
  *
- * 职责：
- * - 使用完整的 SDK 类型（AIMessageType / UserMessageType）进行交互
- * - 隐藏内部实现细节（中断后重新 query 等）
- * - 在首次获取到 session_id 后通知外部，然后才转发 AI 消息
+ * 职责:
+ * - 使用完整的 SDK 类型(AIMessageType / UserMessageType)进行交互
+ * - 隐藏内部实现细节(中断后重新 query 等)
+ * - 内部 _sessionId 仅用于 SDK resume,不暴露作路由
+ *
+ * 路由职责完全交给上层 FlowRunner —— 通过 executors: Map<runId, ClaudeExecutor>
+ * 在 Map 中按 runId 寻址。Executor 不知道也不需要知道自己绑定的 runId。
  */
 export class ClaudeExecutor {
-  readonly runId: string
-  readonly agentId: string
-
   private readonly agent: Agent
   private readonly prompt: string
   private mcpServer: ReturnType<typeof buildAgentMcpServer> | null = null
@@ -73,11 +73,9 @@ export class ClaudeExecutor {
   private completed = false
   private disposed = false
   /**
-   * 首次会话握手是否已对外发出。
-   * - 新 session：在 SDK 流出第一条带 session_id 的消息时设为 true，
-   *   同时调用 `onSessionId` + 首次透传 `initMessage` 给上层。
-   * - resume 模式：构造时直接置 true（_sessionId 已知），由构造函数异步 emit
-   *   onSessionId + initMessage，避免 createQuery 内重复透传。
+   * 首条 SDK 消息是否已处理。
+   * - eager 模式:首条 SDK 消息抵达时触发 onStarted + 透传 initMessage,然后置 true
+   * - resume(fork)模式:_sessionId 已知,构造时直接置 true,不再触发 onStarted
    */
   private initEmitted = false
   /**
@@ -96,14 +94,9 @@ export class ClaudeExecutor {
   private _sessionId: string | null = null
   private events: ExecutorEvents
 
-  /** SDK 在首条消息中分配的会话 ID；`null` 表示尚未建立会话 */
+  /** SDK 在首条消息中分配的会话 ID;`null` 表示尚未建立会话。仅供日志/内部 resume 使用 */
   get sessionId(): string | null {
     return this._sessionId
-  }
-
-  /** 比对外部携带的 (runId, sessionId) 是否绑定到当前 executor */
-  matches(runId: string, sessionId: string): boolean {
-    return runId === this.runId && sessionId === this._sessionId
   }
 
   /** 挂起中的 AskUserQuestion 权限请求：toolUseId -> resolver */
@@ -133,10 +126,8 @@ export class ClaudeExecutor {
    */
   /** lazy / resume-pending 模式下,user 抢先于 SDK canUseTool 提交答案时的暂存 */
   private pendingAnswers = new Map<string, AskUserQuestionOutput>()
-  private readonly initMessage: UserMessageType
 
   /**
-   * @param runId - FlowRunner 分配的本次运行 ID,贯穿整个 Flow 直到结束
    * @param agent - Agent 定义(model、outputs、prompt 等)
    * @param currentValues - Agent 启动时的可读 values 快照(注入系统提示词,运行中不重读)
    * @param resumeSessionId - 若提供，构造时即以该 sessionId resume 已有 SDK 会话
@@ -148,7 +139,6 @@ export class ClaudeExecutor {
    *     消息启动 SDK iteration 但不创建新 user turn(askUserQuestion fork)
    */
   constructor(
-    runId: string,
     initMessage: UserMessageType,
     agent: Agent,
     currentValues: Record<string, string>,
@@ -156,26 +146,16 @@ export class ClaudeExecutor {
     resumeSessionId?: string,
     mode: ExecutorMode = 'eager',
   ) {
-    this.runId = runId
-    this.agentId = agent.id
     this.agent = agent
     this.events = events
-    this.initMessage = initMessage
     this.userInputStream = createMessageChannel<SDKUserMessage>()
     // values 是写在系统提示词里的 不能即时读写 可以直接构造
     this.prompt = buildAgentSystemPrompt(agent, currentValues)
     if (resumeSessionId) {
-      // resume 模式：sessionId 已知，立即通知上层。fork 路径(lazy/resume-pending)
-      // 不透传 initMessage —— sessions.messages 切片已有真实历史,initMessage 只是
-      // 接口占位/dummy。
+      // resume 模式：sessionId 已知;fork 路径(lazy/resume-pending)不透传 initMessage
+      // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
       this._sessionId = resumeSessionId
       this.initEmitted = true
-      queueMicrotask(() => {
-        this.events.onSessionId(resumeSessionId)
-        if (mode === 'eager') {
-          this.events.onMessage(initMessage)
-        }
-      })
     }
     if (mode === 'eager') {
       this.createQuery(initMessage)
@@ -452,8 +432,7 @@ export class ClaudeExecutor {
           }
           this._sessionId = msg.session_id
           this.initEmitted = true
-          this.events.onSessionId(msg.session_id)
-          this.events.onMessage(message)
+          this.events.onStarted()
         }
         // AgentComplete 已暂存时,本回合的 result 消息不单独透传给上层(否则
         // reducer 会把 phase 切到 'result' 触发"生成完毕"通知),改随下面的

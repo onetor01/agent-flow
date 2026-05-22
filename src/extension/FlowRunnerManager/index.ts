@@ -27,7 +27,7 @@ export class FlowRunnerManager {
   handleCommand(type: keyof ExtensionFlowCommandEvents, data: any): void {
     match(type)
       .with('flow.command.flowStart', () => {
-        const { flowId, runKey, agentId, flow, initMessage } =
+        const { flowId, runId, agentId, flow, initMessage } =
           data as ExtensionFlowCommandEvents['flow.command.flowStart'] & { flow: Flow }
         this.disposeRunner(flowId)
         const runner = new FlowRunner(flow, {
@@ -40,7 +40,7 @@ export class FlowRunnerManager {
           } as ExtensionToWebviewMessage)
         })
         this.runners.set(flowId, runner)
-        runner.emit('flow.command.flowStart', { runKey, agentId, initMessage })
+        runner.emit('flow.command.flowStart', { runId, agentId, initMessage })
       })
       .with('flow.command.userMessage', () => {
         const { flowId, ...rest } = data as ExtensionFlowCommandEvents['flow.command.userMessage']
@@ -92,9 +92,9 @@ export class FlowRunnerManager {
 
   /**
    * fork 路径专用：spawn FlowRunner 并启动 ClaudeExecutor。
-   * - 调用方需提前生成 runId 并写入 newRunState.runId,以便 webview 收到 signal.fork
-   *   后用 (runId, sessionId) 派发 sendUserMessage / answerQuestion / interrupt
-   * - 不发 flow.signal.flowStart;runId / sessionId 由 extension 端通过 signal.fork 同步
+   * - 调用方需提前生成 runId,以便 webview 收到 signal.fork 后用 runId 派发
+   *   sendUserMessage / answerQuestion / interrupt
+   * - 不发 flow.signal.flowStart;runId 由 extension 端通过 signal.fork 同步
    * - mode 决定 ClaudeExecutor 启动行为(详见 ClaudeExecutor.ExecutorMode):
    *   - 'lazy': 普通 fork(user/text/thinking/turn_end)
    *   - 'resume-pending': askUserQuestion fork(立即启动 SDK 等 canUseTool)

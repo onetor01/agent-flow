@@ -15,18 +15,17 @@ import type { BubbleListRef } from '@ant-design/x/es/bubble/interface'
 import { AnimatePresence, motion } from 'motion/react'
 import { match, P } from 'ts-pattern'
 import type { AskUserQuestionOutput } from '@/common'
-import { calculateTokenCost, formatTokenCount, formatTokenCost } from '@/common'
-import type { AgentSession } from '@/webview/store/flow'
 import {
-  useFlowStore,
-  selectAgentPhase,
-  selectFlowPhase,
-  selectPendingQuestionsFor,
-  selectPendingToolPermissionFor,
-  selectAnsweredToolPermissions,
-  flowCanBeKilled,
-  type AgentPhase,
-} from '@/webview/store/flow'
+  formatTokenCount,
+  formatTokenCost,
+  getAgentPhase,
+  getAnsweredToolPermissions,
+  getFlowPhase,
+  getPendingQuestionsFor,
+  getPendingToolPermissionsFor,
+} from '@/common'
+import type { AgentRun } from '@/webview/store/flow'
+import { useFlowStore, flowCanBeKilled, type AgentPhase } from '@/webview/store/flow'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { AnsweredInfo, BubbleCtx } from './MessageBubble'
 import { MessageList } from './MessageList'
@@ -38,7 +37,6 @@ export type ChatPanelRef = {
 type Props = {
   flowId: string
   agentId: string
-  agentName: string
   onClose?: () => void
   ref?: React.Ref<ChatPanelRef>
 }
@@ -61,31 +59,42 @@ function buildAnsweredMap(
   return answeredMap
 }
 
-export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref }) => {
+export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
   const killFlow = useFlowStore((s) => s.killFlow)
   const answerQuestion = useFlowStore((s) => s.answerQuestion)
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
   const forkFlow = useFlowStore((s) => s.forkFlow)
   const { modal } = App.useApp()
 
-  const phase = useFlowStore(selectAgentPhase(flowId, agentId))
-  const flowPhase = useFlowStore(selectFlowPhase(flowId))
-  const pendingQuestions = useFlowStore(selectPendingQuestionsFor(flowId, agentId))
-  const pendingToolPerm = useFlowStore(selectPendingToolPermissionFor(flowId, agentId))
-  const answeredToolPermissions = useFlowStore(selectAnsweredToolPermissions(flowId))
-  const allSessions = useFlowStore((s) => s.flowRunStates[flowId]?.sessions)
-  const sessions = useMemo<AgentSession[]>(
-    () => allSessions?.filter((s) => s.agentId === agentId) ?? [],
-    [allSessions, agentId],
+  const agentName = useFlowStore(
+    (s) =>
+      s.flows.find((f) => f.id === flowId)?.agents?.find((a) => a.id === agentId)?.agent_name ?? '',
+  )
+
+  const phase = useFlowStore((s) => getAgentPhase(s.flowRunStates[flowId], agentId))
+  const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
+  const pendingQuestions = useFlowStore((s) =>
+    getPendingQuestionsFor(s.flowRunStates[flowId], agentId),
+  )
+  const pendingToolPerms = useFlowStore((s) =>
+    getPendingToolPermissionsFor(s.flowRunStates[flowId], agentId),
+  )
+  const answeredToolPermissions = useFlowStore((s) =>
+    getAnsweredToolPermissions(s.flowRunStates[flowId]),
+  )
+  const allRuns = useFlowStore((s) => s.flowRunStates[flowId]?.runs)
+  const runs = useMemo<AgentRun[]>(
+    () => allRuns?.filter((r) => r.agentId === agentId) ?? [],
+    [allRuns, agentId],
   )
   const answeredQuestions = useFlowStore((s) => s.flowRunStates[flowId]?.answeredQuestions)
 
-  // Flow 级累计：modelUsage 与 total_cost_usd 都是 session 累计快照,
-  // 因此每个 session 都只取「最后一条 result」,再跨 session 相加。
+  // Flow 级累计:modelUsage 与 total_cost_usd 都是 session 累计快照,
+  // 因此每个 run 都只取「最后一条 result」,再跨 run 相加。
   // tokens 含 4 字段 (input + output + cacheCreation + cacheRead),
   // 与 turn_end / agent_complete 口径一致。
   const { totalTokens, totalCost, modelBreakdown } = useMemo(() => {
-    if (!allSessions)
+    if (!allRuns)
       return {
         totalTokens: 0,
         totalCost: 0,
@@ -94,11 +103,11 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
     let totalTokens = 0
     let totalCost = 0
     const modelMap = new Map<string, { tokens: number; cost: number }>()
-    for (const session of allSessions) {
+    for (const run of allRuns) {
       let lastModelUsage: Record<string, unknown> | undefined
       let lastResultCost: number | undefined
-      let sessionModel: string | undefined
-      for (const msg of session.messages) {
+      let runModel: string | undefined
+      for (const msg of run.messages) {
         if (msg.type === 'flow.signal.aiMessage' && msg.data.message.type === 'result') {
           const result = msg.data.message as any
           if (result.modelUsage && typeof result.modelUsage === 'object') {
@@ -108,31 +117,31 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
             lastResultCost = result.total_cost_usd
           }
           if (typeof result.model === 'string') {
-            sessionModel = result.model
+            runModel = result.model
           }
         }
       }
-      let sessionTokens = 0
+      let runTokens = 0
       if (lastModelUsage) {
         for (const mu of Object.values(lastModelUsage) as any[]) {
-          sessionTokens +=
+          runTokens +=
             (mu.inputTokens ?? 0) +
             (mu.outputTokens ?? 0) +
             (mu.cacheCreationInputTokens ?? 0) +
             (mu.cacheReadInputTokens ?? 0)
         }
       }
-      totalTokens += sessionTokens
+      totalTokens += runTokens
       if (lastResultCost !== undefined) totalCost += lastResultCost
-      const m = sessionModel ?? session.agentId
+      const m = runModel ?? run.agentId
       const entry = modelMap.get(m) ?? { tokens: 0, cost: 0 }
-      entry.tokens += sessionTokens
+      entry.tokens += runTokens
       if (lastResultCost !== undefined) entry.cost += lastResultCost
       modelMap.set(m, entry)
     }
     const modelBreakdown = Array.from(modelMap.entries()).map(([m, v]) => ({ model: m, ...v }))
     return { totalTokens, totalCost, modelBreakdown }
-  }, [allSessions])
+  }, [allRuns])
 
   const canKillFlow = flowCanBeKilled(flowPhase)
 
@@ -161,26 +170,35 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
 
   const showCard = mergedInput.questions.length > 0
   const onToolPermissionAllow = useCallback(
-    (toolUseId: string) => answerToolPermission(flowId, toolUseId, true),
-    [answerToolPermission, flowId],
+    (toolUseId: string) => {
+      const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
+      if (!p) return
+      answerToolPermission(flowId, p.runId, toolUseId, true)
+    },
+    [answerToolPermission, flowId, pendingToolPerms],
   )
   const onToolPermissionDeny = useCallback(
-    (toolUseId: string) => answerToolPermission(flowId, toolUseId, false),
-    [answerToolPermission, flowId],
+    (toolUseId: string) => {
+      const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
+      if (!p) return
+      answerToolPermission(flowId, p.runId, toolUseId, false)
+    },
+    [answerToolPermission, flowId, pendingToolPerms],
   )
 
   /**
    * fork 触发入口：sessionCompleted=true（历史 session）时弹 modal 提示
    * 「shareValues 一致性不保证」并由用户确认后再发 command；当前 session 直接发。
+   * target 已携带 runId,extension 端按 runId 单 loop 定位 run,无需再传 agentId。
    */
   const onForkRequest = useCallback(
     (
       target:
-        | { kind: 'message'; messageUuid: string }
-        | { kind: 'askUserQuestion'; toolUseId: string },
+        | { kind: 'message'; runId: string; messageUuid: string }
+        | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
       sessionCompleted: boolean,
     ) => {
-      const doFork = () => forkFlow(flowId, agentId, target)
+      const doFork = () => forkFlow(flowId, target)
       if (!sessionCompleted) {
         doFork()
         return
@@ -193,7 +211,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
         onOk: doFork,
       })
     },
-    [forkFlow, flowId, agentId, modal],
+    [forkFlow, flowId, modal],
   )
 
   // 消息列表自动滚动控制:默认贴底,用户向上滚后停止跟随,滚回底部时恢复
@@ -241,7 +259,10 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
           const ans = answersPerQuestion[q.question] ?? []
           pqAnswers[q.question] = ans.join('\x1F')
         }
-        answerQuestion(flowId, pq.toolUseId, { questions: pq.input.questions, answers: pqAnswers })
+        answerQuestion(flowId, pq.runId, pq.toolUseId, {
+          questions: pq.input.questions,
+          answers: pqAnswers,
+        })
       }
 
       shouldScrollRef.current = true
@@ -251,7 +272,11 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
   )
 
   const pendingToolUseId = showCard ? mergedInput.toolUseIds[0] : undefined
-  const pendingToolPermissionToolUseId = pendingToolPerm?.toolUseId
+  const pendingToolPermissionToolUseIds = useMemo(
+    () =>
+      pendingToolPerms.length > 0 ? new Set(pendingToolPerms.map((p) => p.toolUseId)) : undefined,
+    [pendingToolPerms],
+  )
   const pendingToolUseIds = useMemo(
     () => (mergedInput.toolUseIds.length > 0 ? new Set(mergedInput.toolUseIds) : undefined),
     [mergedInput.toolUseIds],
@@ -262,7 +287,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
       pendingToolUseIds,
       answeredMap,
       onActiveSubmit,
-      pendingToolPermissionToolUseId,
+      pendingToolPermissionToolUseIds,
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
@@ -273,7 +298,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
       pendingToolUseIds,
       answeredMap,
       onActiveSubmit,
-      pendingToolPermissionToolUseId,
+      pendingToolPermissionToolUseIds,
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
@@ -295,7 +320,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
   // 新消息到达时按需滚到底
   useEffect(() => {
     if (shouldScrollRef.current) scrollToBottom()
-  }, [sessions, scrollToBottom])
+  }, [runs, scrollToBottom])
 
   const { text: statusText, color: statusColor } = match<
     AgentPhase,
@@ -363,7 +388,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
       </div>
       {/* Messages */}
       {match({
-        length: sessions.length,
+        length: runs.length,
         phase,
         flowPhase,
       })
@@ -387,7 +412,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
         .otherwise(() => (
           <MessageList
             ref={messageListRef}
-            sessions={sessions}
+            runs={runs}
             ctx={ctx}
             loading={phase === 'running' || phase === 'starting'}
             onWheel={handleListWheel}
@@ -433,7 +458,11 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, agentName, onClose, ref 
                     icon={<BranchesOutlined />}
                     onClick={() =>
                       onForkRequest(
-                        { kind: 'askUserQuestion', toolUseId: pendingQuestions[0].toolUseId },
+                        {
+                          kind: 'askUserQuestion',
+                          runId: pendingQuestions[0].runId,
+                          toolUseId: pendingQuestions[0].toolUseId,
+                        },
                         false,
                       )
                     }

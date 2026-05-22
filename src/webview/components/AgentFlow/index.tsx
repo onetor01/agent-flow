@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useEventListener } from 'ahooks'
 import z from 'zod'
-import { AgentSchema, type Agent } from '@/common'
+import { AgentSchema, getFlowPhase, type Agent } from '@/common'
 import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import AgentNodeComponent from './AgentNode'
@@ -53,30 +53,12 @@ export const AgentFlow: FC<{ flowId: string }> = ({ flowId }) => {
 
 const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId, hidden }) => {
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))!
-  const activeFlowId = useFlowStore((s) => s.activeFlowId)
   const state = useFlowStore((s) => s.flowRunStates[flowId])
   const save = useFlowStore((s) => s.save)
-  const openChatDrawer = useFlowStore((s) => s.openChatDrawer)
-  const closeChatDrawer = useFlowStore((s) => s.closeChatDrawer)
   /** 破坏性编辑禁止：删除 agent / 删除或破坏连线 */
-  const destructiveReadOnly = state ? flowIsDestructiveReadOnly(state.phase) : false
+  const destructiveReadOnly = flowIsDestructiveReadOnly(getFlowPhase(state))
   const { message } = App.useApp()
   const initial = useMemo(() => flowToReactFlow(flow), [flow])
-
-  // 切换到该 flow 时，根据运行状态决定是否打开 ChatPanel
-  // 注意：依赖里只放 activeFlowId / flowId，agents 现取，避免编辑 Agent 触发 ChatDrawer 自动打开
-  useEffect(() => {
-    if (activeFlowId !== flowId) return
-    const fs = useFlowStore.getState().flowRunStates[flowId]
-    const currentAgentId = fs?.currentAgentId
-    if (currentAgentId) {
-      const latestFlow = useFlowStore.getState().flows.find((f) => f.id === flowId)
-      const agent = latestFlow?.agents?.find((a) => a.id === currentAgentId)
-      openChatDrawer(flowId, currentAgentId, agent?.agent_name ?? '')
-    } else {
-      closeChatDrawer()
-    }
-  }, [activeFlowId, flowId, openChatDrawer, closeChatDrawer])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<AgentNode>(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)

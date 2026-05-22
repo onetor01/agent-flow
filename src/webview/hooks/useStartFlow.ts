@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { App } from 'antd'
-import type { UserMessageType } from '@/common'
-import { useFlowStore, selectFlowPhase, type FlowPhase } from '@/webview/store/flow'
+import { getFlowPhase, type FlowPhase, type UserMessageType } from '@/common'
+import { useFlowStore } from '@/webview/store/flow'
 
 /**
  * 启动 Flow 的公共逻辑：
@@ -15,7 +15,7 @@ export function useStartFlow() {
     (flowId: string, agentId: string, initMessage: UserMessageType): boolean | Promise<boolean> => {
       const st = useFlowStore.getState()
       const { runFlow } = st
-      const flowPhase: FlowPhase = selectFlowPhase(flowId)(st)
+      const flowPhase: FlowPhase = getFlowPhase(st.flowRunStates[flowId])
 
       if (flowPhase === 'idle') {
         runFlow(flowId, agentId, initMessage)

@@ -83,49 +83,50 @@ export type ExtensionToWebviewMessage = EventMessageType<ExtensionToWebviewEvent
 /**
  * Flow 事件
  *
- * 事件参数中的标识符：
- * - runId: extension 端分配的运行 ID，标识一次 Flow 运行实例
- * - runKey: webview 端分配的 key，传入 flow 内部用于校验响应归属
- * - sessionId: 当前 agent session 的标识，消息交互必须在两端 sessionId 对齐的基础上发生
+ * 标识符:
+ * - runId: 一次 Agent 运行的唯一主键。flowStart 路径由 webview 生成随 command 下发,
+ *   next_agent / fork 路径由 extension 生成。signal/command 载荷以 runId 为唯一路由主键。
+ * - sessionId: SDK 的 session_id,作为运行时属性挂在 AgentRun.sessionId 上。
+ *   不再出现在 signal/command 载荷上;SDK 原生消息体内的 session_id 仍随 aiMessage 透传,
+ *   reducer 从中提取回填到对应 AgentRun。
  *
- * 开启 Flow 的流程：
- * 1. webview 生成 runKey，发起 flowStart command
- * 2. extension 中断当前 Flow，将 runKey 传入新 Flow 内部进行校验，分配新 runId，创建 agent session，发出 flowStart signal
- * 3. webview 校验 signal 中的 runKey 与自己发出的一致后，保存 runId 和 sessionId
- *    （用户可随时开始新 Flow，通过 runKey 校验确保 runId 对应当前请求）
+ * 启动流程:
+ * 1. webview 生成 runId,发 flow.command.flowStart{runId, agentId}
+ * 2. extension 接收后 spawn FlowRunner / ClaudeExecutor,首条 SDK 消息携带 session_id 时
+ *    回填 runs[runId].sessionId,并发 flow.signal.flowStart{runId, agentId} 推 phase 转 running
  *
- * 消息交互：
- * - 所有消息（AI/用户）均携带 runId + sessionId，确保归属明确
- * - flow 收到 userMessage command 后，通过 userMessage signal 回显，保证两端数据一致
+ * 消息交互: 所有 signal/command 载荷只带 runId,reducer 在 runs[] 中按 runId 寻址。
  *
- * Agent 切换：
- * - agent 选择 output 后，agentComplete 携带新 sessionId 供后续交互使用
+ * Agent 切换: agentComplete 携带新 runId(由 extension 生成),reducer 据此追加新 AgentRun。
  */
 
 /** Flow 信号基础 payload（不含 flowId） */
 type FlowSignalPayload = {
-  /** Flow 启动成功，携带 key 供 webview 校验归属 */
-  flowStart: { runId: string; runKey: string; sessionId: string; agentId: string }
-  /** AI 输出（流式），必须在 runId + sessionId 对齐下发生。用户消息会也会被视作aiMessage。 */
-  aiMessage: { runId: string; sessionId: string; message: AIMessageType }
-  /** Agent 执行完成，选择了输出分支；output.newSessionId 为下一轮交互的新 session */
+  /** Flow 启动成功:ClaudeExecutor 已就绪;getRunPhase 据 messages 推断为 running */
+  flowStart: { runId: string; agentId: string }
+  /** AI 输出(流式)。SDK message 内嵌的 session_id 由 reducer 回填到对应 AgentRun.sessionId */
+  aiMessage: { runId: string; message: AIMessageType }
+  /**
+   * Agent 执行完成,选择了输出分支。
+   * - runId: 当前完成的 Agent run 的 runId
+   * - output.newRunId: 切到下一个 agent 时,extension 端生成的新 runId(后续交互的主键)
+   */
   agentComplete: {
     runId: string
-    sessionId: string
     content: string
-    output?: { name: string; newSessionId: string }
+    output?: { name: string; newRunId: string }
     /** Agent 通过 AgentComplete 写入的增量 values，由 reducer 合并到 FlowRunState.shareValues */
     values?: Record<string, string>
     /**
-     * 本回合 SDK 最后一条 result 消息（含 modelUsage / total_cost_usd）。
+     * 本回合 SDK 最后一条 result 消息(含 modelUsage / total_cost_usd)。
      * AgentComplete 暂存后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
-     * （否则 reducer 会把 phase 切到 'result' 触发"生成完毕"通知）,改随 agentComplete
-     * 一并上抛;reducer 把它写入当前 session.messages,buildRenderItems 仍能取到算 token。
+     * (否则 reducer 会把 phase 切到 'result' 触发"生成完毕"通知),改随 agentComplete
+     * 一并上抛;reducer 把它写入对应 run.messages,buildRenderItems 仍能取到算 token。
      */
     result?: AIMessageType
   }
   /** Agent被中断了 */
-  agentInterrupted: { runId: string; sessionId: string }
+  agentInterrupted: { runId: string }
   /** agent错误 */
   agentError: { runId: string; agentId: string; err: Error }
   /** flow运行错误 */
@@ -133,7 +134,6 @@ type FlowSignalPayload = {
   /** 工具调用命中 must_confirm 或兜底，等待用户确认 */
   toolPermissionRequest: {
     runId: string
-    sessionId: string
     toolUseId: string
     toolName: string
     input: unknown
@@ -142,11 +142,10 @@ type FlowSignalPayload = {
    * 会话 fork 完成：从源 Flow 复制 transcript 切片到新 Flow。
    * - flowId（由 WithFlowId 注入）= sourceFlowId（源 Flow id）
    * - newFlowId / newRunState：新 Flow 的 id 与对应运行态
-   * - agentId：fork 起点所在的 agent id（用于 webview 自动打开 ChatDrawer）
-   * - runId：extension 端 fork 时同步 spawn FlowRunner 分配的运行 ID（运行时必须）;
-   *   webview 收到后写入 newRunState.runId,后续 sendUserMessage / answerQuestion /
-   *   interrupt 都基于此 runId 派发到 runner。FlowRunState.runId 类型保持
-   *   `string | undefined` 兼容空闲态,但 fork 信号中此字段必有值。
+   * - runId：extension 端 fork 时同步 spawn FlowRunner 分配的运行 ID,
+   *   webview 收到后写入 newRunState 对应 AgentRun;后续 sendUserMessage / answerQuestion /
+   *   interrupt 都基于此 runId 派发到 runner。**所属 agent 由 newRunState.runs.at(-1).agentId 反推**,
+   *   不再单独携带 agentId。
    *
    * 不携带 newFlow 定义；webview 端自行根据 sourceFlowId 深拷贝 Flow 后将 id 改为
    * newFlowId 加入 flows，并通过既有 save 通道持久化。
@@ -154,7 +153,6 @@ type FlowSignalPayload = {
   fork: {
     newFlowId: string
     newRunState: FlowRunState
-    agentId: string
     runId: string
   }
 }
@@ -173,48 +171,48 @@ export type ExtensionFlowSignalMessage = EventMessageType<ExtensionFlowSignalEve
 
 /** Flow 指令基础 payload（不含 flowId） */
 type FlowCommandPayload = {
-  /** webview 发起启动，key 传入 flow 内部用于校验响应归属。 */
+  /**
+   * webview 发起启动:webview 生成 runId 随 command 下发,作为本次 run 的唯一主键。
+   * reducer 收到后覆盖式重置 runs/answered/pendings,并以 runId 创建首个 AgentRun。
+   */
   flowStart: {
-    runKey: string
+    runId: string
     agentId: string
     initMessage: UserMessageType
   }
-  /** 向当前 Agent 发送用户消息，必须在 runId + sessionId 对齐下发生 */
-  userMessage: { runId: string; sessionId: string; message: UserMessageType }
-  /** 中断当前 Agent，使其等待用户输入 */
-  interrupt: { runId: string; sessionId: string }
+  /** 向指定 run 发送用户消息 */
+  userMessage: { runId: string; message: UserMessageType }
+  /** 中断指定 run */
+  interrupt: { runId: string }
   /** 回答 SDK 内建 AskUserQuestion 工具的问题，resolve 对应的 canUseTool 挂起 */
   answerQuestion: {
     runId: string
-    sessionId: string
     toolUseId: string
     output: AskUserQuestionOutput
   }
   /** 回答工具权限请求：允许或拒绝当前挂起的工具调用 */
   toolPermissionResult: {
     runId: string
-    sessionId: string
     toolUseId: string
     allow: boolean
   }
-  /** 彻底终止 Flow：销毁 FlowRunner，state 置终态。仅需 flowId，不要求 runId/sessionId */
+  /** 彻底终止 Flow:销毁 FlowRunner,所有 run 转 stopped。仅需 flowId,不要求 runId */
   killFlow: object
   /** webview 编辑 shareValues 后同步到 extension */
   setShareValues: { values: Record<string, string> }
   /**
    * 从源 Flow 的某个切片 fork 出新 Flow。
    * - flowId（由 WithFlowId 注入）= 源 Flow id
-   * - agentId：fork 起点所在的 agent id（用于 webview 自动打开 ChatDrawer）
-   * - target：fork 目标
+   * - target：fork 目标。**target.runId 唯一定位源 RunState 中的 AgentRun**,
+   *   extension 在该 run 的 messages 内按 messageUuid / toolUseId 找切片终点。
    *   - `message`：以指定 SDK 消息 UUID 为切片终点（含），fork 后新 Flow 进入 `result` 态
    *   - `askUserQuestion`：以包含该 toolUseId 的 assistant message 为切片终点（不含 tool_result），
    *     新 Flow 进入 `awaiting-question` 态，问题在输入区上方重弹
    */
   fork: {
-    agentId: string
     target:
-      | { kind: 'message'; messageUuid: string }
-      | { kind: 'askUserQuestion'; toolUseId: string }
+      | { kind: 'message'; runId: string; messageUuid: string }
+      | { kind: 'askUserQuestion'; runId: string; toolUseId: string }
   }
 }
 

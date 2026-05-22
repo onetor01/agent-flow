@@ -14,8 +14,32 @@ export const App: FC = () => {
   const { notification } = AntdApp.useApp()
   const { loading, flows, init } = useFlowStore()
   const globalError = useFlowStore((s) => s.globalError)
+  const chatDrawer = useFlowStore((s) => s.chatDrawer)
+  const closeChatDrawer = useFlowStore((s) => s.closeChatDrawer)
+  const activeFlowId = useFlowStore((s) => s.activeFlowId)
 
   useEffect(() => init({ notification }), [init, notification])
+
+  // activeFlowId 切换时,按 runs 末位 agent 决定打开/关闭 ChatDrawer。
+  // runs 末位 agent = 用户当前要看的对象;runs 为空(idle)或无 active flow 则关闭。
+  // completed 且已流转的中间 agent 不会出现在末位(reducer 切换时立刻追加新 run);
+  // completed 且无 next_agent 的 flow 末端仍在末位,自动打开让用户看结果。
+  // 依赖只放 activeFlowId,flow 定义/runs 现取,避免编辑 Agent 等无关变更触发自动开关。
+  useEffect(() => {
+    const { openChatDrawer, closeChatDrawer } = useFlowStore.getState()
+    if (!activeFlowId) {
+      closeChatDrawer()
+      return
+    }
+    const targetAgentId = useFlowStore.getState().flowRunStates[activeFlowId]?.runs.at(-1)?.agentId
+    if (targetAgentId) {
+      const latestFlow = useFlowStore.getState().flows.find((f) => f.id === activeFlowId)
+      const agent = latestFlow?.agents?.find((a) => a.id === targetAgentId)
+      openChatDrawer(activeFlowId, targetAgentId, agent?.agent_name ?? '')
+    } else {
+      closeChatDrawer()
+    }
+  }, [activeFlowId])
 
   useEffect(() => {
     if (!globalError) return
@@ -44,7 +68,13 @@ export const App: FC = () => {
         ))}
         <FlowListPanel />
       </div>
-      <ChatDrawer />
+      {chatDrawer && (
+        <ChatDrawer
+          flowId={chatDrawer.flowId}
+          agentId={chatDrawer.agentId}
+          onClose={closeChatDrawer}
+        />
+      )}
       <AgentEditor />
       <FlowEditor />
     </div>

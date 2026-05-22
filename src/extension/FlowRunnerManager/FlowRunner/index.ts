@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
-import { z } from 'zod'
 import {
   type Agent,
+  type AIMessageType,
   type FlowRunnerCommandEvents,
   type Flow,
   type FlowRunnerSignalEvents,
@@ -9,39 +9,6 @@ import {
 } from '@/common'
 import { logError } from '../../logger'
 import { ClaudeExecutor, type ExecutorMode, type ExecutorResult } from './ClaudeExecutor'
-
-const MessageSchema = z.object({
-  role: z.enum(['user', 'agent']),
-  content: z.string(),
-  timestamp: z.string(),
-})
-
-type Message = z.infer<typeof MessageSchema>
-
-const StepSchema = z.object({
-  agentName: z.string(),
-  messages: z.array(MessageSchema),
-  output: z
-    .object({
-      output_name: z.string().optional(),
-      content: z.string(),
-    })
-    .optional(),
-})
-
-type Step = z.infer<typeof StepSchema>
-
-const RunStateSchema = z.object({
-  currentAgent: z
-    .object({
-      id: z.string(),
-      status: z.enum(['preparing', 'ready', 'generating', 'completed']),
-    })
-    .optional(),
-  steps: z.array(StepSchema),
-})
-
-type RunState = z.infer<typeof RunStateSchema>
 
 type SignalHandler<K extends keyof FlowRunnerSignalEvents> = (
   data: FlowRunnerSignalEvents[K],
@@ -61,11 +28,19 @@ export type FlowRunnerOptions = {
   getLatestShareValues: () => Record<string, string>
 }
 
+/**
+ * 运行时容器:按 runId 持有 ClaudeExecutor。
+ *
+ * 本期 runtime 仍单 executor 约束(`executors.size <= 1`),`next_agent` 切换时仍 kill
+ * 旧 executor 再 set 新 executor。Map 结构是为后期并发触发能力预留容器。
+ *
+ * 路由规则:所有 command 按 runId 在 Map 中寻址(`checkRun(runId)` = `Map.has(runId)`),
+ * Executor 自身不持有任何 run 路由信息。
+ */
 export class FlowRunner {
   readonly flow: Flow
 
-  private runState: RunState = { steps: [] }
-  private currentExecutor: ClaudeExecutor | null = null
+  private executors = new Map<string, ClaudeExecutor>()
   private signalListeners = new Map<keyof FlowRunnerSignalEvents, Set<SignalHandler<any>>>()
   private wildcardListeners = new Set<WildcardSignalHandler>()
   private readonly getLatestShareValues: () => Record<string, string>
@@ -133,17 +108,19 @@ export class FlowRunner {
       .exhaustive()
   }
 
-  /** 销毁 FlowRunner，终止当前执行 */
+  /** 销毁 FlowRunner，终止全部 executor */
   dispose(): void {
-    this.killCurrentExecutor()
+    for (const [, executor] of this.executors) {
+      executor.kill()
+    }
+    this.executors.clear()
     this.signalListeners.clear()
     this.wildcardListeners.clear()
   }
 
   /**
-   * fork 路径专用：以 resume 模式启动一个 ClaudeExecutor，runId / sessionId
-   * 都已知，不 fire flow.signal.flowStart（fork 由 extension 端用 flow.signal.fork
-   * 替代）。
+   * fork 路径专用:以 resume 模式启动一个 ClaudeExecutor。runId 由 extension 端预先分配。
+   * 不 fire flow.signal.flowStart(fork 由 extension 端用 flow.signal.fork 替代)。
    *
    * mode:
    * - 'lazy': 普通 fork(user/text/thinking/turn_end)。executor 处于 lazy 态:构造
@@ -164,54 +141,24 @@ export class FlowRunner {
       this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
       return
     }
-    this.killCurrentExecutor()
-    this.runState = { steps: [{ agentName: agent.agent_name, messages: [] }] }
-    this.updateAgentStatus(agent.id, 'generating')
-    // dummy initMessage：fork 模式下不会被透传到上层、也不会作为 SDK prompt push,
-    // 仅作为 ClaudeExecutor 接口占位。'resume-pending' 模式会用单独的 isSynthetic
-    // dummy push 给 SDK,'lazy' 模式则等用户首次 sendUserMessage 时以真实消息覆盖。
+    // 本期单 executor 约束:fork 时清掉所有现存 executor
+    this.killAllExecutors()
+    // dummy initMessage:fork 模式下不会被透传到上层、也不会作为 SDK prompt push,
+    // 仅作为 ClaudeExecutor 接口占位。
     const dummyInit: UserMessageType = {
       type: 'user',
       message: { role: 'user', content: '' },
       parent_tool_use_id: null,
     }
     const executor: ClaudeExecutor = new ClaudeExecutor(
-      runId,
       dummyInit,
       agent,
       this.getLatestShareValues(),
-      {
-        onSessionId: () => {
-          // fork 路径不 fire flow.signal.flowStart;sessionId 已通过 signal.fork 同步
-        },
-        onMessage: (message) => {
-          if (!executor.sessionId) return
-          this.fire('flow.signal.aiMessage', { runId, sessionId: executor.sessionId, message })
-        },
-        onComplete: (result) => {
-          if (this.currentExecutor !== executor) return
-          this.onAgentComplete(executor, agent, result)
-        },
-        onToolPermissionRequest: ({ toolUseId, toolName, input }) => {
-          if (!executor.sessionId) return
-          this.fire('flow.signal.toolPermissionRequest', {
-            runId,
-            sessionId: executor.sessionId,
-            toolUseId,
-            toolName,
-            input,
-          })
-        },
-        onError: (err) => {
-          logError(`[FlowRunner] agent ${agent.id} error:`, err)
-          this.fire('flow.signal.agentError', { runId, agentId: agent.id, err })
-          this.updateAgentStatus(agent.id, 'completed')
-        },
-      },
+      this.buildExecutorEvents(runId, agent, () => executor),
       resumeSessionId,
       mode,
     )
-    this.currentExecutor = executor
+    this.executors.set(runId, executor)
   }
 
   // ── signal 发射 ─────────────────────────────────────────────────────────
@@ -242,26 +189,19 @@ export class FlowRunner {
   // ── command 处理 ────────────────────────────────────────────────────────
 
   private handleFlowStart({
-    runKey,
+    runId,
     agentId,
     initMessage,
   }: FlowRunnerCommandEvents['flow.command.flowStart']): void {
-    // 中断当前运行
-    this.killCurrentExecutor()
+    // 本期单 executor 约束:flowStart 前清掉所有现存 executor
+    this.killAllExecutors()
 
-    // 校验 agent 存在
     const agent = this.findAgentById(agentId)
     if (!agent) {
       this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
       return
     }
 
-    // 重置运行状态。shareValues 不再由 FlowRunner 维护——构造 ClaudeExecutor 时
-    // 通过 getLatestShareValues() 直接从 reducer 取最新值。
-    this.runState = { steps: [] }
-    const runId = crypto.randomUUID()
-
-    // 启动 agent（sessionId 由 executor 从 SDK 获取后回调）
     const effectiveInitMessage = agent.no_input
       ? {
           type: 'user' as const,
@@ -269,146 +209,128 @@ export class FlowRunner {
           parent_tool_use_id: null,
         }
       : initMessage
-    this.runAgent(runId, effectiveInitMessage, agent, this.getLatestShareValues(), (sessionId) => {
-      this.fire('flow.signal.flowStart', {
-        runId,
-        runKey,
-        sessionId,
-        agentId: agent.id,
-      })
-    })
+    this.runAgent(runId, effectiveInitMessage, agent, this.getLatestShareValues(), true)
   }
 
   private handleUserMessage({
     runId,
-    sessionId,
     message,
   }: FlowRunnerCommandEvents['flow.command.userMessage']): void {
-    if (!this.checkSession(runId, sessionId)) return
-    if (!this.currentExecutor) return
-
-    // 直接转发完整 UserMessageType 给 executor（回显由 reducer 两端就地追加，此处不再 fire aiMessage）
-    this.currentExecutor.sendUserMessage(message)
+    const executor = this.executors.get(runId)
+    if (!executor) return
+    executor.sendUserMessage(message)
   }
 
-  private async handleInterrupt({
-    runId,
-    sessionId,
-  }: FlowRunnerCommandEvents['flow.command.interrupt']) {
-    const executor = this.currentExecutor
-    if (!executor?.matches(runId, sessionId)) return
-
-    // 调用 executor 的 interrupt，内部处理中断+后续 resume 逻辑
+  private async handleInterrupt({ runId }: FlowRunnerCommandEvents['flow.command.interrupt']) {
+    const executor = this.executors.get(runId)
+    if (!executor) return
     await executor.interrupt()
-    this.updateAgentStatus(executor.agentId, 'ready')
-    this.fire('flow.signal.agentInterrupted', { runId, sessionId })
+    this.fire('flow.signal.agentInterrupted', { runId })
   }
 
   private handleAnswerQuestion({
     runId,
-    sessionId,
     toolUseId,
     output,
   }: FlowRunnerCommandEvents['flow.command.answerQuestion']): void {
-    if (!this.checkSession(runId, sessionId)) return
-    if (!this.currentExecutor) return
-    this.currentExecutor.answerQuestion(toolUseId, output)
+    const executor = this.executors.get(runId)
+    if (!executor) return
+    executor.answerQuestion(toolUseId, output)
   }
 
   private handleToolPermissionResult({
     runId,
-    sessionId,
     toolUseId,
     allow,
   }: FlowRunnerCommandEvents['flow.command.toolPermissionResult']): void {
-    if (!this.checkSession(runId, sessionId)) return
-    if (!this.currentExecutor) return
-    this.currentExecutor.answerToolPermission(toolUseId, allow)
+    const executor = this.executors.get(runId)
+    if (!executor) return
+    executor.answerToolPermission(toolUseId, allow)
   }
 
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
+  /**
+   * 启动一个 Agent run:创建 ClaudeExecutor 并写入 executors Map。
+   * @param fireFlowStartSignal - 是否在首条 SDK 消息抵达时 fire flow.signal.flowStart
+   *   (eager 路径需要;fork 路径由外层 spawnForFork 走 signal.fork 替代,故为 false)
+   */
   private runAgent(
     runId: string,
     initMessage: UserMessageType,
     agent: Agent,
     currentValues: Record<string, string>,
-    onSessionId: (sessionId: string) => void,
+    fireFlowStartSignal: boolean,
   ): void {
-    this.updateAgentStatus(agent.id, 'preparing')
-
-    // 初始化当前 step
-    this.runState.steps.push({
-      agentName: agent.agent_name,
-      messages: [],
-    })
-
-    this.updateAgentStatus(agent.id, 'generating')
-
+    const events = this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal)
     const executor: ClaudeExecutor = new ClaudeExecutor(
-      runId,
       initMessage,
       agent,
       currentValues,
-      {
-        onSessionId,
-        onMessage: (message) => {
-          if (!executor.sessionId) return
-          this.fire('flow.signal.aiMessage', { runId, sessionId: executor.sessionId, message })
-        },
-        onComplete: (result) => {
-          // 只接受当前 executor 的完成事件，防止旧 executor 残留回调污染过渡后的状态
-          if (this.currentExecutor !== executor) return
-          this.onAgentComplete(executor, agent, result)
-        },
-        onToolPermissionRequest: ({ toolUseId, toolName, input }) => {
-          if (!executor.sessionId) return
-          this.fire('flow.signal.toolPermissionRequest', {
-            runId,
-            sessionId: executor.sessionId,
-            toolUseId,
-            toolName,
-            input,
-          })
-        },
-        onError: (err) => {
-          logError(`[FlowRunner] agent ${agent.id} error:`, err)
-          this.fire('flow.signal.agentError', { runId, agentId: agent.id, err })
-          this.updateAgentStatus(agent.id, 'completed')
-        },
-      },
+      events,
     )
-    this.currentExecutor = executor
+    this.executors.set(runId, executor)
   }
 
-  private onAgentComplete(executor: ClaudeExecutor, agent: Agent, result: ExecutorResult): void {
+  /** 构造 ClaudeExecutor 的事件回调 —— 上层路由(runId、kill)在此闭包注入 */
+  private buildExecutorEvents(
+    runId: string,
+    agent: Agent,
+    getExecutor: () => ClaudeExecutor,
+    fireFlowStartSignal: boolean = false,
+  ) {
+    return {
+      onStarted: () => {
+        if (fireFlowStartSignal) {
+          this.fire('flow.signal.flowStart', { runId, agentId: agent.id })
+        }
+      },
+      onMessage: (message: AIMessageType) => {
+        this.fire('flow.signal.aiMessage', { runId, message })
+      },
+      onComplete: (result: ExecutorResult) => {
+        // 只接受当前 Map 里仍然绑定的 executor 的完成事件;切换到下一个 agent 时
+        // 旧 executor 已被 kill 并从 Map 中移除,onComplete 即使到达也丢弃。
+        if (this.executors.get(runId) !== getExecutor()) return
+        this.onAgentComplete(runId, agent, result)
+      },
+      onToolPermissionRequest: ({
+        toolUseId,
+        toolName,
+        input,
+      }: {
+        toolUseId: string
+        toolName: string
+        input: unknown
+      }) => {
+        this.fire('flow.signal.toolPermissionRequest', {
+          runId,
+          toolUseId,
+          toolName,
+          input,
+        })
+      },
+      onError: (err: Error) => {
+        logError(`[FlowRunner] agent ${agent.id} error:`, err)
+        this.fire('flow.signal.agentError', { runId, agentId: agent.id, err })
+      },
+    }
+  }
+
+  private onAgentComplete(runId: string, agent: Agent, result: ExecutorResult): void {
     try {
-      this.doOnAgentComplete(executor, agent, result)
+      this.doOnAgentComplete(runId, agent, result)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logError(`[FlowRunner] onAgentComplete failed (agent=${agent.id}):`, err)
       this.fire('flow.signal.error', { msg: `agent complete failed: ${msg}` })
-      this.updateAgentStatus(agent.id, 'completed')
       // 继续向上抛，让 MCP withErrorBoundary 也能把 isError 反馈给 AI
       throw err
     }
   }
 
-  private doOnAgentComplete(executor: ClaudeExecutor, agent: Agent, result: ExecutorResult): void {
+  private doOnAgentComplete(runId: string, agent: Agent, result: ExecutorResult): void {
     const { outputName, content } = result
-    const runId = executor.runId
-    // 切到下一个 agent 前要先 kill 当前 executor，sessionId 在 kill 后还要带进
-    // signal，所以提前快照。executor 进入 onComplete 时一定已经拿到 sessionId。
-    const oldSessionId = executor.sessionId!
-
-    // 记录 step output
-    const currentStep = this.runState.steps[this.runState.steps.length - 1]
-    if (currentStep && outputName) {
-      currentStep.output = {
-        output_name: outputName,
-        content,
-      }
-    }
 
     // 查找下一个 agent
     const selectedOutput = (agent.outputs ?? []).find((o) => o.output_name === outputName)
@@ -418,49 +340,44 @@ export class FlowRunner {
       const nextAgent = this.findAgentById(nextAgentId)
       if (!nextAgent) {
         this.fire('flow.signal.error', { msg: `Next agent "${nextAgentId}" not found` })
-        this.updateAgentStatus(agent.id, 'completed')
         return
       }
 
-      // 终结旧 executor（query 仍可能在发送 AgentComplete 的 tool_result 尾音），
-      // 必须 kill 后再建新 executor，否则旧消息会被错误地挂到新 session 上。
-      // killCurrentExecutor 会把 this.currentExecutor 置 null —— 此时 webview
-      // 仍持有旧 sessionId，checkSession 因为 currentExecutor 为 null 直接拒绝，
-      // 旧的 interrupt/userMessage 不会派发到尚未拿到 sessionId 的新 executor。
-      this.killCurrentExecutor()
+      // 终结旧 executor(query 仍可能在发送 AgentComplete 的 tool_result 尾音)。
+      // 必须 kill 后再建新 executor —— 旧消息不会被错误地挂到新 run 上。本期 runtime
+      // 单 executor 约束,kill 旧 executor + Map.delete(oldRunId) + Map.set(newRunId,..)
+      this.killExecutor(runId)
       // 切换到下一个 agent
       const nextInitMessage = {
         type: 'user' as const,
         message: { role: 'user' as const, content: nextAgent.no_input ? '开始' : content },
         parent_tool_use_id: null,
       }
-      // 局部叠加：reducer 此刻尚未收到 agentComplete signal，getLatestShareValues 拿到
-      // 的还是合并前的值，因此手动叠加 result.values 给 nextAgent 的 systemPrompt。
-      // FlowRunner 自身不持有 shareValues 状态——这是临时计算，不是字段维护。
+      // 局部叠加:reducer 此刻尚未收到 agentComplete signal,getLatestShareValues 拿到
+      // 的还是合并前的值,因此手动叠加 result.values 给 nextAgent 的 systemPrompt。
+      // FlowRunner 自身不持有 shareValues 状态——这是临时计算,不是字段维护。
       const nextValues = result.values
         ? { ...this.getLatestShareValues(), ...result.values }
         : this.getLatestShareValues()
-      this.runAgent(runId, nextInitMessage, nextAgent, nextValues, (newSessionId) => {
-        this.fire('flow.signal.agentComplete', {
-          runId,
-          sessionId: oldSessionId,
-          content,
-          output: { name: result.outputName!, newSessionId },
-          values: result.values,
-          result: result.resultMessage,
-        })
+      // extension 端为下一个 agent 生成新 runId
+      const newRunId = crypto.randomUUID()
+      this.runAgent(newRunId, nextInitMessage, nextAgent, nextValues, false)
+      this.fire('flow.signal.agentComplete', {
+        runId,
+        content,
+        output: { name: result.outputName!, newRunId },
+        values: result.values,
+        result: result.resultMessage,
       })
     } else {
       // Flow 结束
-      this.killCurrentExecutor()
+      this.killExecutor(runId)
       this.fire('flow.signal.agentComplete', {
         runId,
-        sessionId: oldSessionId,
         content: result.content,
         values: result.values,
         result: result.resultMessage,
       })
-      this.updateAgentStatus(agent.id, 'completed')
     }
   }
 
@@ -470,21 +387,18 @@ export class FlowRunner {
     return (this.flow.agents ?? []).find((a) => a.id === id)
   }
 
-  private checkSession(runId: string, sessionId: string): boolean {
-    return this.currentExecutor?.matches(runId, sessionId) ?? false
-  }
-
-  private killCurrentExecutor(): void {
-    if (this.currentExecutor) {
-      this.currentExecutor.kill()
-      this.currentExecutor = null
+  private killExecutor(runId: string): void {
+    const executor = this.executors.get(runId)
+    if (executor) {
+      executor.kill()
+      this.executors.delete(runId)
     }
   }
 
-  private updateAgentStatus(
-    agentId: string,
-    status: NonNullable<RunState['currentAgent']>['status'],
-  ): void {
-    this.runState.currentAgent = { id: agentId, status }
+  private killAllExecutors(): void {
+    for (const [, executor] of this.executors) {
+      executor.kill()
+    }
+    this.executors.clear()
   }
 }

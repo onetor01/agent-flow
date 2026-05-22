@@ -6,7 +6,7 @@ import type { Flow } from '@/common'
 import {
   type AgentPhase,
   type AgentChatInputState,
-  type AgentSession,
+  type AgentRun,
   type ExtensionFlowCommandMessage,
   type FlowPhase,
   type FlowRunState,
@@ -20,12 +20,11 @@ import {
   agentChatInputState,
   flowCanBeKilled,
   flowIsDestructiveReadOnly,
+  getFlowPhase,
 } from '@/common'
 import type { Agent } from '@/common'
-import { clearBuildCacheForSessions } from '../components/ChatDrawer/ChatPanel/buildRenderItems'
+import { clearBuildCacheForRuns } from '../components/ChatDrawer/ChatPanel/buildRenderItems'
 import { postMessageToExtension, subscribeExtensionMessage } from '../utils/ExtensionMessage'
-
-// ── 选择器（webview 本地） ────────────────────────────────────────────────
 
 type StoreState = {
   loading: boolean
@@ -48,75 +47,6 @@ export type ChatDrawerState = {
   agentName: string
 }
 
-const selectFlowRunState =
-  (flowId: string) =>
-  (s: StoreState): FlowRunState | undefined =>
-    s.flowRunStates[flowId]
-
-export const selectAgentPhase =
-  (flowId: string, agentId: string) =>
-  (s: StoreState): AgentPhase => {
-    const fs = selectFlowRunState(flowId)(s)
-    if (!fs) return 'idle'
-    const currentAgentId = fs.currentAgentId
-    if (currentAgentId === agentId) {
-      // FlowPhase 与 AgentPhase 现已对齐，直接透传
-      return fs.phase
-    }
-    const last = [...fs.sessions].reverse().find((sess) => sess.agentId === agentId)
-    if (last?.completed) return 'completed'
-    return 'idle'
-  }
-
-export const selectPendingQuestionFor =
-  (flowId: string, agentId: string) =>
-  (s: StoreState): PendingQuestion | undefined => {
-    const fs = selectFlowRunState(flowId)(s)
-    if (!fs || fs.currentAgentId !== agentId) return undefined
-    return fs.pendingQuestions[0]
-  }
-const EMPTY_ARRAY: any[] = []
-export const selectPendingQuestionsFor =
-  (flowId: string, agentId: string) =>
-  (s: StoreState): PendingQuestion[] => {
-    const fs = selectFlowRunState(flowId)(s)
-    if (!fs || fs.currentAgentId !== agentId) return EMPTY_ARRAY
-    return fs.pendingQuestions
-  }
-
-export const selectPendingToolPermissionFor =
-  (flowId: string, agentId: string) =>
-  (s: StoreState): PendingToolPermission | undefined => {
-    const fs = selectFlowRunState(flowId)(s)
-    if (!fs || fs.currentAgentId !== agentId) return undefined
-    return fs.pendingToolPermission
-  }
-
-export const selectAnsweredToolPermissions =
-  (flowId: string) =>
-  (s: StoreState): Record<string, { allow: boolean }> | undefined =>
-    s.flowRunStates[flowId]?.answeredToolPermissions
-
-export const selectFlowPhase =
-  (flowId: string) =>
-  (s: StoreState): FlowPhase =>
-    s.flowRunStates[flowId]?.phase ?? 'idle'
-
-export const selectCurrentSession =
-  (flowId: string) =>
-  (s: StoreState): AgentSession | undefined => {
-    const fs = selectFlowRunState(flowId)(s)
-    if (!fs) return undefined
-    return fs.sessions.find((s) => !s.completed)
-  }
-
-export const selectCurrentAgentId =
-  (flowId: string) =>
-  (s: StoreState): string | undefined => {
-    const fs = selectFlowRunState(flowId)(s)
-    return fs?.currentAgentId
-  }
-
 // ── Store ───────────────────────────────────────────────────────────────────
 
 /** init 参数 —— 从 App.useApp() 拿到的主题化 api（至少包含 notification） */
@@ -130,22 +60,39 @@ type FlowStoreType = StoreState & {
   /** 启动 Flow 运行。 */
   runFlow: (flowId: string, agentId: string, initMessage: UserMessageType) => void
   save: (updateFn: (val: Flow[]) => void) => void
-  sendUserMessage: (flowId: string, content: UserMessageType['message']['content']) => void
-  answerQuestion: (flowId: string, toolUseId: string, output: AskUserQuestionOutput) => void
-  answerToolPermission: (flowId: string, toolUseId: string, allow: boolean) => void
-  interruptAgent: (flowId: string) => void
+  /**
+   * 同会话追问 —— 调用方必须在 chatDrawer 上下文里挑出目标 run 的 runId 后传入,
+   * store 不再回退到末位非终态 run(多 run 场景下回退会乱派发)。
+   */
+  sendUserMessage: (
+    flowId: string,
+    runId: string,
+    content: UserMessageType['message']['content'],
+  ) => void
+  /** 回答 AskUserQuestion —— 调用方持有 pendingQuestion.runId 直接传入 */
+  answerQuestion: (
+    flowId: string,
+    runId: string,
+    toolUseId: string,
+    output: AskUserQuestionOutput,
+  ) => void
+  /** 回答工具权限请求 —— 调用方持有 pendingToolPermission.runId 直接传入 */
+  answerToolPermission: (flowId: string, runId: string, toolUseId: string, allow: boolean) => void
+  /** 中断当前 run —— 调用方决定要中断哪个 run */
+  interruptAgent: (flowId: string, runId: string) => void
   killFlow: (flowId: string) => void
   setShareValues: (flowId: string, values: Record<string, string>) => boolean
   /**
    * 触发会话 fork —— 从源 Flow 当前 transcript 切片复制出新 Flow。
+   * target.runId 已唯一定位源 RunState 中的 AgentRun;extension 从 located run 反推 agentId,
+   * webview 不再传递。
    * 仅 post command,本地不预提交 reducer,等 extension 回 `flow.signal.fork` 后再写入新 Flow。
    */
   forkFlow: (
     sourceFlowId: string,
-    agentId: string,
     target:
-      | { kind: 'message'; messageUuid: string }
-      | { kind: 'askUserQuestion'; toolUseId: string },
+      | { kind: 'message'; runId: string; messageUuid: string }
+      | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
   ) => void
   openChatDrawer: (flowId: string, agentId: string, agentName: string) => void
   closeChatDrawer: () => void
@@ -158,7 +105,7 @@ type FlowStoreType = StoreState & {
 export type {
   AgentPhase,
   AgentChatInputState,
-  AgentSession,
+  AgentRun,
   FlowPhase,
   FlowRunState,
   PendingQuestion,
@@ -222,7 +169,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       }
       // 通知判定
       if (!shouldNotify(n)) continue
-      const key = `flow-notify-${n.flowId}-${n.agentId}-${n.reason}`
+      const key = `flow-notify-${n.flowId}-${n.runId}-${n.reason}`
       activeNotificationKeys.add(key)
       notificationApi?.info({
         key,
@@ -313,20 +260,25 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         // fork signal：源 Flow 状态不变，需要在 store 中复制 sourceFlow 定义、
         // 写入新 RunState、切到新 Flow、打开 ChatDrawer，并触发 save 持久化。
         if (msg.type === 'flow.signal.fork') {
-          const { flowId: sourceFlowId, newFlowId, newRunState, agentId } = msg.data
+          const { flowId: sourceFlowId, newFlowId, newRunState, runId } = msg.data
           const { flows } = get()
           const sourceFlow = flows.find((f) => f.id === sourceFlowId)
           if (!sourceFlow) return
           const newFlow: Flow = { ...structuredClone(sourceFlow), id: newFlowId }
-          const nextAgent = newFlow.agents?.find((a) => a.id === agentId)
+          // fork 出的 run 永远是 newRunState.runs 末位 —— 用 runId 校验防御
+          const lastRun = newRunState.runs.at(-1)
+          const agentId = lastRun?.runId === runId ? lastRun.agentId : undefined
+          const nextAgent = agentId ? newFlow.agents?.find((a) => a.id === agentId) : undefined
           immerSet((draft) => {
             draft.flows.push(newFlow)
             draft.flowRunStates[newFlowId] = newRunState
             draft.activeFlowId = newFlowId
-            draft.chatDrawer = {
-              flowId: newFlowId,
-              agentId,
-              agentName: nextAgent?.agent_name ?? '',
+            if (agentId) {
+              draft.chatDrawer = {
+                flowId: newFlowId,
+                agentId,
+                agentName: nextAgent?.agent_name ?? '',
+              }
             }
             draft.editingAgent = undefined
           })
@@ -341,8 +293,8 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         if (!existing) return
 
         // 记录 agentComplete 前的状态，用于自动切换 ChatPanel
-        const prevLastSession = existing.sessions[existing.sessions.length - 1]
-        const prevLastAgentId = prevLastSession?.agentId
+        const prevLastRun = existing.runs[existing.runs.length - 1]
+        const prevLastAgentId = prevLastRun?.agentId
 
         const { state, effects } = updateFlowRunState(msg, {
           state: existing,
@@ -352,21 +304,21 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
           if (!state) return
           draft.flowRunStates[flowId] = state
 
-          // agentComplete 时：如果 ChatPanel 正打开的是已完成的 agent，切到下一个 agent
+          // agentComplete 时:如果 ChatPanel 正打开的是已完成的 agent,切到下一个 agent
           if (msg.type === 'flow.signal.agentComplete') {
-            const newLastSession = state.sessions[state.sessions.length - 1]
+            const newLastRun = state.runs[state.runs.length - 1]
             if (
               chatDrawer?.flowId === flowId &&
               chatDrawer.agentId === prevLastAgentId &&
-              newLastSession &&
-              newLastSession.agentId !== prevLastAgentId
+              newLastRun &&
+              newLastRun.agentId !== prevLastAgentId
             ) {
               const nextAgent = flows
                 .find((f) => f.id === flowId)
-                ?.agents?.find((a) => a.id === newLastSession.agentId)
+                ?.agents?.find((a) => a.id === newLastRun.agentId)
               draft.chatDrawer = {
                 flowId,
-                agentId: newLastSession.agentId,
+                agentId: newLastRun.agentId,
                 agentName: nextAgent?.agent_name ?? chatDrawer.agentName,
               }
             }
@@ -392,15 +344,16 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
           }
         : initMessage
       const existingState = flowRunStates[flowId]
-      if (existingState?.sessions?.length) {
-        clearBuildCacheForSessions(existingState.sessions.map((s) => s.sessionId))
+      if (existingState?.runs?.length) {
+        clearBuildCacheForRuns(existingState.runs.map((r) => r.runId))
       }
-      const runKey = crypto.randomUUID()
+      // webview 生成 runId 随 command 下发,作为本次 run 的唯一主键
+      const runId = crypto.randomUUID()
       dispatchCommand({
         type: 'flow.command.flowStart',
         data: {
           flowId,
-          runKey,
+          runId,
           agentId,
           initMessage: effectiveInitMessage,
         },
@@ -443,17 +396,12 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       })
       postMessageToExtension({ type: 'save', data: get().flows })
     },
-    sendUserMessage: (flowId, content) => {
-      const { flowRunStates } = get()
-      const fs = flowRunStates[flowId]
-      const sessionId = fs?.sessions.find((s) => !s.completed)?.sessionId
-      if (!fs?.runId || !sessionId) return
+    sendUserMessage: (flowId, runId, content) => {
       dispatchCommand({
         type: 'flow.command.userMessage',
         data: {
           flowId,
-          runId: fs.runId,
-          sessionId,
+          runId,
           message: {
             type: 'user',
             message: { role: 'user', content },
@@ -462,41 +410,31 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         },
       })
     },
-    answerQuestion: (flowId, toolUseId, output) => {
-      const { flowRunStates } = get()
-      const fs = flowRunStates[flowId]
-      const sessionId = fs?.sessions.find((s) => !s.completed)?.sessionId
-      if (!fs?.runId || !sessionId) return
+    answerQuestion: (flowId, runId, toolUseId, output) => {
       dispatchCommand({
         type: 'flow.command.answerQuestion',
-        data: { flowId, runId: fs.runId, sessionId, toolUseId, output },
+        data: { flowId, runId, toolUseId, output },
       })
     },
-    answerToolPermission: (flowId, toolUseId, allow) => {
-      const { flowRunStates } = get()
-      const fs = flowRunStates[flowId]
-      const sessionId = fs?.sessions.find((s) => !s.completed)?.sessionId
-      if (!fs?.runId || !sessionId) return
+    answerToolPermission: (flowId, runId, toolUseId, allow) => {
       dispatchCommand({
         type: 'flow.command.toolPermissionResult',
-        data: { flowId, runId: fs.runId, sessionId, toolUseId, allow },
+        data: { flowId, runId, toolUseId, allow },
       })
     },
-    interruptAgent: (flowId) => {
+    interruptAgent: (flowId, runId) => {
       const { flowRunStates } = get()
       const fs = flowRunStates[flowId]
-      if (!fs || !flowCanBeKilled(fs.phase)) return
-      const sessionId = fs.sessions.find((s) => !s.completed)?.sessionId
-      if (!fs.runId || !sessionId) return
+      if (!fs || !flowCanBeKilled(getFlowPhase(fs))) return
       dispatchCommand({
         type: 'flow.command.interrupt',
-        data: { flowId, runId: fs.runId, sessionId },
+        data: { flowId, runId },
       })
     },
     killFlow: (flowId) => {
       const { flowRunStates } = get()
       const fs = flowRunStates[flowId]
-      if (!fs || !flowCanBeKilled(fs.phase)) return
+      if (!fs || !flowCanBeKilled(getFlowPhase(fs))) return
       dispatchCommand({
         type: 'flow.command.killFlow',
         data: { flowId },
@@ -509,12 +447,12 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       })
       return true
     },
-    forkFlow: (sourceFlowId, agentId, target) => {
+    forkFlow: (sourceFlowId, target) => {
       // 不本地预提交：fork 由 extension 完成 SDK forkSession + 准备 newRunState 后回 signal,
       // 由 onMessage 中的 'flow.signal.fork' 路径写入新 Flow / 切 activeFlowId / 打开 ChatDrawer。
       postMessageToExtension({
         type: 'flow.command.fork',
-        data: { flowId: sourceFlowId, agentId, target },
+        data: { flowId: sourceFlowId, target },
       })
     },
     copyAgents: (newAgents, flowId) => {

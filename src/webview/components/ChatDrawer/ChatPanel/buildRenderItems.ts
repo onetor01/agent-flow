@@ -132,9 +132,9 @@ export function clearBuildCache(sessionId?: string): void {
   }
 }
 
-/** 按 sessionId 列表批量清除缓存 */
-export function clearBuildCacheForSessions(sessionIds: string[]): void {
-  for (const id of sessionIds) {
+/** 按 runId 列表批量清除缓存(调用方在 flow 重启时把对应 run 的缓存清掉) */
+export function clearBuildCacheForRuns(runIds: string[]): void {
+  for (const id of runIds) {
     cache.delete(id)
   }
 }

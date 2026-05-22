@@ -12,6 +12,7 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable'
 import { AnimatePresence, motion } from 'motion/react'
+import { getFlowPhase } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { SortableFlowItem } from './SortableFlowItem'
 
@@ -176,7 +177,7 @@ export const FlowListPanel: FC = () => {
                       key={flow.id}
                       flow={flow}
                       isActive={flow.id === activeFlowId}
-                      phase={flowRunStates[flow.id]?.phase}
+                      phase={getFlowPhase(flowRunStates[flow.id])}
                       onClick={() => setActiveFlowId(flow.id)}
                       onDelete={() => onDelete(flow.id)}
                       onRename={(name) => onRename(flow.id, name)}

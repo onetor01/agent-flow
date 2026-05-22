@@ -9,7 +9,6 @@ import type {
   ExtensionFromWebviewMessage,
   ExtensionToWebviewMessage,
   Flow,
-  FlowPhase,
   FlowRunState,
   PersistedData,
 } from '@/common'
@@ -162,10 +161,11 @@ export function activate(context: vscode.ExtensionContext) {
   )
 
   /**
-   * 在源 RunState 的 sessions 中定位 fork target 所在 session 与切片终点。
-   * - `messageIdx` 为 target 命中的消息在 sessions[i].messages 中的索引,
+   * 在源 RunState 的指定 run 中定位 fork 切片终点。
+   * target.runId 已唯一定位 AgentRun,这里只在该 run 的 messages 内寻 messageUuid / toolUseId。
+   * - `messageIdx` 为 target 命中的消息在 run.messages 中的索引,
    *   handleFork 据此 slice(0, messageIdx + 1) 裁剪 messages,确保 webview
-   *   端切片与 SDK transcript 一致（不含切片终点之后的 result / tool_result 等）
+   *   端切片与 SDK transcript 一致(不含切片终点之后的 result / tool_result 等)
    * - 对 askUserQuestion target 还会回填该 toolUseId 的 input 用于新 RunState 的 pendingQuestion
    */
   type ForkTarget = ExtensionFlowCommandEvents['flow.command.fork']['target']
@@ -174,50 +174,50 @@ export function activate(context: vscode.ExtensionContext) {
     target: ForkTarget,
   ):
     | {
-        sessionIdx: number
-        sessionId: string
+        runIdx: number
+        sessionId: string | undefined
         messageIdx: number
         upToMessageId: string
         askInput?: AskUserQuestionInput
       }
     | undefined => {
-    for (let i = 0; i < state.sessions.length; i++) {
-      const session = state.sessions[i]
-      for (let j = 0; j < session.messages.length; j++) {
-        const m = session.messages[j]
-        if (m.type !== 'flow.signal.aiMessage') continue
-        const sdkMsg = m.data.message as {
-          type: string
-          uuid?: string
-          message?: { content?: unknown }
-        }
-        if (target.kind === 'message') {
-          if (sdkMsg.uuid && sdkMsg.uuid === target.messageUuid) {
-            return {
-              sessionIdx: i,
-              sessionId: session.sessionId,
-              messageIdx: j,
-              upToMessageId: target.messageUuid,
-            }
+    const runIdx = state.runs.findIndex((r) => r.runId === target.runId)
+    if (runIdx < 0) return undefined
+    const run = state.runs[runIdx]
+    for (let j = 0; j < run.messages.length; j++) {
+      const m = run.messages[j]
+      if (m.type !== 'flow.signal.aiMessage') continue
+      const sdkMsg = m.data.message as {
+        type: string
+        uuid?: string
+        message?: { content?: unknown }
+      }
+      if (target.kind === 'message') {
+        if (sdkMsg.uuid && sdkMsg.uuid === target.messageUuid) {
+          return {
+            runIdx,
+            sessionId: run.sessionId,
+            messageIdx: j,
+            upToMessageId: target.messageUuid,
           }
-        } else if (target.kind === 'askUserQuestion') {
-          if (sdkMsg.type !== 'assistant') continue
-          const blocks = sdkMsg.message?.content
-          if (!Array.isArray(blocks)) continue
-          for (const block of blocks) {
-            if (
-              block &&
-              typeof block === 'object' &&
-              (block as { type?: string; id?: string }).type === 'tool_use' &&
-              (block as { id?: string }).id === target.toolUseId
-            ) {
-              return {
-                sessionIdx: i,
-                sessionId: session.sessionId,
-                messageIdx: j,
-                upToMessageId: sdkMsg.uuid ?? '',
-                askInput: (block as { input?: AskUserQuestionInput }).input,
-              }
+        }
+      } else {
+        if (sdkMsg.type !== 'assistant') continue
+        const blocks = sdkMsg.message?.content
+        if (!Array.isArray(blocks)) continue
+        for (const block of blocks) {
+          if (
+            block &&
+            typeof block === 'object' &&
+            (block as { type?: string; id?: string }).type === 'tool_use' &&
+            (block as { id?: string }).id === target.toolUseId
+          ) {
+            return {
+              runIdx,
+              sessionId: run.sessionId,
+              messageIdx: j,
+              upToMessageId: sdkMsg.uuid ?? '',
+              askInput: (block as { input?: AskUserQuestionInput }).input,
             }
           }
         }
@@ -249,7 +249,7 @@ export function activate(context: vscode.ExtensionContext) {
   const handleFork = async (
     data: ExtensionFlowCommandEvents['flow.command.fork'],
   ): Promise<void> => {
-    const { flowId: sourceFlowId, agentId, target } = data
+    const { flowId: sourceFlowId, target } = data
     const sourceFlow = currentFlows.flows.find((f) => f.id === sourceFlowId)
     const sourceState = flowRunStateManager.getFlowRunStates()[sourceFlowId]
     if (!sourceFlow || !sourceState) {
@@ -257,11 +257,14 @@ export function activate(context: vscode.ExtensionContext) {
       return
     }
     const located = locateFork(sourceState, target)
-    if (!located || !located.upToMessageId) {
+    if (!located || !located.upToMessageId || !located.sessionId) {
       logError('[fork] target not located', target)
       return
     }
-    const { sessionIdx, sessionId: srcSessionId, messageIdx, upToMessageId, askInput } = located
+    const { runIdx, sessionId: srcSessionId, messageIdx, upToMessageId, askInput } = located
+    // agentId 由 target.runId 定位到的 run 反推 —— spawnForFork 启动 FlowRunner 需要,
+    // signal 不再单独携带(webview 端从 newRunState.runs.at(-1).agentId 反推)
+    const agentId = sourceState.runs[runIdx].agentId
 
     const dir = vscode.workspace.workspaceFolders?.[0].uri.fsPath
     let newSessionId: string
@@ -273,11 +276,12 @@ export function activate(context: vscode.ExtensionContext) {
       return
     }
 
-    // 复制并裁剪 sessions：保留 [0, sessionIdx)，target 所在 session
-    // 替换为 newSessionId、completed 重置；messages 按 messageIdx 裁剪到切片终点（含）
-    const newSessions = sourceState.sessions.slice(0, sessionIdx).map((s) => structuredClone(s))
-    const targetSession = sourceState.sessions[sessionIdx]
-    const slicedMessages = targetSession.messages
+    // 复制并裁剪 runs:保留 [0, runIdx),target 所在 run
+    // 替换为新 runId、completed 重置;messages 按 messageIdx 裁剪到切片终点(含)
+    const newRunId = globalThis.crypto.randomUUID()
+    const newRuns = sourceState.runs.slice(0, runIdx).map((r) => structuredClone(r))
+    const targetRun = sourceState.runs[runIdx]
+    const slicedMessages = targetRun.messages
       .slice(0, messageIdx + 1)
       .map((m) => structuredClone(m))
 
@@ -301,43 +305,45 @@ export function activate(context: vscode.ExtensionContext) {
       logError('[fork] getSessionMessages failed, message uuid not remapped', err)
     }
 
-    newSessions.push({
-      ...structuredClone(targetSession),
+    newRuns.push({
+      ...structuredClone(targetRun),
+      runId: newRunId,
       sessionId: newSessionId,
       messages: slicedMessages,
       completed: false,
       outputName: undefined,
     })
 
-    let phase: FlowPhase = 'result'
+    // fork 切片末尾追加 agentInterrupted signal —— 让 getRunPhase 推断为
+    // 'interrupted'(ChatInput 处于 ready 状态可发消息);askUserQuestion fork
+    // 由下方 pendingQuestions 提供 awaiting-question,优先级高于 interrupted。
+    slicedMessages.push({
+      type: 'flow.signal.agentInterrupted',
+      data: { flowId: sourceFlowId, runId: newRunId },
+    })
+
     const pendingQuestions: FlowRunState['pendingQuestions'] = []
     const answeredQuestions = { ...sourceState.answeredQuestions }
     if (target.kind === 'askUserQuestion' && askInput) {
       // 保留源 toolUseId —— 与 SDK transcript 中 tool_use.id 对齐,
       // 用户答题时 ClaudeExecutor.pendingAnswers 按源 toolUseId 索引,
       // SDK resume 后 canUseTool 用同一 id 直接命中
-      phase = 'awaiting-question'
       pendingQuestions.push({
         toolUseId: target.toolUseId,
         input: askInput,
-        sessionId: newSessionId,
+        runId: newRunId,
       })
       // 原 toolUseId 的已答记录无意义,清掉避免 UI 误判
       delete answeredQuestions[target.toolUseId]
     }
 
-    // 提前生成 runId 写入 newRunState（路线 A 核心：webview 收到 signal.fork 时 runId 已就绪）
-    const newRunId = globalThis.crypto.randomUUID()
     const newRunState: FlowRunState = {
-      runKey: undefined,
-      runId: newRunId,
-      phase,
-      sessions: newSessions,
+      killed: false,
+      runs: newRuns,
       answeredQuestions,
       answeredToolPermissions: { ...sourceState.answeredToolPermissions },
       pendingQuestions,
-      pendingToolPermission: undefined,
-      currentAgentId: agentId,
+      pendingToolPermissions: [],
       shareValues: { ...sourceState.shareValues },
     }
 
@@ -350,14 +356,13 @@ export function activate(context: vscode.ExtensionContext) {
     )
     flowRunStateManager.setRunState(newFlowId, newRunState)
 
-    // 路线 A：立即 spawn FlowRunner 启动 SDK;runId 已确定,webview 后续派发的
+    // 立即 spawn FlowRunner 启动 SDK;runId 已确定,webview 后续派发的
     // userMessage / answerQuestion / interrupt 都能正常匹配到此 runner。
     // - askUserQuestion fork: 'resume-pending' 模式,构造时 push isSynthetic dummy
     //   启动 SDK iteration 让其自然走到 transcript 末端的悬空 tool_use,触发 canUseTool
     //   挂起 resolver。用户提交答案时 answerQuestion 直接命中 resolver。
     // - 普通 fork(user/text/thinking/turn_end): 'lazy' 模式,等用户首次操作触发 SDK 启动。
-    const forkMode: 'lazy' | 'resume-pending' =
-      target.kind === 'askUserQuestion' ? 'resume-pending' : 'lazy'
+    const forkMode: 'lazy' | 'resume-pending' = 'lazy'
     runnerManager.spawnForFork({
       flowId: newFlowId,
       flow: newFlow,
@@ -369,7 +374,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     postMessageToWebview({
       type: 'flow.signal.fork',
-      data: { flowId: sourceFlowId, newFlowId, newRunState, agentId, runId: newRunId },
+      data: { flowId: sourceFlowId, newFlowId, newRunState, runId: newRunId },
     })
   }
 
