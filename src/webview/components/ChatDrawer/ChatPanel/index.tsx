@@ -23,6 +23,7 @@ import {
   getFlowPhase,
   getPendingQuestionsFor,
   getPendingToolPermissionsFor,
+  getRunPhase,
 } from '@/common'
 import type { AgentRun } from '@/webview/store/flow'
 import { useFlowStore, flowCanBeKilled, type AgentPhase } from '@/webview/store/flow'
@@ -37,6 +38,16 @@ export type ChatPanelRef = {
 type Props = {
   flowId: string
   agentId: string
+  /**
+   * 单 run 视图模式:仅展示该 runId 的消息,phase / pendings 也限定到这一条 run。
+   * 不传则按 agentId 视图,展示该 agent 全部 runs 的拼接(原有行为)。
+   */
+  runId?: string
+  /**
+   * Token / cost 累计口径。默认 'flow' = 跨 Flow 全部 runs(原有行为);
+   * 'view' = 跟随当前视图(runId 视图 = 单 run;agentId 视图 = 该 agent 全部 runs)。
+   */
+  tokenMode?: 'flow' | 'view'
   onClose?: () => void
   ref?: React.Ref<ChatPanelRef>
 }
@@ -59,7 +70,14 @@ function buildAnsweredMap(
   return answeredMap
 }
 
-export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
+export const ChatPanel: FC<Props> = ({
+  flowId,
+  agentId,
+  runId,
+  tokenMode = 'flow',
+  onClose,
+  ref,
+}) => {
   const killFlow = useFlowStore((s) => s.killFlow)
   const answerQuestion = useFlowStore((s) => s.answerQuestion)
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
@@ -71,30 +89,50 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
       s.flows.find((f) => f.id === flowId)?.agents?.find((a) => a.id === agentId)?.agent_name ?? '',
   )
 
-  const phase = useFlowStore((s) => getAgentPhase(s.flowRunStates[flowId], agentId))
+  // runId 视图:phase 用 getRunPhase 限定到单 run;agentId 视图:跨该 agent 全部 run 聚合
+  const phase = useFlowStore((s): AgentPhase => {
+    const fs = s.flowRunStates[flowId]
+    if (runId) {
+      const r = fs?.runs.find((r) => r.runId === runId)
+      if (!r || !fs) return 'idle'
+      return getRunPhase(r, fs)
+    }
+    return getAgentPhase(fs, agentId)
+  })
   const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
-  const pendingQuestions = useFlowStore((s) =>
-    getPendingQuestionsFor(s.flowRunStates[flowId], agentId),
-  )
-  const pendingToolPerms = useFlowStore((s) =>
-    getPendingToolPermissionsFor(s.flowRunStates[flowId], agentId),
-  )
+  // pendingQuestions / pendingToolPerms:runId 视图按 runId 过滤,agentId 视图按 agent 过滤
+  const pendingQuestions = useFlowStore((s) => {
+    const fs = s.flowRunStates[flowId]
+    if (runId) return fs?.pendingQuestions.filter((q) => q.runId === runId) ?? []
+    return getPendingQuestionsFor(fs, agentId)
+  })
+  const pendingToolPerms = useFlowStore((s) => {
+    const fs = s.flowRunStates[flowId]
+    if (runId) return fs?.pendingToolPermissions.filter((p) => p.runId === runId) ?? []
+    return getPendingToolPermissionsFor(fs, agentId)
+  })
   const answeredToolPermissions = useFlowStore((s) =>
     getAnsweredToolPermissions(s.flowRunStates[flowId]),
   )
   const allRuns = useFlowStore((s) => s.flowRunStates[flowId]?.runs)
-  const runs = useMemo<AgentRun[]>(
-    () => allRuns?.filter((r) => r.agentId === agentId) ?? [],
-    [allRuns, agentId],
-  )
+  // runs:runId 视图 = 单条 run(找不到则空);agentId 视图 = 该 agent 全部 runs
+  const runs = useMemo<AgentRun[]>(() => {
+    if (!allRuns) return []
+    if (runId) {
+      const r = allRuns.find((r) => r.runId === runId)
+      return r ? [r] : []
+    }
+    return allRuns.filter((r) => r.agentId === agentId)
+  }, [allRuns, agentId, runId])
   const answeredQuestions = useFlowStore((s) => s.flowRunStates[flowId]?.answeredQuestions)
 
-  // Flow 级累计:modelUsage 与 total_cost_usd 都是 session 累计快照,
-  // 因此每个 run 都只取「最后一条 result」,再跨 run 相加。
-  // tokens 含 4 字段 (input + output + cacheCreation + cacheRead),
+  // Token / cost 累计:tokenMode = 'flow' 跨 Flow 全部 runs;'view' 用当前视图选出的 runs。
+  // modelUsage 与 total_cost_usd 都是 session 累计快照,因此每个 run 都只取「最后一条 result」,
+  // 再跨 run 相加。tokens 含 4 字段 (input + output + cacheCreation + cacheRead),
   // 与 turn_end / agent_complete 口径一致。
+  const tokenSourceRuns = tokenMode === 'view' ? runs : allRuns
   const { totalTokens, totalCost, modelBreakdown } = useMemo(() => {
-    if (!allRuns)
+    if (!tokenSourceRuns)
       return {
         totalTokens: 0,
         totalCost: 0,
@@ -103,7 +141,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
     let totalTokens = 0
     let totalCost = 0
     const modelMap = new Map<string, { tokens: number; cost: number }>()
-    for (const run of allRuns) {
+    for (const run of tokenSourceRuns) {
       let lastModelUsage: Record<string, unknown> | undefined
       let lastResultCost: number | undefined
       let runModel: string | undefined
@@ -141,7 +179,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
     }
     const modelBreakdown = Array.from(modelMap.entries()).map(([m, v]) => ({ model: m, ...v }))
     return { totalTokens, totalCost, modelBreakdown }
-  }, [allRuns])
+  }, [tokenSourceRuns])
 
   const canKillFlow = flowCanBeKilled(flowPhase)
 

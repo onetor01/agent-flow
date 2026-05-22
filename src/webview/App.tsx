@@ -35,7 +35,7 @@ export const App: FC = () => {
     if (targetAgentId) {
       const latestFlow = useFlowStore.getState().flows.find((f) => f.id === activeFlowId)
       const agent = latestFlow?.agents?.find((a) => a.id === targetAgentId)
-      openChatDrawer(activeFlowId, targetAgentId, agent?.agent_name ?? '')
+      openChatDrawer({ flowId: activeFlowId, agentId: targetAgentId, agentName: agent?.agent_name ?? '' })
     } else {
       closeChatDrawer()
     }
@@ -68,13 +68,13 @@ export const App: FC = () => {
         ))}
         <FlowListPanel />
       </div>
-      {chatDrawer && (
-        <ChatDrawer
-          flowId={chatDrawer.flowId}
-          agentId={chatDrawer.agentId}
-          onClose={closeChatDrawer}
-        />
-      )}
+      <ChatDrawer
+        flowId={chatDrawer?.flowId}
+        agentId={chatDrawer?.agentId}
+        runId={chatDrawer?.runId}
+        open={!!chatDrawer}
+        onClose={closeChatDrawer}
+      />
       <AgentEditor />
       <FlowEditor />
     </div>

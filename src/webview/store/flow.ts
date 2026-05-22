@@ -43,8 +43,11 @@ type StoreState = {
 
 export type ChatDrawerState = {
   flowId: string
-  agentId: string
-  agentName: string
+  /** agentId 视图 / agentName 展示用;runId 模式下可省略,由 ChatPanel 反查 agentId */
+  agentId?: string
+  /** 单 run 视图;给定时 ChatPanel 限定到该 run */
+  runId?: string
+  agentName?: string
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────
@@ -92,7 +95,7 @@ type FlowStoreType = StoreState & {
     sourceFlowId: string,
     target: { kind: 'message'; runId: string; messageUuid: string },
   ) => void
-  openChatDrawer: (flowId: string, agentId: string, agentName: string) => void
+  openChatDrawer: (state: ChatDrawerState) => void
   closeChatDrawer: () => void
   setEditingAgent: (agent?: { flowId: string; agentId: string }) => void
   setEditingFlowId: (id?: string) => void
@@ -135,11 +138,19 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
   const shouldNotify = (effect: MessageEffect): boolean => {
     // a. 页面不可见时始终通知
     if (document.hidden) return true
-    const { activeFlowId, chatDrawer } = get()
+    const { activeFlowId, chatDrawer, flowRunStates } = get()
     // b. activeFlowId 与消息来源不一致时通知
     if (activeFlowId !== effect.flowId) return true
     // c. ChatPanel 已打开且 agentId 不一致时通知
-    if (chatDrawer && chatDrawer.agentId !== effect.agentId) return true
+    if (chatDrawer) {
+      const drawerAgentId =
+        chatDrawer.agentId ??
+        (chatDrawer.runId
+          ? flowRunStates[chatDrawer.flowId]?.runs.find((r) => r.runId === chatDrawer.runId)
+              ?.agentId
+          : undefined)
+      if (drawerAgentId !== effect.agentId) return true
+    }
     return false
   }
 
@@ -302,11 +313,13 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
           if (!state) return
           draft.flowRunStates[flowId] = state
 
-          // agentComplete 时:如果 ChatPanel 正打开的是已完成的 agent,切到下一个 agent
+          // agentComplete 时:如果 ChatPanel 正打开的是已完成的 agent(agentId 视图),切到下一个 agent。
+          // runId 视图(chatDrawer.runId 存在)是用户主动锁定的某条 run,不做跟随。
           if (msg.type === 'flow.signal.agentComplete') {
             const newLastRun = state.runs[state.runs.length - 1]
             if (
               chatDrawer?.flowId === flowId &&
+              !chatDrawer.runId &&
               chatDrawer.agentId === prevLastAgentId &&
               newLastRun &&
               newLastRun.agentId !== prevLastAgentId
@@ -368,9 +381,9 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         draft.flowListCollapsed = collapsed
       })
     },
-    openChatDrawer: (flowId, agentId, agentName) => {
+    openChatDrawer: (state) => {
       immerSet((draft) => {
-        draft.chatDrawer = { flowId, agentId, agentName }
+        draft.chatDrawer = state
       })
     },
     closeChatDrawer: () => {

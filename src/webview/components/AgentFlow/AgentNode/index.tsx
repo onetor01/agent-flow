@@ -90,7 +90,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               if (chatDrawer?.flowId === flowId && chatDrawer?.agentId === agentId) {
                 closeChatDrawer()
               } else {
-                openChatDrawer(flowId, agentId, agentName)
+                openChatDrawer({ flowId, agentId })
               }
             }}
           >
@@ -105,7 +105,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                 onClick={(e) => {
                   e.stopPropagation()
                   const { openChatDrawer } = useFlowStore.getState()
-                  openChatDrawer(flowId, agentId, agentName)
+                  openChatDrawer({ flowId, agentId })
                   startFlow(flowId, agentId, {
                     type: 'user',
                     message: {
