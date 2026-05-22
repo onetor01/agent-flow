@@ -9,7 +9,7 @@ import {
   type WheelEventHandler,
 } from 'react'
 import { App, Button, Skeleton, Tag, Tooltip } from 'antd'
-import { BranchesOutlined, CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
+import { CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import type { BubbleListRef } from '@ant-design/x/es/bubble/interface'
 import { AnimatePresence, motion } from 'motion/react'
@@ -192,12 +192,7 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
    * target 已携带 runId,extension 端按 runId 单 loop 定位 run,无需再传 agentId。
    */
   const onForkRequest = useCallback(
-    (
-      target:
-        | { kind: 'message'; runId: string; messageUuid: string }
-        | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
-      sessionCompleted: boolean,
-    ) => {
+    (target: { kind: 'message'; runId: string; messageUuid: string }, sessionCompleted: boolean) => {
       const doFork = () => forkFlow(flowId, target)
       if (!sessionCompleted) {
         doFork()
@@ -449,28 +444,6 @@ export const ChatPanel: FC<Props> = ({ flowId, agentId, onClose, ref }) => {
               <div className='h-0.5 w-8 rounded-full bg-[#6c7086]' />
             </motion.div>
             <div className='relative flex-1 overflow-auto px-3 py-2'>
-              {/* pending ask_user_question fork icon —— 当前 session 的 pending,不弹 modal */}
-              {pendingQuestions.length > 0 && (
-                <Tooltip title='从此处 fork 出新工作流（保留当前问题）'>
-                  <Button
-                    size='small'
-                    type='text'
-                    icon={<BranchesOutlined />}
-                    onClick={() =>
-                      onForkRequest(
-                        {
-                          kind: 'askUserQuestion',
-                          runId: pendingQuestions[0].runId,
-                          toolUseId: pendingQuestions[0].toolUseId,
-                        },
-                        false,
-                      )
-                    }
-                    className='absolute top-1 right-1 z-10'
-                    style={{ color: '#6c7086' }}
-                  />
-                </Tooltip>
-              )}
               <AskUserQuestionCard
                 input={mergedInput}
                 mode='active'

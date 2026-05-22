@@ -41,15 +41,12 @@ export type BubbleCtx = {
   /**
    * 触发会话 fork。target.kind:
    * - `message`：以 SDK 消息 UUID 为切片终点
-   * - `askUserQuestion`：以包含该 toolUseId 的 assistant message 为切片终点（不含 tool_result）
    *
    * 第二个参数 sessionCompleted 由 ChatPanel 在每个 session 上下文中注入，
    * 用于让 fork 触发方决定是否弹 modal 提示「shareValues 一致性不保证」。
    */
   onFork?: (
-    target:
-      | { kind: 'message'; runId: string; messageUuid: string }
-      | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
+    target: { kind: 'message'; runId: string; messageUuid: string },
     sessionCompleted: boolean,
   ) => void
 }
@@ -296,11 +293,11 @@ function renderItemToBubble(
    * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素,作为 Copyable.extra 注入。
    * fork icon 与 CopyButton 同列垂直堆叠（见 Copyable 组件实现）,不再用 absolute 定位。
    */
-  const buildForkIcon = (
-    target:
-      | { kind: 'message'; runId: string; messageUuid: string }
-      | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
-  ): ReactNode | undefined => {
+  const buildForkIcon = (target: {
+    kind: 'message'
+    runId: string
+    messageUuid: string
+  }): ReactNode | undefined => {
     if (!ctx?.onFork) return undefined
     return <ForkButton onFork={() => ctx.onFork!(target, sessionCompleted)} />
   }
@@ -397,23 +394,10 @@ function renderItemToBubble(
           answeredValues={answered?.values}
         />
       )
-      const fork = runId
-        ? buildForkIcon({ kind: 'askUserQuestion', runId, toolUseId: item.toolUseId })
-        : undefined
-      // ask_user_question 卡片自带样式,不通过 Copyable 包裹（无文本可复制）;
-      // fork icon 用 inline-flex 直接挂在卡片右侧。
-      const content = fork ? (
-        <div className='flex items-start gap-1'>
-          <div className='min-w-0 flex-1'>{card}</div>
-          <div className='shrink-0 pt-1'>{fork}</div>
-        </div>
-      ) : (
-        card
-      )
       return {
         key: item.key,
         role: 'system',
-        content,
+        content: card,
       }
     }
     case 'tool_use': {

@@ -90,9 +90,7 @@ type FlowStoreType = StoreState & {
    */
   forkFlow: (
     sourceFlowId: string,
-    target:
-      | { kind: 'message'; runId: string; messageUuid: string }
-      | { kind: 'askUserQuestion'; runId: string; toolUseId: string },
+    target: { kind: 'message'; runId: string; messageUuid: string },
   ) => void
   openChatDrawer: (flowId: string, agentId: string, agentName: string) => void
   closeChatDrawer: () => void

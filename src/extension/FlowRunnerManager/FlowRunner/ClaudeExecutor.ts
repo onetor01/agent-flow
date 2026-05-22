@@ -34,10 +34,8 @@ export type ExecutorResult = {
  * ClaudeExecutor 启动模式:
  * - 'eager'(默认): 普通启动,构造时立即 createQuery 并 push initMessage
  * - 'lazy': 构造时不 createQuery,等用户首次操作触发(普通 fork:user/text/thinking/turn_end)
- * - 'resume-pending': 构造时立即 createQuery 并 push isSynthetic dummy 启动 SDK
- *   iteration 但不创建新 user turn(askUserQuestion fork,SDK 看到悬空 tool_use 自动调 canUseTool)
  */
-export type ExecutorMode = 'eager' | 'lazy' | 'resume-pending'
+export type ExecutorMode = 'eager' | 'lazy'
 
 export type ExecutorEvents = {
   /** 首条 SDK 消息抵达时触发(eager 模式),用于上层在透传前发 flow.signal.flowStart */
@@ -109,25 +107,6 @@ export class ClaudeExecutor {
   >()
 
   /**
-   * fork 模式（lazy）：构造时**不**调 createQuery、也不 push initMessage。
-   * - 等用户首次 sendUserMessage 时才 createQuery + push（resume 模式下接续 SDK 会话）
-   * - 普通 fork（user/text/thinking/turn_end）走此路径
-   *
-   * fork 模式（resume-pending）：构造时立即 createQuery 启动 SDK,但 push 一条
-   * `isSynthetic: true` 的 dummy 消息让 SDK iteration 启动而**不创建新 user turn**。
-   * SDK resume 后读取 transcript 末端的悬空 AskUserQuestion tool_use,自动调
-   * canUseTool,我们把 resolver 挂起到 pendingPermissions。用户在新 Flow 提交答案
-   * 时,answerQuestion 找到 resolver 直接 resolve(走最直接路径,与原 Flow 中
-   * askUserQuestion 答题路径一致)。代价:fork 出来即占用一次 SDK resume 连接,
-   * 但 token 消耗仅 transcript resume 一次,可接受。askUserQuestion fork 走此路径。
-   *
-   * pendingAnswers 兜底：极小概率下用户在 SDK 还没调 canUseTool 就提交答案,
-   * 此时 resolver 还没挂起,把 output 暂存到 pendingAnswers,canUseTool 触发时消费。
-   */
-  /** lazy / resume-pending 模式下,user 抢先于 SDK canUseTool 提交答案时的暂存 */
-  private pendingAnswers = new Map<string, AskUserQuestionOutput>()
-
-  /**
    * @param agent - Agent 定义(model、outputs、prompt 等)
    * @param currentValues - Agent 启动时的可读 values 快照(注入系统提示词,运行中不重读)
    * @param resumeSessionId - 若提供，构造时即以该 sessionId resume 已有 SDK 会话
@@ -135,8 +114,6 @@ export class ClaudeExecutor {
    * @param mode - fork 路径专用模式:
    *   - 'eager'(默认):构造时立即 createQuery 并 push initMessage(原非 fork 路径)
    *   - 'lazy':构造时不 createQuery、不 push initMessage,等用户首次操作触发(普通 fork)
-   *   - 'resume-pending':构造时立即 createQuery,push 一条 isSynthetic:true 的 dummy
-   *     消息启动 SDK iteration 但不创建新 user turn(askUserQuestion fork)
    */
   constructor(
     initMessage: UserMessageType,
@@ -152,24 +129,13 @@ export class ClaudeExecutor {
     // values 是写在系统提示词里的 不能即时读写 可以直接构造
     this.prompt = buildAgentSystemPrompt(agent, currentValues)
     if (resumeSessionId) {
-      // resume 模式：sessionId 已知;fork 路径(lazy/resume-pending)不透传 initMessage
+      // resume 模式：sessionId 已知;fork 路径(lazy)不透传 initMessage
       // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
       this._sessionId = resumeSessionId
       this.initEmitted = true
     }
     if (mode === 'eager') {
       this.createQuery(initMessage)
-    } else if (mode === 'resume-pending') {
-      // 用 isSynthetic dummy 启动 SDK iteration 但不创建新 user turn。
-      // SDK resume 看到 transcript 末端悬空 AskUserQuestion tool_use 会自动调
-      // canUseTool,我们挂起到 pendingPermissions,等用户在 webview 提交答案。
-      const synthetic: SDKUserMessage = {
-        type: 'user',
-        message: { role: 'user', content: '' },
-        parent_tool_use_id: null,
-        isSynthetic: true,
-      }
-      this.createQuery(synthetic)
     }
     // mode === 'lazy': 不 createQuery,等用户操作触发
   }
@@ -187,53 +153,28 @@ export class ClaudeExecutor {
   }
 
   /**
-   * 回答当前挂起的 AskUserQuestion：
-   * - SDK 已挂起（pendingPermissions 有 resolver）：直接 resolve（'resume-pending' 模式
-   *   下,SDK 启动后调 canUseTool 已挂起 resolver,这是主路径）
-   * - lazy 模式 SDK 还没启动 / pending 已被 reset / 'resume-pending' 但用户抢先一步：
-   *   把 output 暂存到 pendingAnswers,并触发 createQuery 启动 SDK（resume 模式 +
-   *   isSynthetic dummy 启动 iteration 不创建新 user turn）。SDK 看到悬空 tool_use
-   *   重新调 canUseTool 时,canUseTool 内消费 pendingAnswers 直接 resolve。
+   * 回答当前挂起的 AskUserQuestion：在 canUseTool 中已挂起 resolver 时直接 resolve。
+   * 找不到 resolver 时静默忽略（无 fork 兜底路径,SDK 不支持 askUserQuestion fork）。
    */
   answerQuestion(toolUseId: string, output: AskUserQuestionOutput): void {
     log('[ClaudeExecutor] answerQuestion', {
       toolUseId,
       hasResolver: this.pendingPermissions.has(toolUseId),
       pendingPermissionKeys: Array.from(this.pendingPermissions.keys()),
-      pendingAnswerKeys: Array.from(this.pendingAnswers.keys()),
       hasQueryInstance: !!this.queryInstance,
       sessionId: this._sessionId,
     })
     const resolver = this.pendingPermissions.get(toolUseId)
-    if (resolver) {
-      this.pendingPermissions.delete(toolUseId)
-      resolver({
-        behavior: 'allow',
-        updatedInput: {
-          questions: output.questions,
-          answers: output.answers,
-          ...(output.annotations ? { annotations: output.annotations } : {}),
-        },
-      })
-      return
-    }
-    // 找不到 resolver: lazy 模式 SDK 还没启动,把答案暂存,createQuery 后由 canUseTool 消费
-    this.pendingAnswers.set(toolUseId, output)
-    if (!this.queryInstance && !this.disposed && !this.completed) {
-      log('[ClaudeExecutor] answerQuestion → createQuery (lazy resume)', {
-        toolUseId,
-        sessionId: this._sessionId,
-      })
-      // 用 isSynthetic dummy 启动 SDK iteration 不创建新 user turn,与 'resume-pending'
-      // 路径一致 —— 让 SDK 自然走到 transcript 末端的悬空 tool_use 触发 canUseTool。
-      const synthetic: SDKUserMessage = {
-        type: 'user',
-        message: { role: 'user', content: '' },
-        parent_tool_use_id: null,
-        isSynthetic: true,
-      }
-      this.createQuery(synthetic)
-    }
+    if (!resolver) return
+    this.pendingPermissions.delete(toolUseId)
+    resolver({
+      behavior: 'allow',
+      updatedInput: {
+        questions: output.questions,
+        answers: output.answers,
+        ...(output.annotations ? { annotations: output.annotations } : {}),
+      },
+    })
   }
 
   /**
@@ -282,7 +223,6 @@ export class ClaudeExecutor {
   kill(): void {
     this.disposed = true
     this.pendingCompleteResult = null
-    this.pendingAnswers.clear()
     this.rejectAllPendingPermissions('executor disposed')
     this.abortCurrentQuery()
     this.mcpServer?.instance.close().catch((err) => {
@@ -319,24 +259,7 @@ export class ClaudeExecutor {
 
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
     if (toolName === 'AskUserQuestion') {
-      log('[ClaudeExecutor] canUseTool AskUserQuestion', {
-        toolUseID,
-        hasPendingAnswer: this.pendingAnswers.has(toolUseID),
-        pendingAnswerKeys: Array.from(this.pendingAnswers.keys()),
-      })
-      // lazy 模式（fork 重答场景）下用户已先一步提交答案：直接 resolve,跳过挂起
-      const pending = this.pendingAnswers.get(toolUseID)
-      if (pending) {
-        this.pendingAnswers.delete(toolUseID)
-        return Promise.resolve<PermissionResult>({
-          behavior: 'allow',
-          updatedInput: {
-            questions: pending.questions,
-            answers: pending.answers,
-            ...(pending.annotations ? { annotations: pending.annotations } : {}),
-          },
-        })
-      }
+      log('[ClaudeExecutor] canUseTool AskUserQuestion', { toolUseID })
       // 挂起，等待 answerQuestion() 被调用
       return new Promise<PermissionResult>((resolve) => {
         this.pendingPermissions.set(toolUseID, resolve)

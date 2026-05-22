@@ -204,15 +204,14 @@ type FlowCommandPayload = {
    * 从源 Flow 的某个切片 fork 出新 Flow。
    * - flowId（由 WithFlowId 注入）= 源 Flow id
    * - target：fork 目标。**target.runId 唯一定位源 RunState 中的 AgentRun**,
-   *   extension 在该 run 的 messages 内按 messageUuid / toolUseId 找切片终点。
-   *   - `message`：以指定 SDK 消息 UUID 为切片终点（含），fork 后新 Flow 进入 `result` 态
-   *   - `askUserQuestion`：以包含该 toolUseId 的 assistant message 为切片终点（不含 tool_result），
-   *     新 Flow 进入 `awaiting-question` 态，问题在输入区上方重弹
+   *   extension 在该 run 的 messages 内按 messageUuid 找切片终点,
+   *   以指定 SDK 消息 UUID 为切片终点（含），fork 后新 Flow 进入 `result` 态。
+   *
+   * SDK 不支持把 askUserQuestion 作为 fork 终点 —— 切片末端只能是
+   * user/text/thinking/turn_end。
    */
   fork: {
-    target:
-      | { kind: 'message'; runId: string; messageUuid: string }
-      | { kind: 'askUserQuestion'; runId: string; toolUseId: string }
+    target: { kind: 'message'; runId: string; messageUuid: string }
   }
 }
 

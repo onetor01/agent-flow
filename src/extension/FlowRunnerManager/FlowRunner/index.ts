@@ -8,7 +8,7 @@ import {
   UserMessageType,
 } from '@/common'
 import { logError } from '../../logger'
-import { ClaudeExecutor, type ExecutorMode, type ExecutorResult } from './ClaudeExecutor'
+import { ClaudeExecutor, type ExecutorResult } from './ClaudeExecutor'
 
 type SignalHandler<K extends keyof FlowRunnerSignalEvents> = (
   data: FlowRunnerSignalEvents[K],
@@ -119,23 +119,15 @@ export class FlowRunner {
   }
 
   /**
-   * fork 路径专用:以 resume 模式启动一个 ClaudeExecutor。runId 由 extension 端预先分配。
+   * fork 路径专用:以 lazy 模式启动一个 ClaudeExecutor。runId 由 extension 端预先分配。
    * 不 fire flow.signal.flowStart(fork 由 extension 端用 flow.signal.fork 替代)。
    *
-   * mode:
-   * - 'lazy': 普通 fork(user/text/thinking/turn_end)。executor 处于 lazy 态:构造
-   *   时不 createQuery、不 push initMessage,等用户首次 sendUserMessage 触发 SDK 启动。
-   * - 'resume-pending': askUserQuestion fork。executor 构造时即 createQuery + push
-   *   isSynthetic dummy 启动 SDK 但不创建新 user turn,SDK 看到 transcript 末端悬空
-   *   tool_use 自动调 canUseTool 挂起 resolver,等用户答题。
+   * lazy 模式:executor 处于 lazy 态,构造时不 createQuery、不 push initMessage,
+   * 等用户首次 sendUserMessage 触发 SDK 启动。fork 切片末端只可能是
+   * user/text/thinking/turn_end —— SDK 不支持把 askUserQuestion 作为 fork 终点。
    */
-  spawnForFork(params: {
-    runId: string
-    agentId: string
-    resumeSessionId: string
-    mode: ExecutorMode
-  }): void {
-    const { runId, agentId, resumeSessionId, mode } = params
+  spawnForFork(params: { runId: string; agentId: string; resumeSessionId: string }): void {
+    const { runId, agentId, resumeSessionId } = params
     const agent = this.findAgentById(agentId)
     if (!agent) {
       this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
@@ -156,7 +148,7 @@ export class FlowRunner {
       this.getLatestShareValues(),
       this.buildExecutorEvents(runId, agent, () => executor),
       resumeSessionId,
-      mode,
+      'lazy',
     )
     this.executors.set(runId, executor)
   }
