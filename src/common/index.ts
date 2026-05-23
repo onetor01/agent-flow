@@ -126,8 +126,6 @@ export type FlowValidationResult = {
   invalidNextAgent?: Record<string, string[]>
   /** 同一 agent 内重复的 output_name，按 agent_name 分组，值为重复的 output_name 数组 */
   duplicateOutputNames?: Record<string, string[]>
-  /** silent_task 模式但 outputs 为空（无可调用的终止出口）的 agent_name 列表 */
-  silentAgentMissingOutputs?: string[]
 }
 
 /**
@@ -138,7 +136,6 @@ export type FlowValidationResult = {
  * - agent_name 在 flow 内唯一
  * - output_name 在同一 agent 内唯一
  * - next_agent 引用的 agent id 存在
- * - silent_task 模式必须至少一个 output（否则 Agent 永远调不到 AgentComplete 出口，会无限自循环）
  *
  * @param flow - 待校验的 Flow 对象
  */
@@ -159,11 +156,10 @@ export function validateFlow(flow: Flow): FlowValidationResult {
   // 校验"output_name 在同一 agent 内唯一"/"next_agent 引用的 agent id 存在"
   const duplicateOutputNames: Record<string, string[]> = {}
   const invalidNextAgent: Record<string, string[]> = {}
-  const silentAgentMissingOutputs: string[] = []
   const validAgentIds = new Set(agentIds)
 
   for (const agent of agents) {
-    const { agent_name, outputs = [], work_mode } = agent
+    const { agent_name, outputs = [] } = agent
     const outputsGroupedByName = groupBy(outputs, (v) => v.output_name)
     const dupOutputs = Object.entries(outputsGroupedByName)
       .filter(([, items]) => items.length > 1)
@@ -179,10 +175,6 @@ export function validateFlow(flow: Flow): FlowValidationResult {
     if (badNextAgents.length > 0) {
       invalidNextAgent[agent_name] = badNextAgents
     }
-
-    if (work_mode === 'silent_task' && outputs.length === 0) {
-      silentAgentMissingOutputs.push(agent_name)
-    }
   }
 
   if (Object.keys(duplicateOutputNames).length > 0) {
@@ -190,9 +182,6 @@ export function validateFlow(flow: Flow): FlowValidationResult {
   }
   if (Object.keys(invalidNextAgent).length > 0) {
     result.invalidNextAgent = invalidNextAgent
-  }
-  if (silentAgentMissingOutputs.length > 0) {
-    result.silentAgentMissingOutputs = silentAgentMissingOutputs
   }
 
   return result
