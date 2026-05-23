@@ -104,9 +104,17 @@ type CacheEntry = {
   /**
    * 最近一次见到的 used 值,即本 session 内最后一条 assistant.message.usage 的 input_total。
    * turn_end / agent_complete 用此值与 sessionContextWindow 拼出展示数据。
-   * 不取 result.usage —— 后者是回合级累加值,工具往返多时会大幅膨胀。
+   * 优先取 assistant.message.usage(更精确,仅描述当次调用)；部分模型(如 GLM 系)
+   * 不下发 assistant.usage,此时由 result.usage 兜底（见 turnAssistantUsageSeen）。
    */
   lastObservedUsed: number
+  /**
+   * 本回合(自上一个 result 之后)是否见过非零的 assistant.message.usage。
+   * - true：result 处理时不再用 result.usage 兜底 lastObservedUsed,优先保留更精确的 assistant 数据
+   * - false：result 处理时用 result.usage 的 input_total 兜底,保证 turn_end 能展示上下文条
+   * 每次 push turn_end 后重置为 false,逐回合重新判定。
+   */
+  turnAssistantUsageSeen: boolean
   /**
    * 当前 turn 起始 item 索引（自上一个 turn_end 之后第一条 item）。
    * 遇到 turn_end 时把 [turnStartIdx, turn_end) 区间内所有 item 的 turnClosed 置 true。
@@ -416,6 +424,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       // 单条 block 不展示自身开销避免误导。
       if (assistantUsed > 0) {
         cached.lastObservedUsed = assistantUsed
+        cached.turnAssistantUsageSeen = true
       }
       continue
     }
@@ -437,11 +446,16 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       const cost = (message as any).total_cost_usd
       if (typeof cost === 'number') cached.lastTotalCost = cost
 
-      // 上下文窗口大小（sticky max）。turn_end 的 used 用 lastObservedUsed,不读 result.usage:
-      // result.usage 是回合内多次 API 调用的累加值,工具往返多时 cache_read 叠加 N 次,远超真实窗口。
+      // 上下文窗口大小（sticky max）。turn_end 的 used 优先取 lastObservedUsed(来自 assistant.usage,
+      // 描述单次调用更精确)；本回合没拿到 assistant.usage 时(部分模型不下发)用 result.usage 兜底,
+      // 否则 turn_end 完全无法展示上下文条。
       const contextWindow = readContextWindow((message as any).modelUsage)
       if (contextWindow > cached.sessionContextWindow) {
         cached.sessionContextWindow = contextWindow
+      }
+      if (!cached.turnAssistantUsageSeen) {
+        const resultUsed = readUsageInputTotal((message as any).usage)
+        if (resultUsed > 0) cached.lastObservedUsed = resultUsed
       }
 
       // 把当前 turn 内（自上一个 turn_end 之后）所有 user/text/thinking item 标记为已闭环
@@ -479,6 +493,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         })
       }
       cached.turnStartIdx = items.length
+      cached.turnAssistantUsageSeen = false
       continue
     }
 
@@ -545,6 +560,7 @@ export function buildRenderItems(
         sessionContextWindow: 0,
         lastObservedUsed: 0,
         turnStartIdx: 0,
+        turnAssistantUsageSeen: false,
         agentCompleteSeen: false,
       })
       return cache.get(sessionId)!
