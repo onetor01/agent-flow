@@ -51,7 +51,7 @@ Agent schema 字段用 snake_case 与 prompt 对齐，**不要**改成 camelCase
 - [FlowRunnerManager](src/extension/FlowRunnerManager/index.ts) —— 全局唯一,持有 `runners: Map<flowId, FlowRunner>`,每个 Flow 一个 FlowRunner
 - [FlowRunner](src/extension/FlowRunnerManager/FlowRunner/index.ts) —— 一个 Flow 的运行时容器,持有 `executors: Map<runId, ClaudeExecutor>`(本期 runtime 单 executor 约束 `executors.size <= 1`,Map 容器为后期并发触发能力预留),按 `outputs[i].next_agent` 编排 Agent 切换,所有 command 按 runId 在 Map 中寻址
 - [ClaudeExecutor](src/extension/FlowRunnerManager/FlowRunner/ClaudeExecutor.ts) —— 纯 AI 调度工具,封装 `@anthropic-ai/claude-agent-sdk` 的 `query`,负责单个 Agent 的 prompt 流、消息收发、interrupt/resume、canUseTool 判定;不持有 run 路由信息(`runId` 由 FlowRunner 在 Map 寻址时使用,Executor 自身不知道也不需要知道绑定的 runId)
-- [AgentControllerMcp](src/common/extension.ts) —— per-Agent 的 MCP server，作为 SDK `mcpServers` 配置注入；提供 `AgentComplete`（含可选 `values` 参数，由 reducer 合并到 Flow.shareValues）/ `validateFlow` / `getFlowJSONSchema` 工具
+- [AgentControllerMcp](src/common/extension.ts) —— per-Agent 的 MCP server，作为 SDK `mcpServers` 配置注入；提供 `AgentComplete`（含可选 `values` 参数，由 reducer 合并到 Flow.shareValues）/ `validateFlow` / `getFlowJSONSchema` 工具；`silent_task` 模式额外注入 `terminateTask` 工具（确定无法完成时主动 abort，走 error 终态）。`chat` 模式不挂 `AgentComplete`
 
 **webview 端**：组件树由 [App](src/webview/App.tsx) 起，`<AgentFlow>`（xyflow 画布）+ `<ChatDrawer>`（右侧对话抽屉）为两块主区域。所有状态收敛到单一 zustand store [useFlowStore](src/webview/store/flow.ts)（用 `immer` 写 reducer），同时持有持久化的 Flow 定义和运行时 `RunState`；从 extension 来的 signal 也由 store 收敛处理（含上述通知/自动打开 ChatPanel 的副作用）。
 
@@ -112,6 +112,21 @@ Flow 的 `shareValues` 是 reducer（webview store / extension `FlowRunStateMana
   - 取原始引用稳定的字段（`s.flowRunStates[fid]` / `s.flowRunStates[fid]?.pendingQuestions`），过滤 / 转换在 `useMemo` 里做
   - 空结果用模块级常量（如 `EMPTY_PENDING_QUESTIONS`），不要每次返回 `[]` 字面量
   - 需要派生多个值时拆成多个 selector 各自取原始字段，不要在 selector 内构造对象
+- **`work_mode` 三值枚举（`task` / `chat` / `silent_task`）行为差异**：
+  - `task`：常规任务推进。`buildAgentSystemPrompt` 注入「## 任务描述 / ## 完成任务 / ## 输出分支」骨架，AskUserQuestion 允许、`AgentComplete` 必须；提示词强调「立即调用 AgentComplete」否则系统会持续以「继续」让模型循环。
+  - `chat`：长期对话规则。`AgentComplete` 工具不挂载（`buildAgentMcpServer` 中 `work_mode !== 'chat'` 条件），可写 values 节也不注入。`agent_prompt` 视作长期对话规则。
+  - `silent_task`：无人值守循环（细节见下条）。
+- **`silent_task` 静默模式专项约束**：
+  - **AskUserQuestion 自动应答**：`ClaudeExecutor.canUseTool` 命中 AskUserQuestion 时不挂起 `pendingPermissions`，直接以 `"自行处理"` 填给每个 question 的 answer 并 `behavior: 'allow'`；同步 fire `events.onAnswerQuestion(toolUseID, output)`，[FlowRunner](src/extension/FlowRunnerManager/FlowRunner/index.ts) 据此发 `flow.signal.answerQuestion` 让 reducer 写入 `answeredQuestions` / 移出 `pendingQuestions`，与人工回答展示路径完全一致。
+  - **每轮自动续「继续」**：`createQuery` for-await 中收到 `result/success`、未 `pendingCompleteResult`、未 disposed 时，构造 `buildSilentContinueMessage(sessionId)`（content = `"自行处理"`），同步 `events.onMessage(continueMsg)` 透传给 webview（SDK 不会 mirror 通过 input stream push 的 user message，必须手动 echo），再 `userInputStream.push(continueMsg)` 推动模型继续。
+  - **未授权工具直接 deny**：`canUseTool` 兜底分支在 silent_task 下返回 `behavior: 'deny'`，提示「请在 auto_allowed_tools 中显式加入」，不走 `requestToolPermission`（无用户在场）。
+  - **拒收 sendUserMessage / interrupt**：`sendUserMessage` 在 silent_task 下直接 return；ChatDrawer 中断按钮在 silent_task 下只 `message.info('静默模式无法中断')`，不发 `interruptAgent` 命令。
+  - **通知精简**：reducer `pushEffect` 在 `agent.work_mode === 'silent_task'` 时只放行 `agent-error` / `flow-completed` 两类 effect，其它 reason 直接丢弃，避免无人值守模式下海量 result / awaiting-question 通知打扰用户。
+  - **`terminateTask` MCP 工具**：silent_task 专用，模型确定无法完成时调用，`onTerminate(reason)` 把 reason 包成 `Error('terminateTask: ...')` 走 `events.onError` 路径让 reducer 把 run 推到 `error` 终态；同时 `disposed = true` + 清 pendingPermissions + `interrupt()` SDK。系统提示词「# **停止会话**」节同步注入引导。
+  - **`validateFlow` 校验**：`silentAgentMissingOutputs` 列表收集 `work_mode === 'silent_task' && outputs.length === 0` 的 agent —— silent_task 必须至少一个 output（否则 Agent 调 AgentComplete 也无 next 出口，会无限自循环）。
+  - **AgentEditor 警告 modal**：`silentWarnedRef` 跟踪是否首次切到 silent_task；非该模式起始 + 用户在 `onValuesChange` 把 `work_mode` 切到 `silent_task` 时弹一次 `modal.warning`，提示「用户无法参与多轮对话、无法中断、AskUserQuestion 与普通消息会被自动应答」。Agent 本身已是静默模式时不再提示。
+- **AgentComplete 的 `content` 作为 next agent 首条消息回显**：reducer 在处理 `flow.signal.agentComplete` 创建新 `AgentRun` 时，`messages` 不再是空数组，而是预置一条 `flow.signal.aiMessage`（user 消息，content = `nextAgent.no_input ? '开始' : data.content`），与 [FlowRunner.doOnAgentComplete](src/extension/FlowRunnerManager/FlowRunner/index.ts) 喂给 SDK prompt 的 `nextInitMessage` 同源。修改这条链路时务必两端同时改，否则 UI 显示的首条消息会与 SDK 实际收到的输入错位。
+- **`flow.signal.answerQuestion` 与 `flow.command.answerQuestion` 同语义**：silent_task 自动应答路径用 signal 入口（extension → webview），人工回答用 command 入口（webview → extension）；reducer 的两条分支处理完全一致（写 `answeredQuestions` / 移出 `pendingQuestions`），不要把它们合并成一个分支 —— 入口不同的语义对未来加场景过滤是有用的。
 
 ## ShareValues 授权读写
 
@@ -137,7 +152,7 @@ shareValues 是 Flow 级共享存储，对 Agent 暴露为按 key 授权的 `val
 ## 重点代码速查
 
 - 状态 reducer：**[updateFlowRunState](src/common/flowRunState.ts)**、**[useFlowStore](src/webview/store/flow.ts)**、**[FlowRunStateManager](src/extension/FlowRunStateManager.ts)**
-- 消息渲染：**[buildRenderItems.ts](src/webview/components/ChatDrawer/ChatPanel/buildRenderItems.ts)**、**[ExtensionMessage.ts](src/webview/utils/ExtensionMessage.ts)**、**[MessageBubble.tsx](src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx)**、**[buildRenderItems 文档](docs/assistant-message-cross-id-dedup.md)**
-- 领域模型与校验：**[src/common/index.ts](src/common/index.ts)**（Flow/Agent/Output 定义、validateFlow、matchTool、buildAgentSystemPrompt）
+- 消息渲染：**[buildRenderItems.ts](src/webview/components/ChatDrawer/ChatPanel/buildRenderItems.ts)**、**[ExtensionMessage.ts](src/webview/utils/ExtensionMessage.ts)**、**[MessageBubble.tsx](src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx)**、**[MessageList.tsx](src/webview/components/ChatDrawer/ChatPanel/MessageList.tsx)**（基于 `@tanstack/react-virtual` 的虚拟列表，`ctx` / `pendingToolPerms` / `answeredToolPermissions` 在此层 selector）、**[buildRenderItems 文档](docs/assistant-message-cross-id-dedup.md)**
+- 领域模型与校验：**[src/common/index.ts](src/common/index.ts)**（Flow/Agent/Output 定义、validateFlow（含 `silentAgentMissingOutputs`）、matchTool、buildAgentSystemPrompt）
 - Flow 布局：**[flowUtils.ts](src/webview/components/AgentFlow/flowUtils.ts)**（DAG → ReactFlow 层次布局）
 - Token 追踪：**[src/common/flowRunState.ts](src/common/flowRunState.ts)**（TokenUsage 类型、费用计算）、**[buildRenderItems.ts](src/webview/components/ChatDrawer/ChatPanel/buildRenderItems.ts)**（增量 usage 累计）

@@ -87,8 +87,7 @@ export const ChatDrawer: FC<Props> = ({
   })
 
   // flowId / agentId 缺失时 ChatInput 不可用,但仍然挂载保留草稿
-  const inputState =
-    !flowId || !effectiveAgentId ? 'disabled' : agentChatInputState(agentPhase)
+  const inputState = !flowId || !effectiveAgentId ? 'disabled' : agentChatInputState(agentPhase)
   const onSend = useCallback(
     async (content: UserMessageType['message']['content']): Promise<boolean> => {
       if (!flowId || !effectiveAgentId) return false

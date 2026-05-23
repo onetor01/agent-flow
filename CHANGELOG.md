@@ -1,5 +1,36 @@
 # Change Log
 
+## [0.0.21] - 2026-05-23
+
+### 破坏性变更
+
+- **`work_mode` 三值枚举重命名**：`auto_complete` → `task`、`never_complete` → `chat`、新增 `silent_task`；`require_confirm` 模式被合并掉（"调用 AgentComplete 前必须先 AskUserQuestion 确认"的语义改由 `agent_prompt` 自行约束，不再单列模式）。`buildAgentMcpServer` 中 `AgentComplete` 工具仅在 `work_mode !== 'chat'` 时挂载（原条件 `work_mode !== 'never_complete'`）。`PersistedDataController/defaultStore.ts` 内置 PresetFlows 已迁移到新枚举值。
+- **`Agent.work_mode` 默认值从 `auto_complete` 改为 `task`**：AgentEditor 在新建 / 兜底场景下使用新枚举值。
+
+### 新增
+
+- **`silent_task` 静默模式（无人值守循环执行）**：
+  - **AskUserQuestion 自动应答**：`ClaudeExecutor.canUseTool` 在 silent_task 下不再挂起等待用户回答，直接以占位字符串 `"自行处理"` 填给每个 question 的 answer，并同步 fire `onAnswerQuestion` → `flow.signal.answerQuestion` 让 webview 看到自动答案，与人工回答的展示路径（`answeredQuestions` / 移出 `pendingQuestions`）保持一致。
+  - **每轮自动续「继续」**：`createQuery` 的 for-await 循环中，silent_task 收到 `result/success` 且未 AgentComplete / 未 disposed 时，自动 push 一条 `{ type: 'user', content: '自行处理' }` 推动模型推进下一步。SDK 不会 mirror 通过 input stream push 的 user message，所以同步通过 `onMessage` 透传，让 webview 通过 `flow.signal.aiMessage` 看到自动「继续」消息。
+  - **未授权工具直接 deny**：silent_task 永远没有用户在场，未授权工具不再挂起 `requestToolPermission`，直接返回 `behavior: 'deny'`，提示信息引导在 `auto_allowed_tools` 中显式加入。
+  - **拒收用户消息**：`sendUserMessage` 在 silent_task 下直接 return，不接受外部 send；`ChatDrawer` 中断按钮在 silent_task 下也只弹 `message.info('静默模式无法中断')` 不再发 interrupt 命令。
+  - **通知精简**：reducer 在 push effect 时检查 `agent.work_mode === 'silent_task'`，只放行 `agent-error` / `flow-completed` 两类 effect，避免无人值守模式下海量 result / awaiting-question 通知打扰用户。
+  - **`terminateTask` MCP 工具**：silent_task 模式独有，模型确定无法完成「任务描述」时（缺失关键信息 / 工具不可用 / 环境异常等极端情况）调用此工具中止任务，`onTerminate` 回调把 reason 包成 Error 走 `onError` 路径让 reducer 把 run 推到 `error` 终态，同时 `interrupt()` SDK 让流尽快收尾。系统提示词「# **停止会话**」节同步注入。
+  - **`validateFlow` 新校验项 `silentAgentMissingOutputs`**：silent_task 必须至少一个 output（否则 Agent 永远调不到 AgentComplete 出口，会无限自循环）。
+  - **AgentEditor 首次切到 silent_task 弹一次警告 modal**：提示用户该模式下用户无法参与多轮对话、无法中断、AskUserQuestion 与普通消息会被自动应答，请谨慎选择模型 / effort / 提示词。Agent 本身已是静默模式时不再提示。
+- **事件契约 `flow.signal.answerQuestion`**：载荷 `{ runId, toolUseId, output }`，与 `flow.command.answerQuestion` 同语义。reducer 处理写入 `answeredQuestions`、移出 `pendingQuestions`，仅入口换成 signal —— 让 webview 在无人值守模式下也能看到自动答案。
+
+### 修复
+
+- **AgentComplete 的 `content` 无法展示为下一个 Agent 的首条消息**：reducer 在 `agentComplete` 处理 `next_agent` 切换时，新创建的 `AgentRun.messages` 现在以一条 `flow.signal.aiMessage`（user 消息，content = `nextAgent.no_input ? '开始' : data.content`）作为首条消息，与 `FlowRunner.doOnAgentComplete` 喂给 SDK prompt 的 `nextInitMessage` 同源，避免 UI 与运行时输入错位。
+- **selector 返回新引用导致的"Maximum update depth exceeded"死循环**：`MessageList` / `ChatPanel` 在 `pendingQuestions` / `pendingToolPermissions` / `answeredToolPermissions` / `runs` 等无内容场景下统一返回模块级常量（`EMPTY_PENDING_QUESTIONS` / `EMPTY_PENDING_TOOL_PERMS` / `EMPTY_RUNS`），并把过滤 / 转换搬到 `useMemo` 中，避免 zustand 的 `useSyncExternalStore` 因 `Object.is` 判定新引用持续触发重渲染。
+
+### 优化
+
+- **MessageList 虚拟化**：原 `Bubble.List` 改为 `@tanstack/react-virtual` 驱动的虚拟列表（`useVirtualizer` + `overscan` + `measureElement`），长对话场景渲染开销显著降低。`ctx` / `pendingToolPerms` / `answeredToolPermissions` 从 ChatPanel 下沉到 MessageList 内部 selector。`MessageListRef` 暴露 `scrollBoxNativeElement` / `scrollToBottom`，命令式贴底由 ChatPanel 在流式新消息时调用。
+- **系统提示词通用约束重写**：所有 work_mode 共享前缀新增「简洁输出，直接给代码或结果，无需解释和推导 / 仅修改用户指定的代码或文件 / 禁止道歉、表明身份、免责声明 / 严格按需求执行，禁止主动优化代码」；并按 work_mode 分流：`task` / `chat` 仍允许 AskUserQuestion 询问用户，`silent_task` 强制「自行决策，避免使用 AskUserQuestion，不询问用户意见」。任务完成提示改为「一旦达成结束条件，**立即**调用 AgentComplete 提交结果并选择输出分支，否则系统会持续以「继续」让你循环」。
+- **移除 SDK `options.maxTurns` 兜底**：原 `maxTurns: 1000` 移除（silent_task 的 `maxTurns: 10` 兜底也只保留为注释，未启用），完全由 AgentComplete / terminateTask / 用户中断决定 run 终止。
+
 ## [0.0.19] - 2026-05-22
 
 ### 破坏性变更

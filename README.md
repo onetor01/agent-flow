@@ -41,6 +41,7 @@ pnpm build-extension   # 生成 .vsix 文件
 
 - **框选 / 拖拽画布**：左键拖空白处框选节点，中键或右键拖拽平移画布。
 - **模型自由搭配**：每个 Agent 独立配置模型（opus / sonnet / haiku）、思考强度（effort）与简介描述。
+- **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `AgentComplete` 流转到下一节点）/ `chat`（长期对话，禁止 `AgentComplete`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `AgentComplete` 或 `terminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
 - **无输入启动**：开启 `no_input` 的 Agent 在节点上显示启动按钮，点击后始终以"开始"为初始消息自动运行，无需手动输入。
 - **上下文隔离**：每个 Agent 有自己独立的对话上下文。
 - **共享数据按 key 授权读写**：Flow 在 `shareValuesKeys` 中声明全部可用 key（每个 key 可附加 `desc` 标注语义）；Agent 各自配置 `allowed_read_values_keys` / `allowed_write_values_keys`，只能看到 / 写入被授权的 key。被授权读取的 key 与当前值会注入到 Agent 系统提示词「# 可用数据」节；写入只能在 `AgentComplete` 时通过 `values` 参数一次性提交，未授权 key 会被静默丢弃。
@@ -55,6 +56,7 @@ pnpm build-extension   # 生成 .vsix 文件
 ### 3. AI 对话体验
 
 - **流式传输**：AI 回复的文本块 / thinking 块实时显示，无需等待整段消息生成完毕。
+- **虚拟列表渲染**：长对话场景下消息列表基于 `@tanstack/react-virtual` 虚拟化，仅渲染可视区域内消息，滚动与流式更新都不再因历史消息堆积变慢。
 - **工具调用可视化**：消息气泡中显示工具调用摘要（读取的文件、执行的命令等），未完成时 loading，完成后可展开查看参数与执行结果。
 - **AskUserQuestion 富文本**：AI 向你提问的内容通过 Markdown 渲染，支持代码、链接、列表等格式。
 - **多问题自动排队**：同一回合内 AI 抛出多张提问卡片时按顺序排队，回答完一张自动滚动到下一张，全部回答完毕后才回到 running 状态；提问卡片高度自适应容器。
@@ -63,7 +65,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **智能通知**：Agent 等待回复或工作流完成时，若面板不在前台，自动弹出 VSCode 系统通知，点击即可跳转回对应聊天。
 - **关闭面板不打断运行**：关闭 Webview 后 Agent 继续在后台执行，重新打开时自动恢复全部历史消息与运行态，等待用户回复 / 完成等通知照常送达。
 - **Flow 编辑器**：Flow 列表项的数据库按钮打开 FlowEditor 抽屉，集中编辑工作流名称、Flow 简介、`shareValuesKeys`（拖拽列表维护，每项支持 `key` / `desc`、重复校验、一键清空）以及运行中各 key 的当前值；删除 key 时自动清理所有 Agent 的 `allowed_read/write_values_keys` 引用。
-- **AgentComplete 完成卡片**：每个 Agent 完成时的卡片直接展示本回合写入的共享数据（按 `key/value` 列出），便于回看数据流转；`AgentComplete` 后立即中断 SDK，避免模型继续生成多余文字，且中断回合的 token / 费用统计不会丢。
+- **AgentComplete 完成卡片**：每个 Agent 完成时的卡片直接展示本回合写入的共享数据（按 `key/value` 列出），便于回看数据流转；`AgentComplete` 后立即中断 SDK，避免模型继续生成多余文字，且中断回合的 token / 费用统计不会丢。AgentComplete 的 `content` 现在会作为下一个 Agent 的首条用户消息回显，保证 UI 与运行时输入对齐。
 - **Token 消耗可视化**：消息级、回合级、Flow 级三层展示 token 用量与费用，AI 气泡自动回填实际消耗，优先显示 SDK 实际费用而非估算；`agent_complete` 时展示按模型分组的 session 累计 breakdown。
 - **上下文窗口占用展示**：在 turn_end / agent_complete 卡片内部展示上下文占用条，展示「最后一次 API 调用真实喂给模型的 input + cache 总量 / 模型上下文窗口」，按占用率以红 / 黄 / 灰渐变上色（≥80% 红、≥50% 黄）。
 - **Starting 阶段节点高亮与红点**：启动阶段（session 尚未建立）Agent 节点也能正确高亮显示，对话框同步展示红点提示。
