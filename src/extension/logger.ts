@@ -1,5 +1,5 @@
-import * as vscode from 'vscode'
 import { match, P } from 'ts-pattern'
+import * as vscode from 'vscode'
 
 let channel: vscode.OutputChannel | undefined
 

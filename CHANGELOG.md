@@ -1,5 +1,18 @@
 # Change Log
 
+## [0.0.22] - 2026-05-23
+
+### 修复
+
+- **GLM 等不下发 assistant.usage 的模型上下文进度条无法展示**：原 `buildRenderItems` 在计算 turn_end / agent_complete 卡片的 `lastObservedUsed` 时坚持只读 assistant.message.usage（result.usage 是回合累加值，工具往返多时会大幅膨胀）。但 GLM 系列模型不下发 assistant.usage，导致这类模型整条对话上下文条都拿不到值。新增 `turnAssistantUsageSeen` 标记：本回合见过 assistant.usage 时 turn_end 仍优先用更精确的 assistant 数据，没见过时再用 result.usage 的 input_total 兜底；turn_end 后重置为 false 逐回合判定。
+- **`validateFlow` 不再把 silent_task 无 output 当作错误**：原校验项 `silentAgentMissingOutputs` 强制 silent_task 至少配置一个 output（基于"无 output 会无限自循环"的假设），但实际场景中 silent_task 可以靠 `terminateTask` 或 `AgentComplete` 不带 next_agent 自然终止，强校验过严。移除该校验项与 `FlowValidationResult.silentAgentMissingOutputs` 字段。
+
+### 优化
+
+- **Agent 系统提示词重写**：通用前缀压缩为 5 条核心规则——中文简洁输出 / 精确改动相关代码 / 禁止主动优化重构 / 禁止道歉表明身份 / **改动前必须先读所有调用方理解影响范围**；并补充各 work_mode 下"遇到冲突 / 歧义 / 无法满足的需求必须明确暴露"的硬约束：`task` 通过 AskUserQuestion 或 AgentComplete.content 上抛、`chat` 直接告知用户、`silent_task` 必须完整写入 AgentComplete.content，禁止静默忽略或绕开。
+- **Extension 日志输出体积控制**：`logger.ts` 新增 `truncate` / `safeStringify` 工具，对 `flow.signal.aiMessage` 等大对象载荷做截断打印（默认 2KB），避免 SDK 流式回包让 OUTPUT 面板被海量 JSON 刷爆；`src/extension/index.ts` 内的高频 signal / command 日志统一切换到截断打印。
+- **CLAUDE.md 整改**：精简冗余、删除已落后的描述，与当前 reducer / 运行时层级 / work_mode 行为对齐。
+
 ## [0.0.21] - 2026-05-23
 
 ### 破坏性变更
