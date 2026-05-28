@@ -1,5 +1,5 @@
 import { useCallback, useRef, type FC, type ReactNode } from 'react'
-import { App, Drawer } from 'antd'
+import { Drawer } from 'antd'
 import {
   agentChatInputState,
   getAgentPhase,
@@ -46,7 +46,6 @@ export const ChatDrawer: FC<Props> = ({
   const interruptAgent = useFlowStore((s) => s.interruptAgent)
   const startFlow = useStartFlow()
   const chatPanelRef = useRef<ChatPanelRef>(null)
-  const { message } = App.useApp()
 
   // runId 反查 agentId,fallback 到 props.agentId
   const effectiveAgentId = useFlowStore((s): string | undefined => {
@@ -74,16 +73,6 @@ export const ChatDrawer: FC<Props> = ({
     const phase = getRunPhase(last, fs)
     if (phase === 'idle' || phase === 'completed' || phase === 'stopped') return undefined
     return last.runId
-  })
-
-  /**
-   * silent_task 是无人值守模式,运行过程由系统自动驱动(每轮 result 自动续「继续」、
-   * AskUserQuestion 自动应答),用户手动中断不符合该模式语义,这里点中断按钮只弹提示。
-   */
-  const isSilentAgent = useFlowStore((s): boolean => {
-    if (!flowId || !effectiveAgentId) return false
-    const flow = s.flows.find((f) => f.id === flowId)
-    return flow?.agents?.find((a) => a.id === effectiveAgentId)?.work_mode === 'silent_task'
   })
 
   // flowId / agentId 缺失时 ChatInput 不可用,但仍然挂载保留草稿
@@ -152,10 +141,6 @@ export const ChatDrawer: FC<Props> = ({
           onSend={onSend}
           status={inputState}
           onCancel={() => {
-            if (isSilentAgent) {
-              message.info('静默模式无法中断')
-              return
-            }
             if (flowId && activeRunId) {
               interruptAgent(flowId, activeRunId)
             }

@@ -63,7 +63,7 @@ Flow 级共享存储，对 Agent 暴露为按 key 授权的 `values` 契约：
   - AskUserQuestion 自动以 `SILENT_ASK_AUTO_ANSWER`（`'自行处理'`）应答 + `behavior: 'allow'`，同步 `events.onAnswerQuestion` 走 `flow.signal.answerQuestion`，与人工回答展示路径一致。
   - 每轮 `result/success` 收到后（未 `pendingCompleteResult` 且未 disposed）push 一条 user 消息（content = `SILENT_CONTINUE_TEXT` = `'自行处理'`）：先 `events.onMessage` 手动 echo（SDK 不 mirror input stream user message），再 `userInputStream.push`。
   - `canUseTool` 兜底返回 `behavior: 'deny'`，提示加入 `auto_allowed_tools`，不走 `requestToolPermission`。
-  - `sendUserMessage` 直接 return；ChatDrawer 中断按钮只 `message.info`，不发 `interruptAgent`。
+  - 仅对 AI 侧的 AskUserQuestion / 工具权限兜底 / result 续轮自动应答；用户侧 `sendUserMessage` / `interruptAgent` 与 task 一致，ChatDrawer 中断按钮直接走 `interruptAgent`。
   - reducer `pushEffect` 只放行 `agent-error` / `flow-completed`。
   - `terminateTask` MCP：模型确定无法完成时调用，`onTerminate(reason)` 包成 `Error` 走 `events.onError` → reducer 推到 `error`，同步 dispose + 清 pendingPermissions + interrupt SDK。
   - AgentEditor `silentWarnedRef` 首次切到 silent_task 弹 `modal.warning`。

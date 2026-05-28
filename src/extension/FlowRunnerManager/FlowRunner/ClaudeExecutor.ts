@@ -150,9 +150,6 @@ export class ClaudeExecutor {
   /** 转发用户消息 */
   async sendUserMessage(message: SDKUserMessage) {
     if (this.disposed || this.completed) return
-    // silent_task 是无人值守模式,result 后由内部自动注入「继续」推进,
-    // 不接受外部 send;ChatInput 在 webview 端也不显示发送框。
-    if (this.agent.work_mode === 'silent_task') return
     if (this.queryInstance) {
       // 当前 query 仍在运行（如等待 AskUserQuestion 的 tool_result），直接推入流
       this.userInputStream.push(message)
