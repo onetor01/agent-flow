@@ -82,6 +82,7 @@ function summarizeSDKMessage(msg: unknown): unknown {
         num_turns: m.num_turns,
         duration_ms: m.duration_ms,
         modelUsage: m.modelUsage,
+        usage: m.usage,
       }
     })
     .with('user', () => ({ ...m, message: redactUserMessage(m.message) }))
