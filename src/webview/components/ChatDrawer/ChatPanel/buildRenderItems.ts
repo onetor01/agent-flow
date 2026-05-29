@@ -17,9 +17,6 @@ export type ToolResult = { isError: boolean; text: string }
  *   text/thinking 用所属 assistant 消息的 uuid;turn_end 用本回合最后一条带 uuid
  *   的 SDK 消息 uuid —— 因为 SDK 不把 result 写进 transcript,result.uuid 在
  *   forkSession 里查不到）；缺失时 UI 不显示 fork icon
- * - `turnClosed` 仅用于消息流语义记录（result 出现后所属 turn 闭环），
- *   不再作为 fork icon 守卫的条件 —— fork 守卫只看 messageUuid 是否存在,
- *   避免 fork 切片末端的 thinking/text/turn_end 因 turn 未闭环而无法继续 fork。
  */
 export type RenderItem =
   | {
@@ -27,7 +24,6 @@ export type RenderItem =
       key: string
       rawContent: unknown
       messageUuid?: string
-      turnClosed: boolean
     }
   | {
       kind: 'text'
@@ -35,7 +31,6 @@ export type RenderItem =
       text: string
       streaming: boolean
       messageUuid?: string
-      turnClosed: boolean
     }
   | {
       kind: 'thinking'
@@ -43,7 +38,6 @@ export type RenderItem =
       text: string
       streaming: boolean
       messageUuid?: string
-      turnClosed: boolean
     }
   | {
       kind: 'tool_use'
@@ -66,8 +60,6 @@ export type RenderItem =
       /** 本回合（自上一条 result 之后）每模型 token 用量增量，多模型分多行展示 */
       modelUsages?: Array<{ model: string; usage: ModelTokenUsage }>
       messageUuid?: string
-      /** turn_end 永远闭环（result 一定意味着本回合 tool_use 全部已 result） */
-      turnClosed: true
     }
   | {
       kind: 'agent_complete'
@@ -94,32 +86,21 @@ type CacheEntry = {
    * 上下文窗口占用快照表：RenderItem.key → { used, total }。
    * 仅 turn_end / agent_complete 写入（per-block 不再展示）。
    * 缺失则不存,渲染层查不到自然不展示（不做兜底）。
+   * 每个 turn 完全按本 result 数据独立计算,不做 sticky max。
    */
   contextUsageByItemKey: Map<string, { used: number; total: number }>
   /**
-   * 本 session 已知的最大 contextWindow（首条 result 出现 contextWindow 后开始缓存,sticky）。
-   * 0 表示尚未拿到过任何 contextWindow。
+   * Session 主模型(SDK system/init 消息的顶层 model 字段)。上下文窗口仅按主模型计算 ——
+   * 多模型 (例如 sonnet 主模型 + haiku 辅助模型) 时 modelUsage 会有多 entry,
+   * 只有主模型那条的 contextWindow 反映真实窗口压力。
    */
-  sessionContextWindow: number
+  mainModel?: string
   /**
-   * 最近一次见到的 used 值,即本 session 内最后一条 assistant.message.usage 的 input_total。
-   * turn_end / agent_complete 用此值与 sessionContextWindow 拼出展示数据。
-   * 优先取 assistant.message.usage(更精确,仅描述当次调用)；部分模型(如 GLM 系)
-   * 不下发 assistant.usage,此时由 result.usage 兜底（见 turnAssistantUsageSeen）。
+   * 最近一条 result 落入 contextUsageByItemKey 的快照,供随后的 agent_complete 卡片复用。
+   * 不参与 turn_end 计算 —— turn_end 直接读本 result 数据,这里只是给 agent_complete 兜底
+   * 让"session 总结"卡片能展示最后一个 turn 的窗口占用。
    */
-  lastObservedUsed: number
-  /**
-   * 本回合(自上一个 result 之后)是否见过非零的 assistant.message.usage。
-   * - true：result 处理时不再用 result.usage 兜底 lastObservedUsed,优先保留更精确的 assistant 数据
-   * - false：result 处理时用 result.usage 的 input_total 兜底,保证 turn_end 能展示上下文条
-   * 每次 push turn_end 后重置为 false,逐回合重新判定。
-   */
-  turnAssistantUsageSeen: boolean
-  /**
-   * 当前 turn 起始 item 索引（自上一个 turn_end 之后第一条 item）。
-   * 遇到 turn_end 时把 [turnStartIdx, turn_end) 区间内所有 item 的 turnClosed 置 true。
-   */
-  turnStartIdx: number
+  lastTurnContextUsage?: { used: number; total: number }
   /**
    * AgentComplete 的 mcp_tool_use 已出现。该 tool 一旦被调用就标志 agent 决定收尾,
    * 后续 SDK 还可能因为中断时序生成多余消息(text / 重试 tool_use / 失败 tool_result),
@@ -182,29 +163,40 @@ function readResultModelUsage(message: unknown): Record<string, ModelTokenUsage>
 /**
  * 从 message.usage（snake_case raw API usage）算「本次输入总 tokens」。
  * = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
- * 这是真实喂给模型的 token 总量，反映上下文窗口当前装了多少。
+ * 这是真实喂给模型的 token 总量,反映上下文窗口当前装了多少。
+ *
+ * 多 iteration 场景(server-side tool / 长 tool loop):usage.iterations 是
+ * 每次 sampling/compaction 的 per-iteration usage 数组,顶层 usage 在多
+ * iteration 时可能是聚合值,直接取顶层会把多轮重复喂入累加,虚高窗口占用。
+ * SDK 文档明确:「Calculate the true context window size from the last iteration」
+ * —— 优先取数组末项(最后一次模型实际看到的输入),无 iterations 退回顶层。
  */
 function readUsageInputTotal(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0
-  const u = usage as Record<string, number | undefined>
+  const u = usage as Record<string, unknown>
+  const iterations = u.iterations
+  const source =
+    Array.isArray(iterations) && iterations.length > 0
+      ? (iterations[iterations.length - 1] as Record<string, number | undefined> | null)
+      : (u as Record<string, number | undefined>)
+  if (!source || typeof source !== 'object') return 0
   return (
-    (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+    (source.input_tokens ?? 0) +
+    (source.cache_read_input_tokens ?? 0) +
+    (source.cache_creation_input_tokens ?? 0)
   )
 }
 
 /**
- * 从 result.modelUsage 取 contextWindow 最大值。多模型时所有 entries 一般同窗口，
- * 取最大保险。无任何 contextWindow（older SDK / 异常）返回 0,调用方据此跳过展示。
+ * 从 result.modelUsage 取主模型的 contextWindow。
+ * 主模型未确定 / modelUsage 中无该模型 entry / entry 无 contextWindow 一律返回 0,
+ * 调用方据此跳过展示(不做兜底)。
  */
-function readContextWindow(modelUsage: unknown): number {
-  if (!modelUsage || typeof modelUsage !== 'object') return 0
-  let total = 0
-  for (const v of Object.values(modelUsage) as any[]) {
-    if (v && typeof v.contextWindow === 'number' && v.contextWindow > total) {
-      total = v.contextWindow
-    }
-  }
-  return total
+function readContextWindow(modelUsage: unknown, mainModel: string | undefined): number {
+  if (!mainModel || !modelUsage || typeof modelUsage !== 'object') return 0
+  const entry = (modelUsage as Record<string, any>)[mainModel]
+  if (entry && typeof entry.contextWindow === 'number') return entry.contextWindow
+  return 0
 }
 
 // ── 核心构建 ─────────────────────────────────────────────────────────────
@@ -213,19 +205,18 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
   const { items, pendingTooluse, nextScanStart } = cached
 
   /**
-   * 取「该索引之前最后一条 SDK transcript 中带 uuid 的消息」的 uuid。
-   * 用于给 user / turn_end item 提供 fork 锚点。
+   * 寻找 idx 之前(不包含)最近一条 user/assistant 消息的 uuid。
    *
-   * **必须按 message.type 白名单过滤为 'user' | 'assistant'**：
+   * 必须按 message.type 白名单过滤为 'user' | 'assistant':
    * `includePartialMessages: true` 时 SDK 会流出 SDKPartialAssistantMessage
-   * (`type: 'stream_event'`),其 uuid 是流式事件内部标识,不在 SDK transcript 里。
-   * 若不过滤会误命中 stream_event uuid,forkSession(srcSessionId, { upToMessageId })
-   * 直接报 `Message <uuid> not found`。SDKSystemMessage / SDKResultMessage 也无 uuid 字段。
+   * (type='stream_event'),其 uuid 是流式事件内部标识,不在 SDK transcript 里。
+   * 不过滤会误命中 stream_event uuid → forkSession 报 `Message <uuid> not found`。
+   * SDKResultMessage 同理无 uuid（result.uuid 不在 transcript）。
    *
-   * - SDKUserMessage.uuid 是可选的（webview 重放的 user 通常没有,跳过）
-   * - SDKUserMessageReplay (type='user', isReplay=true) uuid 必选
-   * - SDKAssistantMessage (type='assistant') uuid 必选
-   * - 第一条 user（之前没有任何 SDK 消息）会得到 undefined,UI 不显示 fork icon
+   * 用途:user / turn_end item 的 fork 锚点(user 自己 uuid 常缺、user fork 语义
+   * = 截到上一条含 uuid 的 SDK 消息;turn_end fork = 截到本回合最后带 uuid 的 SDK 消息)。
+   *
+   * @param idx message 的 index
    */
   const findPrevUuid = (idx: number): string | undefined => {
     for (let j = idx - 1; j >= 0; j--) {
@@ -259,25 +250,29 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         modelBreakdown: modelBreakdown.length > 0 ? modelBreakdown : undefined,
         totalCost: cached.lastTotalCost > 0 ? cached.lastTotalCost : undefined,
       })
-      // agent_complete 上下文占用：只要 session 见过 contextWindow 且观测到过 used,
-      // 就稳定写入,避免「最后一条 result 缺 contextWindow」时丢失展示
-      if (cached.sessionContextWindow > 0 && cached.lastObservedUsed > 0) {
-        cached.contextUsageByItemKey.set(completeKey, {
-          used: cached.lastObservedUsed,
-          total: cached.sessionContextWindow,
-        })
+      // agent_complete 上下文占用:复用 turn_end 时落下的 lastTurnContextUsage 快照,
+      // 即"最后一个 turn 的窗口占用"。每 turn 独立算,不做 sticky max,因此直接复用快照。
+      if (cached.lastTurnContextUsage) {
+        cached.contextUsageByItemKey.set(completeKey, cached.lastTurnContextUsage)
       }
       continue
     }
 
     if (msg.type !== 'flow.signal.aiMessage') continue
     const { message } = msg.data
-    const messageUuid = (message as { uuid?: string }).uuid
+    const messageUuid = message.uuid
+
+    // 新session 重置缓存信息
+    if (message.type === 'system' && message.subtype === 'init') {
+      cached.mainModel = message.model
+      cached.prevModelUsage = {}
+      cached.lastTotalCost = 0
+      cached.lastTurnContextUsage = undefined
+      cached.agentCompleteSeen = false
+      continue
+    }
     // AgentComplete tool_use 一旦出现就视为本 session 收尾,后续 ai 消息（含
     // 中断时序产生的多余 text / 重试 tool_use / MCP AbortError tool_result）一律丢弃。
-    // 例外：reducer 把 SDK 的 result 包装成独立 aiMessage push 进 session.messages,
-    // result 必须穿透此守卫去更新 prevModelUsage / lastTotalCost / sessionContextWindow,
-    // 否则单轮直接 AgentComplete 的 agent_complete 卡片会缺失上下文条 / 模型分布 / 总成本。
     if (cached.agentCompleteSeen && message.type !== 'result') continue
 
     if (message.type === 'user') {
@@ -315,16 +310,40 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         key: `${mIdx}-user`,
         rawContent,
         messageUuid: findPrevUuid(mIdx),
-        turnClosed: false,
       })
+      continue
+    }
+    // 累加流式消息
+    if (message.type === 'stream_event') {
+      const event = message.event as any
+      if (event?.type !== 'content_block_delta') continue
+      const delta = event.delta
+      if (!delta) continue
+      const blockType: 'text' | 'thinking' | null =
+        delta.type === 'text_delta' ? 'text' : delta.type === 'thinking_delta' ? 'thinking' : null
+      if (!blockType) continue
+      const deltaText: string =
+        delta.type === 'text_delta' ? (delta.text ?? '') : (delta.thinking ?? '')
+      if (!deltaText) continue
+      // 累加到最后一条同类型 streaming 项；否则新建
+      const last = items.at(-1)
+      if (last && last.kind === blockType && last.streaming) {
+        items[items.length - 1] = { ...last, text: last.text + deltaText }
+      } else {
+        items.push({
+          kind: blockType,
+          key: `${mIdx}`,
+          text: deltaText,
+          streaming: true,
+        })
+      }
       continue
     }
 
     if (message.type === 'assistant') {
       const blocks = message.message.content
       if (!Array.isArray(blocks)) continue
-
-      // 完整消息到达：移除尾部所有 streaming text/thinking 占位项
+      // 完整消息到达 移除尾部所有 streaming text/thinking 占位项 后续直接添加完整数据
       while (items.length > 0) {
         const last = items[items.length - 1]
         if ((last.kind === 'text' || last.kind === 'thinking') && last.streaming) {
@@ -333,53 +352,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
           break
         }
       }
-
-      // 兼容层模型（如 glm-5.1）会在一次生成内推送多条完整 assistant —— 前几条
-      // stop_reason=null 是"复读基础",最后一条才是真终态。SDK 协议下 assistant
-      // 到达即代表流结束,不能动 streaming 字段（会破坏 fork 锚点 / copy 显示 /
-      // thinking 折叠等下游判定）,改在 push 前做内容前缀去重：
-      //   1. 从末尾收集连续的 streaming:false 的 text/thinking 项（中间被 user /
-      //      tool_use / turn_end 等其他 kind 截断即停）—— 这就是上一条完整
-      //      assistant 留下的 text/thinking 序列。
-      //   2. 把它们的文本按顺序拼接为 oldStr,把当前 blocks 中 text/thinking 的
-      //      文本按顺序拼接为 newStr。
-      //   3. oldStr / newStr 互为前缀（相等 / 旧是新前缀 / 新是旧前缀）即视为复读
-      //      或"复读+追加",pop 掉这段末尾旧 item,后续按正常分支 push 新 blocks。
-      // 不互为前缀 → 是正常的"上一条 assistant + tool_result + 下一条 assistant"
-      // 链或自然多轮,保留原项。tool_result-only 的 user 消息会被消化不入 items,
-      // 不会误截断；tool_use 在中间则会截断,避免跨工具调用误去重。
-      let dedupeFrom = items.length
-      while (dedupeFrom > 0) {
-        const it = items[dedupeFrom - 1]
-        if ((it.kind === 'text' || it.kind === 'thinking') && !it.streaming) {
-          dedupeFrom -= 1
-        } else {
-          break
-        }
-      }
-      if (dedupeFrom < items.length) {
-        const oldStr = items
-          .slice(dedupeFrom)
-          .map((it) => (it.kind === 'text' || it.kind === 'thinking' ? it.text : ''))
-          .join('')
-        const newStr = blocks
-          .filter((b: any) => b?.type === 'text' || b?.type === 'thinking')
-          .map((b: any) => (b.type === 'text' ? (b.text ?? '') : (b.thinking ?? '')))
-          .join('')
-        if (
-          oldStr.length > 0 &&
-          newStr.length > 0 &&
-          (oldStr.startsWith(newStr) || newStr.startsWith(oldStr))
-        ) {
-          items.length = dedupeFrom
-        }
-      }
-
-      // 本条 assistant 消息的总输入 tokens —— 用作 turn_end 显示来源（lastObservedUsed）。
-      // 不再下发到具体 block：单条消息内多 block 共享同一 usage，会让用户误以为是单 block 的开销。
-      const assistantUsed = readUsageInputTotal((message as any).message?.usage)
-
-      blocks.forEach((block: any, bIdx: number) => {
+      blocks.forEach((block, bIdx: number) => {
         // 同一条 assistant 消息中,AgentComplete 之后的 block 一律忽略。
         if (cached.agentCompleteSeen) return
         const key = `${mIdx}-${bIdx}`
@@ -390,7 +363,6 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             text: block.text,
             streaming: false,
             messageUuid,
-            turnClosed: false,
           })
           return
         }
@@ -401,20 +373,14 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             text: block.thinking,
             streaming: false,
             messageUuid,
-            turnClosed: false,
           })
           return
         }
         if (block.type === 'tool_use' || block.type === 'mcp_tool_use') {
+          // 匹配AgentControllerMcp提供的AgentComplete tool
+          // 此后同一session不应展示
           const toolName =
             'server_name' in block ? `${block.server_name}::${block.name}` : block.name
-          // AgentComplete 是终结型 tool —— 不渲染 tool 卡片(避免被中断的 MCP
-          // AbortError 显示为「失败」,也避免成功结果与下方完成卡片重复),
-          // 同时作为 session 收尾的标志。后续若 SDK 还流出多余 text / 重试调用,
-          // 会被外层 agentCompleteSeen 跳过。
-          // MCP tool 的 block.name 形态可能是 `mcp__<server>__AgentComplete`
-          // (普通 tool_use),也可能是带 server_name 的 mcp_tool_use,统一按
-          // toolName 末段匹配。
           if (
             toolName === 'AgentControllerMcp::AgentComplete' ||
             toolName === 'mcp__AgentControllerMcp__AgentComplete' ||
@@ -459,14 +425,6 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
           return
         }
       })
-
-      // 记录本条 assistant.message.usage 作为 lastObservedUsed,供后续 turn_end / agent_complete 使用。
-      // 不再 per-block 写 contextUsageByItemKey:同一条 assistant 多 block 共享同一 usage,
-      // 单条 block 不展示自身开销避免误导。
-      if (assistantUsed > 0) {
-        cached.lastObservedUsed = assistantUsed
-        cached.turnAssistantUsageSeen = true
-      }
       continue
     }
 
@@ -487,25 +445,15 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       const cost = (message as any).total_cost_usd
       if (typeof cost === 'number') cached.lastTotalCost = cost
 
-      // 上下文窗口大小（sticky max）。turn_end 的 used 优先取 lastObservedUsed(来自 assistant.usage,
-      // 描述单次调用更精确)；本回合没拿到 assistant.usage 时(部分模型不下发)用 result.usage 兜底,
-      // 否则 turn_end 完全无法展示上下文条。
-      const contextWindow = readContextWindow((message as any).modelUsage)
-      if (contextWindow > cached.sessionContextWindow) {
-        cached.sessionContextWindow = contextWindow
-      }
-      if (!cached.turnAssistantUsageSeen) {
-        const resultUsed = readUsageInputTotal((message as any).usage)
-        if (resultUsed > 0) cached.lastObservedUsed = resultUsed
-      }
-
-      // 把当前 turn 内（自上一个 turn_end 之后）所有 user/text/thinking item 标记为已闭环
-      for (let j = cached.turnStartIdx; j < items.length; j++) {
-        const it = items[j]
-        if (it.kind === 'user' || it.kind === 'text' || it.kind === 'thinking') {
-          items[j] = { ...it, turnClosed: true }
-        }
-      }
+      // 上下文窗口:每 turn 独立按本 result 数据计算,仅主模型 entry 的 contextWindow。
+      // 主模型来自 system/init 消息(见 message.type === 'system' 分支),不从 result.model 取 ——
+      // result.model 在多模型场景可能切到辅助模型,会让窗口数据抖动。
+      // used = result.usage 的 input_total。任何一项缺失则该 turn 不展示。
+      const contextWindow = readContextWindow((message as any).modelUsage, cached.mainModel)
+      const resultUsed = readUsageInputTotal((message as any).usage)
+      const turnContextUsage =
+        contextWindow > 0 && resultUsed > 0 ? { used: resultUsed, total: contextWindow } : undefined
+      if (turnContextUsage) cached.lastTurnContextUsage = turnContextUsage
 
       // AgentComplete 已发生时,reducer 包装的这条 result 仅用于更新 cached(供 agent_complete
       // 卡片读取 modelBreakdown / totalCost / contextUsage),不 push turn_end —— 避免在
@@ -525,53 +473,9 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         // 识别的节点 —— 取本回合最后一条带 uuid 的 SDK 消息（通常是该回合最后一条
         // assistant），以此为 fork 锚点等价于「fork 到回合结束」。
         messageUuid: findPrevUuid(mIdx),
-        turnClosed: true,
       })
-      if (cached.sessionContextWindow > 0 && cached.lastObservedUsed > 0) {
-        cached.contextUsageByItemKey.set(turnEndKey, {
-          used: cached.lastObservedUsed,
-          total: cached.sessionContextWindow,
-        })
-      }
-      cached.turnStartIdx = items.length
-      cached.turnAssistantUsageSeen = false
-      continue
-    }
-
-    if (message.type === 'stream_event') {
-      const event = message.event as any
-      if (event?.type !== 'content_block_delta') continue
-      const delta = event.delta
-      if (!delta) continue
-      const blockType: 'text' | 'thinking' | null =
-        delta.type === 'text_delta' ? 'text' : delta.type === 'thinking_delta' ? 'thinking' : null
-      if (!blockType) continue
-      const deltaText: string =
-        delta.type === 'text_delta' ? (delta.text ?? '') : (delta.thinking ?? '')
-      if (!deltaText) continue
-      // 累加到最后一条同类型 streaming 项；否则新建
-      const last = items[items.length - 1]
-      if (last && last.kind === blockType && last.streaming) {
-        items[items.length - 1] = { ...last, text: last.text + deltaText }
-      } else {
-        const key = `${mIdx}-streaming-${event.index ?? 0}`
-        if (blockType === 'text') {
-          items.push({
-            kind: 'text',
-            key,
-            text: deltaText,
-            streaming: true,
-            turnClosed: false,
-          })
-        } else {
-          items.push({
-            kind: 'thinking',
-            key,
-            text: deltaText,
-            streaming: true,
-            turnClosed: false,
-          })
-        }
+      if (turnContextUsage) {
+        cached.contextUsageByItemKey.set(turnEndKey, turnContextUsage)
       }
       continue
     }
@@ -598,10 +502,6 @@ export function buildRenderItems(
         prevModelUsage: {},
         lastTotalCost: 0,
         contextUsageByItemKey: new Map(),
-        sessionContextWindow: 0,
-        lastObservedUsed: 0,
-        turnStartIdx: 0,
-        turnAssistantUsageSeen: false,
         agentCompleteSeen: false,
       })
       return cache.get(sessionId)!

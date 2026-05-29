@@ -327,9 +327,6 @@ function renderItemToBubble(
       if (item.streaming) {
         return { key: item.key, role: 'ai', content: md }
       }
-      // 与 user 对齐:只要 messageUuid 存在即放行 fork。turn 是否闭环不再作为
-      // 守卫条件 —— fork 切片末端的 text 项 turnClosed=false（切片不含后续 result）,
-      // 但 fork 本身合法,不能因此拦下。
       const fork =
         runId && item.messageUuid
           ? buildForkIcon({ kind: 'message', runId, messageUuid: item.messageUuid })
