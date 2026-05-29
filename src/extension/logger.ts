@@ -73,14 +73,17 @@ function summarizeSDKMessage(msg: unknown): unknown {
         text: event?.delta?.text,
       }
     })
-    .with('result', () => ({
-      type: m.type,
-      subtype: m.subtype,
-      session_id: m.session_id,
-      is_error: m.is_error,
-      num_turns: m.num_turns,
-      duration_ms: m.duration_ms,
-    }))
+    .with('result', () => {
+      return {
+        type: m.type,
+        subtype: m.subtype,
+        session_id: m.session_id,
+        is_error: m.is_error,
+        num_turns: m.num_turns,
+        duration_ms: m.duration_ms,
+        modelUsage: m.modelUsage,
+      }
+    })
     .with('user', () => ({ ...m, message: redactUserMessage(m.message) }))
     .with('assistant', () => m)
     .otherwise(() => m)
