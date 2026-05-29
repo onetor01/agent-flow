@@ -338,6 +338,12 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       // 不再下发到具体 block：单条消息内多 block 共享同一 usage，会让用户误以为是单 block 的开销。
       const assistantUsed = readUsageInputTotal((message as any).message?.usage)
 
+      // 部分模型（如 glm-5.1）会在流中段发出 stop_reason: null 的完整重述 assistant
+      // 消息（其 message.id 与 streaming 事件不同），随后还会继续下发 stream_event。
+      // 只有 stop_reason 非空才是终态；为空则把本条产出的 text/thinking 也标记为 streaming,
+      // 后续 stream_event 通过尾部累加分支并入同一气泡，避免出现多个气泡。
+      const isFinal = !!(message.message as any)?.stop_reason
+
       blocks.forEach((block: any, bIdx: number) => {
         // 同一条 assistant 消息中,AgentComplete 之后的 block 一律忽略。
         if (cached.agentCompleteSeen) return
@@ -347,7 +353,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             kind: 'text',
             key,
             text: block.text,
-            streaming: false,
+            streaming: !isFinal,
             messageUuid,
             turnClosed: false,
           })
@@ -358,7 +364,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             kind: 'thinking',
             key,
             text: block.thinking,
-            streaming: false,
+            streaming: !isFinal,
             messageUuid,
             turnClosed: false,
           })
