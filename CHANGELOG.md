@@ -1,5 +1,19 @@
 # Change Log
 
+## [0.0.28] - 2026-05-30
+
+### 修复
+
+- **多 iteration 场景下上下文窗口占用虚高**：`buildRenderItems.readUsageInputTotal` 原直接读 `message.usage` 顶层 `input_tokens` / `cache_*_input_tokens`,但 SDK 在 server-side tool 或长 tool loop 下会把多次 sampling 的 usage 聚合到顶层,直接累加导致进度条虚高。改为优先取 `usage.iterations` 末项(SDK 文档明确「真实窗口大小取最后一次 iteration」),无 iterations 时退回顶层。
+
+### 优化
+
+- **上下文窗口按主模型计算**：`readContextWindow` 不再取 `result.modelUsage` 中所有 entry 的 contextWindow 最大值。新增 `mainModel`（取自 SDK system/init 消息顶层 `model` 字段）缓存,只读主模型 entry 的 contextWindow —— 多模型场景(如 sonnet 主模型 + haiku 辅助)下只有主模型的窗口反映真实压力。无主模型 / 该模型缺 contextWindow 一律返回 0,UI 跳过展示。
+- **每 turn 上下文占用独立计算,不做 sticky max**：原实现维护 `sessionContextWindow` / `lastObservedUsed` / `turnAssistantUsageSeen` 跨 turn sticky,容易把上一轮的高位读数带进下一轮。改为每个 turn_end 直接按本 result 数据计算并写入 `contextUsageByItemKey`；新增 `lastTurnContextUsage` 仅给 `agent_complete` 卡片复用最后一个 turn 的快照(让"session 总结"卡片仍能展示窗口占用)。
+- **`RenderItem.turnClosed` 字段移除**：fork 守卫不再依赖 turn 是否闭环,只看 `messageUuid` 是否存在。`text` / `thinking` / `turn_end` / `user` 项的 `turnClosed` 字段全部删除,`MessageBubble.renderItemToBubble` 同步删除过时注释。
+- **`logger.summarizeSDKMessage` 在 SDK result 消息摘要中新增 `usage` 字段**：配合上下文窗口计算调整,日志输出原始 usage 结构便于排查。
+- **CLAUDE.md 整改为导航地图风格**：压缩冗余,每条只留「标题 + 一句话约束 + 文件路径」,具体实现细节(字段名 / 调用链 / 步骤)下沉到对应代码注释。新增「写作约定」节明确规则。
+
 ## [0.0.26] - 2026-05-29
 
 - 修复流式数据渲染的问题
