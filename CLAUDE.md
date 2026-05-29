@@ -48,9 +48,9 @@ webview 端：[App](src/webview/App.tsx) → `<AgentFlow>`（xyflow）+ `<ChatDr
 
 Flow 级共享存储，对 Agent 暴露为按 key 授权的 `values` 契约：
 
-- `Flow.shareValuesKeys`（`{key, desc?}[]`）声明全集。`desc` 仅设计期标注，不进 prompt / MCP schema。删 key 自动从所有 Agent 的 `allowed_read/write_values_keys` 清理。
-- 读：[buildAgentSystemPrompt](src/common/index.ts) 把可读 key + 当前值（缺失为 `null`）以 JSON 注入「# 可用数据」节，**prompt 时点快照、不重读**，运行中改值需切下一 agent 生效。
-- 写：仅 [AgentComplete](src/common/extension.ts) 的 `values` 参数，schema 由 `allowed_write_values_keys` 动态生成；未授权 key 静默丢弃。`chat` 模式无 AgentComplete 故无法写。
+- `Flow.shareValuesKeys`（`{key, desc?}[]`）声明全集。`desc` 是设计期语义说明，会随 [buildAgentSystemPrompt](src/common/index.ts) 透传给 Agent 的「# 可读写数据 / ## key 和含义」节作为 `key: desc` 注释，但不进 MCP schema。删 key 自动从所有 Agent 的 `allowed_read/write_values_keys` 清理。
+- 读：[buildAgentSystemPrompt](src/common/index.ts) 在中部「# 可读写数据」节集中声明：`## key 和含义` 列出涉及 key 的 `key: desc`，`## 可读数据` 列纯可读 key，`### 可写数据` 列纯可写 key（chat 模式跳过）；底部「# 可用数据」节把可读 key + 当前值（缺失为 `null`）以 JSON 快照注入，**prompt 时点快照、不重读**，运行中改值需切下一 agent 生效。底部 JSON 快照固定排在 prompt 末尾（顶部=通用规则、中部=agent 配置含可读写声明、底部=运行时 shareValues），便于命中跨会话 prompt 缓存。
+- 写：仅 [AgentComplete](src/common/extension.ts) 的 `values` 参数，schema 由 `allowed_write_values_keys` 动态生成；未授权 key 静默丢弃。`chat` 模式无 AgentComplete 故无法写，prompt「# 可读写数据」节也不会出 `### 可写数据` 子节。
 - 事件：`flow.signal.agentComplete.values`（reducer 合并到 `state.shareValues`）；`flow.command.setShareValues`（full replace，无 runId，未运行也能编辑）。无 `shareValuesChanged` signal、无 `get/setShareValues` MCP 工具。
 - 运行时取值经 `getLatestShareValues(flowId)` → `FlowRunStateManager.getFlowRunStates()[flowId]?.shareValues`，`FlowRunner` 不持有副本。
 - 命名：Flow 视角 = `shareValues`（`FlowRunState.shareValues` / `Flow.shareValuesKeys` / `setShareValues` / `getLatestShareValues`），Agent 视角 = `values`（`allowed_read/write_values_keys` / `AgentComplete.values` / `agentComplete.values` / `currentValues`）。
@@ -82,7 +82,7 @@ Flow 级共享存储，对 Agent 暴露为按 key 授权的 `values` 契约：
 - **ChatPanel 开始运行**：`phase === 'idle'` 直接启动；非 idle 非 awaiting 要 modal 确认（清空运行数据）。见 [ChatDrawer.onSend](src/webview/components/ChatDrawer/index.tsx)。
 - **webview 粘贴双路径**：`<AgentFlow>` 内 = 粘贴 Agent（保留内部连接、ID 重映射）；画布空白 / App 层 = 作为 Flow JSON 导入。
 - **CodeRef.line**：`line?: [number, number]`，整文件为 `undefined`。Tag 仅 line 存在时显示行号；点击 `openFile`，`undefined` 时只打开不选中。`Ctrl+Shift+L`（Mac `Cmd+Shift+L`）选中文字注入带行片段，无选中注入整文件（`line` 省略）。
-- **assistant 跨 ID 重复**：某些模型（glm-5.1）发 `stop_reason: null` 完整重述消息且 `message.id` ≠ streaming ID。[buildRenderItems.ts](src/webview/components/ChatDrawer/ChatPanel/buildRenderItems.ts) 已处理：移除 trailing streaming items + 按 `stop_reason` 标记 streaming 状态。修改时务必保留。
+- **assistant 跨 ID 重复**：某些模型（glm-5.1）在一次生成内推送多条完整 assistant —— 前几条 `stop_reason: null` 复读、最后一条才是真终态,且 `message.id` ≠ streaming ID。[buildRenderItems.ts](src/webview/components/ChatDrawer/ChatPanel/buildRenderItems.ts) 处理:assistant 完整消息到达时,先 pop 尾部 streaming text/thinking 占位项,再把末尾连续 `streaming:false` 的 text/thinking 文本顺序拼成 `oldStr`、当前 blocks 同类拼成 `newStr`,互为前缀（含相等）视为复读 → 截掉 `oldStr` 那段 item。`streaming` 字段保持「SDK 协议下 assistant 到达即终态」语义,不依赖 `stop_reason`（GLM 等模型不可靠）—— 动 streaming 会破坏 fork 锚点 / copy 显示 / thinking 折叠的下游判定。修改时务必保留。
 - **shareValues 是 prompt 快照**：[FlowRunner.doOnAgentComplete](src/extension/FlowRunnerManager/FlowRunner/index.ts) 切下一 agent 时 reducer 还没收到 signal，必须手动 `{ ...getLatestShareValues(), ...result.values }` 给 nextAgent systemPrompt，否则看到旧快照。
 - **ClaudeExecutor 路由由 FlowRunner 承担**：FlowRunner 用 `executors: Map<runId, ClaudeExecutor>.get(runId)` 寻址，不维护 `currentRunId/SessionId/AgentId`；Executor 不暴露 runId 也无 `matches()`。`onComplete` 等回调闭包内通过 `this.executors.get(runId) !== getExecutor()` 判定是否过期，避免切换时旧 executor 的回调污染新 run。
 - **ClaudeExecutor 启动模式 `eager` / `lazy`**：`eager` 构造时立即 `createQuery` + push initMessage；`lazy` 用于 fork，构造时不 createQuery 不 push，等用户首次 `sendUserMessage` 触发。SDK 不支持 askUserQuestion 作 fork 终点，故 fork target 仅 `kind: 'message'`。修改启动 / interrupt / answerQuestion 路径时区分两种 mode。
