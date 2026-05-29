@@ -334,15 +334,50 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         }
       }
 
+      // 兼容层模型（如 glm-5.1）会在一次生成内推送多条完整 assistant —— 前几条
+      // stop_reason=null 是"复读基础",最后一条才是真终态。SDK 协议下 assistant
+      // 到达即代表流结束,不能动 streaming 字段（会破坏 fork 锚点 / copy 显示 /
+      // thinking 折叠等下游判定）,改在 push 前做内容前缀去重：
+      //   1. 从末尾收集连续的 streaming:false 的 text/thinking 项（中间被 user /
+      //      tool_use / turn_end 等其他 kind 截断即停）—— 这就是上一条完整
+      //      assistant 留下的 text/thinking 序列。
+      //   2. 把它们的文本按顺序拼接为 oldStr,把当前 blocks 中 text/thinking 的
+      //      文本按顺序拼接为 newStr。
+      //   3. oldStr / newStr 互为前缀（相等 / 旧是新前缀 / 新是旧前缀）即视为复读
+      //      或"复读+追加",pop 掉这段末尾旧 item,后续按正常分支 push 新 blocks。
+      // 不互为前缀 → 是正常的"上一条 assistant + tool_result + 下一条 assistant"
+      // 链或自然多轮,保留原项。tool_result-only 的 user 消息会被消化不入 items,
+      // 不会误截断；tool_use 在中间则会截断,避免跨工具调用误去重。
+      let dedupeFrom = items.length
+      while (dedupeFrom > 0) {
+        const it = items[dedupeFrom - 1]
+        if ((it.kind === 'text' || it.kind === 'thinking') && !it.streaming) {
+          dedupeFrom -= 1
+        } else {
+          break
+        }
+      }
+      if (dedupeFrom < items.length) {
+        const oldStr = items
+          .slice(dedupeFrom)
+          .map((it) => (it.kind === 'text' || it.kind === 'thinking' ? it.text : ''))
+          .join('')
+        const newStr = blocks
+          .filter((b: any) => b?.type === 'text' || b?.type === 'thinking')
+          .map((b: any) => (b.type === 'text' ? (b.text ?? '') : (b.thinking ?? '')))
+          .join('')
+        if (
+          oldStr.length > 0 &&
+          newStr.length > 0 &&
+          (oldStr.startsWith(newStr) || newStr.startsWith(oldStr))
+        ) {
+          items.length = dedupeFrom
+        }
+      }
+
       // 本条 assistant 消息的总输入 tokens —— 用作 turn_end 显示来源（lastObservedUsed）。
       // 不再下发到具体 block：单条消息内多 block 共享同一 usage，会让用户误以为是单 block 的开销。
       const assistantUsed = readUsageInputTotal((message as any).message?.usage)
-
-      // 部分模型（如 glm-5.1）会在流中段发出 stop_reason: null 的完整重述 assistant
-      // 消息（其 message.id 与 streaming 事件不同），随后还会继续下发 stream_event。
-      // 只有 stop_reason 非空才是终态；为空则把本条产出的 text/thinking 也标记为 streaming,
-      // 后续 stream_event 通过尾部累加分支并入同一气泡，避免出现多个气泡。
-      const isFinal = !!(message.message as any)?.stop_reason
 
       blocks.forEach((block: any, bIdx: number) => {
         // 同一条 assistant 消息中,AgentComplete 之后的 block 一律忽略。
@@ -353,7 +388,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             kind: 'text',
             key,
             text: block.text,
-            streaming: !isFinal,
+            streaming: false,
             messageUuid,
             turnClosed: false,
           })
@@ -364,7 +399,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
             kind: 'thinking',
             key,
             text: block.thinking,
-            streaming: !isFinal,
+            streaming: false,
             messageUuid,
             turnClosed: false,
           })
