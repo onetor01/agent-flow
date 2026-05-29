@@ -200,6 +200,7 @@ export const AgentEditor: FC = () => {
                     allowClear
                     options={[
                       { value: 'opus', label: 'opus' },
+                      { value: 'sonnet[1m]', label: 'sonnet[1m]' },
                       { value: 'qwen3.7-max', label: 'qwen3.7-max' },
                       { value: 'glm-5.1', label: 'glm-5.1' },
                       { value: 'DeepSeek-V4-Pro', label: 'DeepSeek-V4-Pro' },
