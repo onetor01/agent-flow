@@ -14,6 +14,7 @@ import {
   AskUserQuestionOutput,
   buildAgentSystemPrompt,
   matchTool,
+  ShareValueKey,
   UserMessageType,
 } from '@/common'
 import { buildAgentMcpServer } from '@/common/extension'
@@ -116,6 +117,7 @@ export class ClaudeExecutor {
   /**
    * @param agent - Agent 定义(model、outputs、prompt 等)
    * @param currentValues - Agent 启动时的可读 values 快照(注入系统提示词,运行中不重读)
+   * @param shareValueKeys - Flow 声明的全部共享数据 key 与 desc(注入系统提示词的「# 可读数据」/「# 可写数据」节)
    * @param resumeSessionId - 若提供，构造时即以该 sessionId resume 已有 SDK 会话
    *   （fork 后的延续启动走此路径）；否则首次握手由 SDK 分配。
    * @param mode - fork 路径专用模式:
@@ -126,6 +128,7 @@ export class ClaudeExecutor {
     initMessage: UserMessageType,
     agent: Agent,
     currentValues: Record<string, string>,
+    shareValueKeys: readonly ShareValueKey[],
     events: ExecutorEvents,
     resumeSessionId?: string,
     mode: ExecutorMode = 'eager',
@@ -134,7 +137,7 @@ export class ClaudeExecutor {
     this.events = events
     this.userInputStream = createMessageChannel<SDKUserMessage>()
     // values 是写在系统提示词里的 不能即时读写 可以直接构造
-    this.prompt = buildAgentSystemPrompt(agent, currentValues)
+    this.prompt = buildAgentSystemPrompt(agent, shareValueKeys, currentValues)
     if (resumeSessionId) {
       // resume 模式：sessionId 已知;fork 路径(lazy)不透传 initMessage
       // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
@@ -371,7 +374,14 @@ export class ClaudeExecutor {
     const options: Options = {
       model: this.agent.model,
       effort: this.agent.effort,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: this.prompt },
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: this.prompt,
+        // 把 SDK 内置的 cwd / memory / git status 等动态节剥离到首条 user message,
+        // system prompt 保住纯静态、可跨会话命中 prompt 缓存。
+        excludeDynamicSections: true,
+      },
       mcpServers: { AgentControllerMcp: this.mcpServer },
       permissionMode: 'default',
       canUseTool: this.canUseTool,

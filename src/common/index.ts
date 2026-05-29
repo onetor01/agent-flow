@@ -229,6 +229,11 @@ export function matchTool(toolName: string, patterns: readonly string[]): boolea
 /**
  * 构建 Agent 系统提示词
  *
+ * 输出按「变动频率」分三层，越靠上越能跨会话/跨 Agent 命中 prompt 缓存：
+ * - **顶部**（配置无关、跨 Agent 不变）：通用回复规则
+ * - **中部**（agent 配置相关、运行中不变）：work_mode 分支规则、可读写数据、对话规则、停止会话
+ * - **底部**（运行时可变）：可用数据（shareValues 快照）
+ *
  * 根据 `work_mode` 选取不同的提示词骨架：
  * - `task`：把 `agent_prompt` 视作**任务描述**，
  *   要求 Agent 围绕该任务推进，并在产物达成后调用 AgentComplete
@@ -248,6 +253,7 @@ export function buildAgentSystemPrompt(
     | 'no_input'
     | 'agent_name'
   >,
+  shareValueKeys?: readonly ShareValueKey[],
   currentValues?: Record<string, string>,
 ): string {
   const {
@@ -258,6 +264,7 @@ export function buildAgentSystemPrompt(
     allowed_write_values_keys = [],
   } = agent
 
+  // ── 顶部：配置无关、跨 Agent 不变 ────────────────────────────────────────
   const lines: string[] = [
     '中文思考与回复，简洁输出，直接给代码或结果，不解释推导过程。',
     '理解用户真实需求，精确改动相关代码。',
@@ -265,7 +272,9 @@ export function buildAgentSystemPrompt(
     '**禁止**道歉、表明身份、免责声明等与任务无关的内容。',
     '改动代码前**必须**先阅读所有调用方，理解代码含义与影响范围后再动手。',
   ]
-  match(agent.work_mode)
+
+  // ── 中部：agent 配置相关、运行中不变 ─────────────────────────────────────
+  match(work_mode)
     .with('task', () => {
       lines.push(
         '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
@@ -286,39 +295,39 @@ export function buildAgentSystemPrompt(
       )
     })
     .exhaustive()
-  // Flow 管控数据（可选，仅注入被授权读取的 key） 空值传入null
-  if (allowed_read_values_keys.length > 0) {
-    const visibleValues: Record<string, string | null> = {}
-    for (const key of allowed_read_values_keys) {
-      if (currentValues) {
-        const value = currentValues[key]
-        visibleValues[key] = value !== undefined && value !== '' ? value : null
-      } else {
-        visibleValues[key] = '<运行时替换>'
-      }
+
+  // 可读写数据：合并节，集中声明 key 含义，再分列读 / 写授权。chat 不能写
+  const descByKey = new Map<string, string | undefined>(
+    (shareValueKeys ?? []).map((k) => [k.key, k.desc]),
+  )
+  const keyLine = (k: string) => {
+    const desc = descByKey.get(k)
+    return desc ? `  - ${k}: ${desc}` : `  - ${k}`
+  }
+  const writableKeys = work_mode === 'chat' ? [] : allowed_write_values_keys
+  const declaredKeys = Array.from(new Set([...allowed_read_values_keys, ...writableKeys]))
+  if (declaredKeys.length > 0) {
+    lines.push(
+      '# 外部数据',
+      '## key 和语义',
+      '本次会话中会出现外部数据，它们的key和语义如下。可以通过语义引用这些数据。',
+    )
+    lines.push(...declaredKeys.map(keyLine))
+    if (allowed_read_values_keys.length > 0) {
+      lines.push('## 可读数据', '以下key(或对应语义)被引用时，从「# 具体数据」寻找对应的值：')
+      lines.push(...allowed_read_values_keys.map((k) => `  - ${k}`))
     }
-    if (Object.keys(visibleValues).length > 0) {
+    if (writableKeys.length > 0) {
       lines.push(
-        '# 可用数据',
-        '用户会引用以下值',
-        '```json',
-        JSON.stringify(visibleValues, null, 2),
-        '```',
+        '### 可写数据',
+        '当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 AgentComplete 工具的 `values` 参数输出，仅在 `content` 里描述不算写入。',
+        ...writableKeys.map((k) => `  - ${k}`),
+        '#### 写入说明',
+        '- 仅可写入上述列出的 key',
+        '- 部分写入即可：未变化的 key 省略不传；省略不等于清空（要清空请显式传空字符串）',
+        '- `content` 是本次任务的结果文本；`values` 用于按 key 记录用户要求保存的值',
       )
     }
-  }
-
-  // 可写数据：chat 不能写（不调 AgentComplete）；task / silent_task 都通过 AgentComplete 的 values 写入
-  if (allowed_write_values_keys.length > 0 && work_mode !== 'chat') {
-    lines.push(
-      '# 可写数据',
-      '当用户要求"记录"、"保存"或"写入"以下任一 key 的值时，**必须**通过 AgentComplete 工具的 `values` 参数输出，仅在 `content` 里描述不算写入。',
-      ...allowed_write_values_keys.map((k) => `  - ${k}`),
-      '## 写入说明：',
-      '- 仅可写入上述列出的 key',
-      '- 部分写入即可：未变化的 key 省略不传；省略不等于清空（要清空请显式传空字符串）',
-      '- `content` 是本次任务的结果文本；`values` 用于按 key 记录用户要求保存的值',
-    )
   }
 
   // 对话规则：长期对话 / 围绕任务描述完成任务 / 无人值守循环执行
@@ -353,11 +362,27 @@ export function buildAgentSystemPrompt(
       .exhaustive()
   }
 
-  if (agent.work_mode === 'silent_task') {
+  if (work_mode === 'silent_task') {
     lines.push(
       '# **停止会话**',
       '**确定无法完成任务时**，调用 AgentControllerMcp 的 `terminateTask` 工具中止任务。例如缺失任务目标、缺失关键信息且无工具可获取、环境异常等极端情况。',
     )
   }
+  // ── 底部：运行时可变（shareValues 快照） ────────────────────────────────
+  if (allowed_read_values_keys.length > 0) {
+    const visibleValues: Record<string, string | null> = {}
+    for (const key of allowed_read_values_keys) {
+      if (currentValues) {
+        const value = currentValues[key]
+        visibleValues[key] = value !== undefined && value !== '' ? value : null
+      } else {
+        visibleValues[key] = '<运行时替换>'
+      }
+    }
+    if (Object.keys(visibleValues).length > 0) {
+      lines.push('# 具体数据', '```json', JSON.stringify(visibleValues, null, 2), '```')
+    }
+  }
+
   return lines.join('\n')
 }

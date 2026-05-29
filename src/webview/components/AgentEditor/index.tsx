@@ -110,7 +110,6 @@ export const AgentEditor: FC = () => {
   }, [open, agent, form])
 
   const isValidAgent = (v: any): v is Agent => v && typeof v.agent_name === 'string'
-  const fullPrompt = isValidAgent(watchedValues) ? buildAgentSystemPrompt(watchedValues) : ''
 
   // 从 Flow 定义中提取全部可用 key 选项
   const currentFlow = editingAgent ? flows.find((f) => f.id === editingAgent.flowId) : undefined
@@ -119,6 +118,10 @@ export const AgentEditor: FC = () => {
     label: k.desc ? `${k.key}(${k.desc})` : k.key,
     value: k.key,
   }))
+
+  const fullPrompt = isValidAgent(watchedValues)
+    ? buildAgentSystemPrompt(watchedValues, shareValueKeys)
+    : ''
 
   return (
     <Drawer

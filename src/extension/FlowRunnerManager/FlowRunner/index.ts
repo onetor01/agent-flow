@@ -147,6 +147,7 @@ export class FlowRunner {
       dummyInit,
       agent,
       this.getLatestShareValues(),
+      this.flow.shareValuesKeys ?? [],
       this.buildExecutorEvents(runId, agent, () => executor),
       resumeSessionId,
       'lazy',
@@ -256,7 +257,13 @@ export class FlowRunner {
     fireFlowStartSignal: boolean,
   ): void {
     const events = this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal)
-    const executor: ClaudeExecutor = new ClaudeExecutor(initMessage, agent, currentValues, events)
+    const executor: ClaudeExecutor = new ClaudeExecutor(
+      initMessage,
+      agent,
+      currentValues,
+      this.flow.shareValuesKeys ?? [],
+      events,
+    )
     this.executors.set(runId, executor)
   }
 
