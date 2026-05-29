@@ -41,13 +41,13 @@ jobs:
       - name: Package VSIX
         env:
           VSCE_TARGET: ${{ matrix.target }}
-        run: npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies -o agent-flow-${{ matrix.target }}.vsix
+        run: npx @vscode/vsce package --target ${{ matrix.target }} --no-dependencies -o agent-flow-${{ github.ref_name }}-${{ matrix.target }}.vsix
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: vsix-${{ matrix.target }}
-          path: agent-flow-${{ matrix.target }}.vsix
+          path: agent-flow-${{ github.ref_name }}-${{ matrix.target }}.vsix
 
   release:
     needs: package
