@@ -288,7 +288,7 @@ function renderItemToBubble(
   sessionCompleted = false,
   itemContextUsage?: { used: number; total: number },
   runId?: string,
-): RenderedBubble | null {
+): RenderedBubble | RenderedBubble[] | null {
   /**
    * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素,作为 Copyable.extra 注入。
    * fork icon 与 CopyButton 同列垂直堆叠（见 Copyable 组件实现）,不再用 absolute 定位。
@@ -398,29 +398,26 @@ function renderItemToBubble(
       }
     }
     case 'tool_use': {
-      if (ctx) {
-        const isPendingPerm = ctx.pendingToolPermissionToolUseIds?.has(item.toolUseId) ?? false
-        const answeredPerm = ctx.answeredToolPermissions?.[item.toolUseId]
-        if (isPendingPerm || answeredPerm) {
-          return {
-            key: item.key,
-            role: 'system',
-            content: (
-              <ToolPermissionCard
-                toolName={item.toolName}
-                input={item.input}
-                mode={isPendingPerm ? 'active' : 'historical'}
-                answered={answeredPerm}
-                onAllow={() => ctx.onToolPermissionAllow?.(item.toolUseId)}
-                onDeny={() => ctx.onToolPermissionDeny?.(item.toolUseId)}
-              />
-            ),
-          }
-        }
+      // 先计算权限状态，以便在 defaultOpen 中判断是否展开参数
+      const isPendingPerm = ctx?.pendingToolPermissionToolUseIds?.has(item.toolUseId) ?? false
+      const answeredPerm = ctx?.answeredToolPermissions?.[item.toolUseId]
+      const permItem = {
+        key: item.key + '-perm',
+        role: 'system' as const,
+        content: (
+          <ToolPermissionCard
+            toolName={item.toolName}
+            input={item.input}
+            mode={isPendingPerm ? 'active' : 'historical'}
+            answered={answeredPerm}
+            onAllow={() => ctx!.onToolPermissionAllow?.(item.toolUseId)}
+            onDeny={() => ctx!.onToolPermissionDeny?.(item.toolUseId)}
+          />
+        ),
       }
-      return {
+      const toolUseItem = {
         key: item.key,
-        role: 'ai',
+        role: 'ai' as const,
         content: (
           <ToolUseDetails
             toolName={item.toolName}
@@ -430,6 +427,14 @@ function renderItemToBubble(
           />
         ),
       }
+      if (isPendingPerm) {
+        return permItem
+      }
+
+      if (answeredPerm) {
+        return [permItem, toolUseItem]
+      }
+      return toolUseItem
     }
     case 'turn_end': {
       const modelUsages = item.modelUsages ?? []
@@ -544,7 +549,8 @@ export function toBubbleItems(
     // 这里把它作为 runId 透传给 buildForkIcon 拼 fork target
     const bubble = renderItemToBubble(item, ctx, sessionCompleted, cu, sessionId)
     if (!bubble) continue
-    out.push(bubble)
+    if (Array.isArray(bubble)) out.push(...bubble)
+    else out.push(bubble)
   }
   return out
 }
