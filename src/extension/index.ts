@@ -251,20 +251,32 @@ export function activate(context: vscode.ExtensionContext) {
       .slice(0, messageIdx + 1)
       .map((m) => structuredClone(m))
 
-    // 用 SDK 端的新 transcript uuid 覆盖切片中 user/assistant 类型 SDK 消息的 uuid
-    // —— forkSession remap 后的真实 uuid 必须同步到 webview,否则后续再 fork
-    // 时 locateFork 命中的还是源 uuid,SDK 在新 session 中查不到。
+    // 用双 transcript（源 session + 新 session）建 srcUuid→newUuid 映射，
+    // 据此替换切片中所有带 uuid 的 SDK 消息 uuid。
+    // forkSession 的新 session transcript 是源 session 的保序前缀切片，按位置严格对应，
+    // 这是唯一可靠的对齐方式（webview echo 无 uuid，顺序对齐会错位导致贴错 uuid）。
     try {
-      const newTranscript = await getSessionMessages(newSessionId, { dir })
-      let tIdx = 0
+      const [srcTranscript, newTranscript] = await Promise.all([
+        getSessionMessages(srcSessionId, { dir }),
+        getSessionMessages(newSessionId, { dir }),
+      ])
+      const uuidMap = new Map<string, string>()
+      const len = Math.min(srcTranscript.length, newTranscript.length)
+      for (let i = 0; i < len; i++) {
+        const srcUuid = srcTranscript[i].uuid
+        const newUuid = newTranscript[i].uuid
+        if (srcUuid && newUuid) uuidMap.set(srcUuid, newUuid)
+      }
       for (const m of slicedMessages) {
         if (m.type !== 'flow.signal.aiMessage') continue
-        const sdkMsg = m.data.message as { type?: string; uuid?: string }
-        if (sdkMsg.type !== 'user' && sdkMsg.type !== 'assistant') continue
-        // webview 主动 echo 的 user 通常无 uuid,不会进 transcript,跳过
+        const sdkMsg = m.data.message as { uuid?: string }
         if (!sdkMsg.uuid) continue
-        if (tIdx >= newTranscript.length) break
-        sdkMsg.uuid = newTranscript[tIdx++].uuid
+        const remapped = uuidMap.get(sdkMsg.uuid)
+        if (remapped) {
+          sdkMsg.uuid = remapped
+        } else {
+          logError('[fork] uuid not in srcTranscript mapping, keeping original', sdkMsg.uuid)
+        }
       }
     } catch (err) {
       // 拿不到 transcript 时不阻断 fork,仅打日志;UI 仍能进入新 Flow,只是再 fork 会失败
