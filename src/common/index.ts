@@ -33,13 +33,19 @@ export const AgentSchema = z.object({
     .union([z.literal(true), z.array(z.string())])
     .optional()
     .describe(
-      '自动允许执行的工具：true 表示全部放行；字符串数组为白名单。特殊值 "MCP" 匹配所有 mcp__* 工具',
+      '自动允许执行的工具：true 表示全部放行；字符串数组为白名单。' +
+        '特殊值 "MCP" 匹配所有 mcp__* 工具。' +
+        'Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。' +
+        '组合命令（&&/||/|/;/&）需所有子命令都命中才自动放行。裸 "Bash" 匹配整个工具',
     ),
   must_confirm_tools: z
     .array(z.string())
     .optional()
     .describe(
-      '必须用户确认的工具名；优先级高于 auto_allowed_tools。特殊值 "MCP" 匹配所有 mcp__* 工具',
+      '必须用户确认的工具名；优先级高于 auto_allowed_tools。' +
+        '特殊值 "MCP" 匹配所有 mcp__* 工具。' +
+        'Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。' +
+        '组合命令中任一子命令命中即要求确认。',
     ),
   work_mode: z
     .enum(['task', 'chat', 'silent_task'])
@@ -190,7 +196,9 @@ export function validateFlow(flow: Flow): FlowValidationResult {
 /** 通配符：匹配所有 `mcp__*` 工具。用于 auto_allowed_tools / must_confirm_tools 的字符串项 */
 export const MCP_WILDCARD = 'MCP'
 
-/** Claude Code 预设提供的常见工具名，用于 AgentEditModal 的候选项 */
+/** Claude Code 预设提供的常见工具名，用于 AgentEditModal 的候选项。
+ * 其中 Bash 支持命令级权限控制：`Bash(cmd)` 前缀匹配，
+ * 裸 `Bash` 表示整个工具（向后兼容）。详见 {@link matchTool} */
 export const BUILTIN_TOOL_NAMES = [
   'Bash',
   'Read',
@@ -209,17 +217,225 @@ export const BUILTIN_TOOL_NAMES = [
 ] as const
 
 /**
+ * 按 shell 操作符拆分 Bash 命令为子命令数组。
+ *
+ * 拆分规则：
+ * - 操作符：`&&`、`||`、`|`、`;`、`&`（后台）、换行符
+ * - 子 shell `(...)` 内的内容视为独立子命令（去括号后整体作为一个子命令）
+ * - 引号（单引号 `'...'`、双引号 `"..."`）内的操作符不触发拆分
+ * - 每个子命令 trim 后返回，空串过滤
+ *
+ * 用于 Bash 命令级权限控制：组合命令中每个子命令都需要独立匹配权限规则，
+ * 防止通过 `authorized_cmd && unauthorized_cmd` 绕过限制。
+ *
+ * @see {@link matchTool}
+ */
+export function splitBashCommand(command: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inSingleQuote = false
+  let inDoubleQuote = false
+  let parenDepth = 0
+  let i = 0
+
+  while (i < command.length) {
+    const ch = command[i]
+
+    // 引号状态切换（不在另一种引号内时）
+    if (ch === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote
+      current += ch
+      i++
+      continue
+    }
+    if (ch === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote
+      current += ch
+      i++
+      continue
+    }
+
+    // 引号内：原样累积，不解析操作符
+    if (inSingleQuote || inDoubleQuote) {
+      current += ch
+      i++
+      continue
+    }
+
+    // 子 shell 括号：跟踪嵌套深度
+    if (ch === '(') {
+      parenDepth++
+      current += ch
+      i++
+      continue
+    }
+    if (ch === ')') {
+      parenDepth--
+      current += ch
+      i++
+      continue
+    }
+
+    // 括号内：原样累积
+    if (parenDepth > 0) {
+      current += ch
+      i++
+      continue
+    }
+
+    // 双字符操作符：&& 和 ||
+    if (i + 1 < command.length) {
+      const twoChar = command.slice(i, i + 2)
+      if (twoChar === '&&' || twoChar === '||') {
+        const trimmed = current.trim()
+        if (trimmed) result.push(trimmed)
+        current = ''
+        i += 2
+        continue
+      }
+    }
+
+    // 单字符操作符：| ; & 和换行
+    if (ch === '|' || ch === ';' || ch === '&' || ch === '\n') {
+      const trimmed = current.trim()
+      if (trimmed) result.push(trimmed)
+      current = ''
+      i++
+      continue
+    }
+
+    current += ch
+    i++
+  }
+
+  // 尾部残余
+  const trimmed = current.trim()
+  if (trimmed) result.push(trimmed)
+
+  return result
+}
+
+/**
+ * 解析工具权限规则字符串，提取工具名和可选的命令模式。
+ *
+ * 支持格式：
+ * - `Bash(git status)` → `{ toolName: 'Bash', commandPattern: 'git status' }`（前缀匹配）
+ * - `Bash` → `{ toolName: 'Bash' }`（裸名，匹配整个工具）
+ * - `MCP` → `{ toolName: 'MCP' }`
+ * - `Read` → `{ toolName: 'Read' }`
+ *
+ * @see {@link matchTool}
+ */
+export function parseToolPattern(pattern: string): { toolName: string; commandPattern?: string } {
+  const parenStart = pattern.indexOf('(')
+  if (parenStart === -1) {
+    return { toolName: pattern }
+  }
+  const parenEnd = pattern.lastIndexOf(')')
+  if (parenEnd <= parenStart) {
+    // 格式异常，回退为整体当工具名
+    return { toolName: pattern }
+  }
+  return {
+    toolName: pattern.slice(0, parenStart),
+    commandPattern: pattern.slice(parenStart + 1, parenEnd),
+  }
+}
+
+/**
+ * 判断单个子命令是否匹配命令模式（前缀匹配）。
+ *
+ * 子命令 trim 后以 commandPattern 开头即命中。
+ *
+ * @see {@link matchTool}
+ */
+export function matchSubCommand(subCmd: string, commandPattern: string): boolean {
+  return subCmd.trim().startsWith(commandPattern)
+}
+
+/**
  * 判断工具名是否命中给定的 pattern 列表。
  *
  * 规则：
  * - 字面量相等（大小写敏感）
  * - 特殊值 "MCP" 匹配所有以 `mcp__` 开头的工具（即任意 MCP 工具）
+ * - `Bash(pattern)` 格式：对 Bash 工具的命令级匹配。
+ *   当提供 `input.command` 时，将命令按 shell 操作符拆分为子命令，
+ *   **所有子命令都需匹配 pattern** 才算命中（防止组合命令绕过）。
+ *   未提供 `input` 或 `input.command` 时，退化为工具名匹配。
+ * - 裸 `Bash`（不带括号）：匹配整个 Bash 工具，不检查命令内容
+ *
+ * @param toolName - SDK 传入的工具名
+ * @param patterns - auto_allowed_tools 或 must_confirm_tools 的字符串数组
+ * @param input - 工具调用的入参（Bash 工具含 `command` 字段）
  */
-export function matchTool(toolName: string, patterns: readonly string[]): boolean {
+export function matchTool(
+  toolName: string,
+  patterns: readonly string[],
+  input?: Record<string, unknown>,
+): boolean {
   for (const p of patterns) {
     if (p === MCP_WILDCARD) {
       if (toolName.startsWith('mcp__')) return true
-    } else if (p === toolName) {
+      continue
+    }
+
+    const parsed = parseToolPattern(p)
+
+    // 工具名不匹配，跳过
+    if (parsed.toolName !== toolName) continue
+
+    // 裸工具名（无命令模式）：工具名匹配即命中
+    if (!parsed.commandPattern) return true
+
+    // 有命令模式但工具不是 Bash：模式不适用，跳过
+    if (toolName !== 'Bash') continue
+
+    // Bash 命令级匹配：需要 input.command
+    const command = input?.command
+    if (typeof command !== 'string') continue
+
+    // 拆分命令为子命令，**所有**子命令都需匹配（防绕过）
+    const subCmds = splitBashCommand(command)
+    if (subCmds.length === 0) continue
+
+    const commandPattern = parsed.commandPattern
+    const allMatch = subCmds.every((sub) => matchSubCommand(sub, commandPattern))
+    if (allMatch) return true
+  }
+  return false
+}
+
+/**
+ * Bash 命令级 must_confirm 检查：组合命令中**任一**子命令命中即要求确认。
+ *
+ * 与 {@link matchTool} 的区别：matchTool 要求所有子命令都匹配（用于 auto_allowed 防绕过），
+ * 本函数只要有一个子命令匹配就返回 true（用于 must_confirm：只要有一个危险命令就需要确认）。
+ *
+ * 仅对 Bash 工具的 `Bash(pattern)` 规则有意义；非 Bash 工具或裸工具名规则不走此路径。
+ *
+ * @param toolName - SDK 传入的工具名
+ * @param patterns - must_confirm_tools 的字符串数组
+ * @param input - 工具调用的入参（Bash 工具含 `command` 字段）
+ */
+export function matchToolAnySubCommand(
+  toolName: string,
+  patterns: readonly string[],
+  input?: Record<string, unknown>,
+): boolean {
+  if (toolName !== 'Bash') return false
+  const command = input?.command
+  if (typeof command !== 'string') return false
+
+  const subCmds = splitBashCommand(command)
+  if (subCmds.length === 0) return false
+
+  for (const p of patterns) {
+    const parsed = parseToolPattern(p)
+    if (parsed.toolName !== 'Bash' || !parsed.commandPattern) continue
+
+    const commandPattern = parsed.commandPattern
+    if (subCmds.some((sub) => matchSubCommand(sub, commandPattern))) {
       return true
     }
   }

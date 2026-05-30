@@ -47,7 +47,6 @@ const AutoAllowedToolsField: FC<{
           value={list}
           onChange={(v) => onChange?.(v as string[])}
           options={TOOL_OPTIONS}
-          tokenSeparators={[',', ' ']}
         />
       )}
     </div>
@@ -243,7 +242,17 @@ export const AgentEditor: FC = () => {
               <FormItem
                 name='auto_allowed_tools'
                 label='自动允许的工具'
-                tooltip={`不需要用户确认、自动执行的工具。开启「允许全部」或留空表示全部放行；特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`}
+                tooltip={{
+                  classNames: {
+                    container: 'w-max whitespace-pre',
+                  },
+                  title: [
+                    `不需要用户确认、自动执行的工具，开启「允许全部」表示全部放行`,
+                    `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
+                    `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
+                    `组合命令需所有子命令都命中才自动放行`,
+                  ].join('\n'),
+                }}
               >
                 <AutoAllowedToolsField />
               </FormItem>
@@ -251,13 +260,22 @@ export const AgentEditor: FC = () => {
               <FormItem
                 name='must_confirm_tools'
                 label='必须确认的工具'
-                tooltip={`每次调用都必须用户确认的工具，优先级高于「自动允许」。特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`}
+                tooltip={{
+                  classNames: {
+                    container: 'w-max whitespace-pre',
+                  },
+                  title: [
+                    `每次调用都必须用户确认的工具，优先级高于「自动允许」`,
+                    `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
+                    `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
+                    `组合命令中任一子命令命中即要求确认`,
+                  ].join('\n'),
+                }}
               >
                 <Select
                   mode='tags'
                   placeholder='选择或输入工具名（回车添加自定义）'
                   options={TOOL_OPTIONS}
-                  tokenSeparators={[',', ' ']}
                 />
               </FormItem>
 

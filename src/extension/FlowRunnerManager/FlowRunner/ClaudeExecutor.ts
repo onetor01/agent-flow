@@ -14,6 +14,7 @@ import {
   AskUserQuestionOutput,
   buildAgentSystemPrompt,
   matchTool,
+  matchToolAnySubCommand,
   ShareValueKey,
   UserMessageType,
 } from '@/common'
@@ -293,16 +294,23 @@ export class ClaudeExecutor {
       })
     }
     const { auto_allowed_tools, must_confirm_tools } = this.agent
-    // 优先级 1：命中 must_confirm 列表，始终要求确认
-    if (must_confirm_tools && matchTool(toolName, must_confirm_tools)) {
-      return this.requestToolPermission(toolUseID, toolName, input)
+    const toolInput = input as Record<string, unknown>
+    // 优先级 1：命中 must_confirm 列表，始终要求确认。
+    // Bash 命令级：组合命令中任一子命令命中即要求确认（防绕过）
+    if (
+      must_confirm_tools &&
+      (matchTool(toolName, must_confirm_tools, toolInput) ||
+        matchToolAnySubCommand(toolName, must_confirm_tools, toolInput))
+    ) {
+      return this.requestToolPermission(toolUseID, toolName, toolInput)
     }
-    // 优先级 2：auto_allowed 为 true 或命中数组，直接放行
+    // 优先级 2：auto_allowed 为 true 或命中数组，直接放行。
+    // Bash 命令级：组合命令需所有子命令都命中才自动放行（matchTool 内置语义）
     if (auto_allowed_tools === true) {
-      return Promise.resolve({ behavior: 'allow', updatedInput: input })
+      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
     }
-    if (auto_allowed_tools && matchTool(toolName, auto_allowed_tools)) {
-      return Promise.resolve({ behavior: 'allow', updatedInput: input })
+    if (auto_allowed_tools && matchTool(toolName, auto_allowed_tools, toolInput)) {
+      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
     }
     // 兜底：silent_task 永远没有用户在场,未授权工具直接 deny;否则要求用户确认
     if (this.agent.work_mode === 'silent_task') {
@@ -311,7 +319,7 @@ export class ClaudeExecutor {
         message: `silent_task 模式未授权工具 "${toolName}",请在 auto_allowed_tools 中显式加入。`,
       })
     }
-    return this.requestToolPermission(toolUseID, toolName, input)
+    return this.requestToolPermission(toolUseID, toolName, toolInput)
   }
 
   private requestToolPermission(
