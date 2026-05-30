@@ -1,5 +1,15 @@
 # Change Log
 
+## [0.0.29] - 2026-05-30
+
+### 新增
+
+- **Agent 的 Bash 工具权限细化到命令级**：`auto_allowed_tools` / `must_confirm_tools` 除整工具名外，新增 `Bash(cmd)` 语法按命令前缀匹配——裸 `Bash` 匹配所有命令，`Bash(git status)` 仅匹配以 `git status` 开头的命令。`src/common/index.ts` 新增 `splitBashCommand`（按 shell 操作符拆分复合命令）、`parseToolPattern`、`matchSubCommand` 纯函数；`matchTool` 新增 `input` 参数支持命令级匹配，采用 **all-match**——复合命令的所有子命令都命中规则才放行（防止用 `&&` / `;` 夹带未授权命令绕过）；新增 `matchToolAnySubCommand` 采用 **any-match**——任一子命令命中即触发，供 `must_confirm` 路径使用。`ClaudeExecutor.canUseTool` 将 `input` 透传给 `matchTool`，`must_confirm` 路径额外调 `matchToolAnySubCommand`。AgentEditor 补充命令级权限 tooltip 说明。
+
+### 优化
+
+- **调整工具请求相关的样式**。
+
 ## [0.0.28] - 2026-05-30
 
 ### 修复
