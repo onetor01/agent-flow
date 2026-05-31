@@ -349,7 +349,7 @@ const PresetFlows: Flow[] = [
           '2. 关于Agent字段：',
           '   - `model`：简单执行→`haiku`；复杂推理→`sonnet`；更强能力→`opus`。',
           '   - `effort`（可选）：需深入思考时设 `high`/`xhigh`/`max`。',
-          '   - `work_mode`：默认 `task`',
+          '   - `work_mode`：必须指定为 `task`',
           '   - `allowed_read_values_keys`/`allowed_write_values_keys`：需读写共享存储时配置。所有key都必须出现在shareValuesKeys中。',
           '   - `no_input`：如果此Agent不需要输入时设为 true。',
           '3. 拓扑：优先线性；循环/重试让失败分支指回起点或自身。',
