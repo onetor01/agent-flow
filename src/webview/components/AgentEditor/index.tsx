@@ -334,8 +334,7 @@ export const AgentEditor: FC = () => {
                   tooltip='开启后 Agent 调用 AgentComplete 不立即推进，先弹卡片要求用户确认；拒绝时 AgentComplete 作为工具错误回喂 Agent'
                   valuePropName='checked'
                   style={{
-                    display:
-                      (watchedValues as any)?.work_mode === 'chat' ? 'none' : undefined,
+                    display: (watchedValues as any)?.work_mode === 'chat' ? 'none' : undefined,
                   }}
                 >
                   <Switch />

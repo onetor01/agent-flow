@@ -1,5 +1,16 @@
 # Change Log
 
+## [0.0.30] - 2026-05-31
+
+### 新增
+
+- **Plan 模式**：Agent 新增 `plan_mode` 开关（AgentEditor「Plan模式」Switch），开启后 `ClaudeExecutor` 以 `permissionMode: 'plan'` 启动 SDK——Claude 注入的系统提示词倾向改变（偏向制定计划而非动手），且无法执行文件修改等写操作。同步调整相关样式。
+- **完成前确认（require_confirm）**：Agent 新增 `require_confirm` 开关（`work_mode === 'chat'` 时隐藏），开启后 Agent 调用 `AgentComplete` 不立即推进流转，先在 ChatPanel 对应 tool_use 气泡后追加确认卡片（Radio 同意 / 拒绝，拒绝可填原因）要求用户确认；同意时沿用原始入参推进，拒绝时 `AgentComplete` 作为 `isError` 的 tool_result 回喂 Agent，允许模型继续多轮。`silent_task` 模式下此路径同样挂起、不自动放行。涉及事件契约（`agentCompleteConfirmRequest` signal / `answerAgentCompleteConfirm` command）、`awaiting-complete-confirm` phase、`FlowRunState.pendingCompleteConfirms` 等全链路扩展。
+
+### 修复
+
+- **修复 fork 之后的会话无法再次 fork**：重写 `handleFork` 的 uuid remap——并发取源 session 与新 session 的 transcript，按位置建立 `srcUuid → newUuid` 映射，替换 `slicedMessages` 中所有带 uuid 的 SDK 消息；废弃原「按 webview 序列顺序对齐」逻辑（webview echo 的 user 消息无 uuid，顺序对齐会错位导致 uuid 贴错，二次 fork 报 `Message <uuid> not found`）。
+
 ## [0.0.29] - 2026-05-30
 
 ### 新增

@@ -43,6 +43,8 @@ pnpm build-extension   # 生成 .vsix 文件
 - **模型自由搭配**：每个 Agent 独立配置模型（opus / sonnet / haiku）、思考强度（effort）与简介描述。
 - **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `AgentComplete` 流转到下一节点）/ `chat`（长期对话，禁止 `AgentComplete`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `AgentComplete` 或 `terminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
 - **无输入启动**：开启 `no_input` 的 Agent 在节点上显示启动按钮，点击后始终以"开始"为初始消息自动运行，无需手动输入。
+- **Plan 模式**：开启 `plan_mode` 的 Agent 以计划 / 只读模式运行——Claude 注入的系统提示词倾向改变（偏向先制定计划），且不会实际执行文件修改等写操作，适合先让 Agent 给出方案再决定是否落地。
+- **完成前确认**：开启 `require_confirm` 的 Agent 调用 `AgentComplete` 时不立即推进，先在对话中弹出确认卡片要求用户确认（同意 / 拒绝，拒绝可填原因）；同意才流转到下一节点，拒绝则作为工具错误回喂 Agent 让其继续修正（`chat` 模式不适用）。
 - **上下文隔离**：每个 Agent 有自己独立的对话上下文。
 - **共享数据按 key 授权读写**：Flow 在 `shareValuesKeys` 中声明全部可用 key（每个 key 可附加 `desc` 标注语义）；Agent 各自配置 `allowed_read_values_keys` / `allowed_write_values_keys`，只能看到 / 写入被授权的 key。被授权读取的 key 与当前值会注入到 Agent 系统提示词「# 可用数据」节；写入只能在 `AgentComplete` 时通过 `values` 参数一次性提交，未授权 key 会被静默丢弃。
 - **工具权限按命令级控制**：每个 Agent 通过 `auto_allowed_tools`（自动放行）/ `must_confirm_tools`（必须用户确认，优先级更高）配置工具权限。除整工具名外，Bash 支持命令级控制——裸 `Bash` 匹配所有命令，`Bash(git status)` 仅匹配以该前缀开头的命令。复合命令（`&&` / `;` 等拆分）下，自动放行要求**所有子命令**都命中规则才生效（防止夹带未授权命令绕过），必须确认则**任一子命令**命中即触发。

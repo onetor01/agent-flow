@@ -314,9 +314,7 @@ export const ChatPanel: FC<Props> = ({
             agentId={agentId}
             runId={runId}
             loading={
-              phase === 'running' ||
-              phase === 'starting' ||
-              phase === 'awaiting-complete-confirm'
+              phase === 'running' || phase === 'starting' || phase === 'awaiting-complete-confirm'
             }
           />
         ))}
