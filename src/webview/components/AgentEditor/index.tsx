@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import type { FC } from 'react'
-import { Drawer, Form, Input, Switch, Select, AutoComplete, Button, Flex, Modal, App } from 'antd'
+import {
+  Drawer,
+  Form,
+  Input,
+  Switch,
+  Select,
+  AutoComplete,
+  Button,
+  Flex,
+  Modal,
+  App,
+  Checkbox,
+  Tooltip,
+} from 'antd'
 import {
   PlusOutlined,
   MinusCircleOutlined,
@@ -93,13 +106,13 @@ export const AgentEditor: FC = () => {
         work_mode: agent.work_mode ?? 'task',
         no_input: agent.no_input ?? false,
         plan_mode: agent.plan_mode ?? false,
-        require_confirm: agent.require_confirm ?? false,
         allowed_read_values_keys: agent.allowed_read_values_keys ?? [],
         allowed_write_values_keys: agent.allowed_write_values_keys ?? [],
         outputs: (agent.outputs ?? []).map((o) => ({
           output_name: o.output_name,
           output_desc: o.output_desc,
           next_agent: o.next_agent,
+          require_confirm: o.require_confirm ?? false,
         })),
       }
       form.setFieldsValue(newFormValue)
@@ -131,12 +144,12 @@ export const AgentEditor: FC = () => {
       placement='left'
       open={open}
       onClose={() => setEditingAgent(undefined)}
-      defaultSize={1200}
+      defaultSize={1300}
       resizable
       styles={{
         header: { display: 'none' },
         body: { padding: 0 },
-        wrapper: { transition: 'none', minWidth: 1200 },
+        wrapper: { transition: 'none', minWidth: 1300 },
       }}
       footer={null}
     >
@@ -173,7 +186,7 @@ export const AgentEditor: FC = () => {
         }}
       >
         {/* 左侧表单 — 独立滚动 */}
-        <div className='flex w-120 grow-0 flex-col'>
+        <div className='flex w-140 grow-0 flex-col'>
           <div className='border-b border-[#313244] px-3 py-2 text-xs font-bold'>
             <CloseOutlined onClick={() => setEditingAgent(undefined)} className='mr-2' />
             <span>编辑 Agent</span>
@@ -328,17 +341,6 @@ export const AgentEditor: FC = () => {
                 >
                   <Switch />
                 </FormItem>
-                <FormItem
-                  name='require_confirm'
-                  label='完成前确认'
-                  tooltip='开启后 Agent 调用 AgentComplete 不立即推进，先弹卡片要求用户确认；拒绝时 AgentComplete 作为工具错误回喂 Agent'
-                  valuePropName='checked'
-                  style={{
-                    display: (watchedValues as any)?.work_mode === 'chat' ? 'none' : undefined,
-                  }}
-                >
-                  <Switch />
-                </FormItem>
               </Flex>
 
               <FormItem
@@ -375,7 +377,7 @@ export const AgentEditor: FC = () => {
                 />
               </FormItem>
 
-              <FormItem label='输出分支'>
+              <FormItem label='输出分支' tooltip='对话模式下不生效'>
                 <Form.List name='outputs'>
                   {(fields, { add, remove }) => (
                     <>
@@ -399,22 +401,14 @@ export const AgentEditor: FC = () => {
                                 },
                               }),
                             ]}
-                            className='mb-0 flex-1'
+                            noStyle
                           >
-                            <Input placeholder='分支名称' size='small' />
+                            <Input placeholder='分支名称' size='small' className='w-25 grow-0' />
                           </Form.Item>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'output_desc']}
-                            className='mb-0 flex-1'
-                          >
-                            <Input placeholder='分支描述' size='small' />
+                          <Form.Item {...restField} name={[name, 'output_desc']} noStyle>
+                            <Input placeholder='分支描述' size='small' className='flex-1' />
                           </Form.Item>
-                          <Form.Item
-                            {...restField}
-                            name={[name, 'next_agent']}
-                            className='mb-0 w-36'
-                          >
+                          <Form.Item {...restField} name={[name, 'next_agent']} noStyle>
                             <Select
                               placeholder='下一个 Agent'
                               size='small'
@@ -423,7 +417,20 @@ export const AgentEditor: FC = () => {
                                 label: a.agent_name,
                                 value: a.id,
                               }))}
+                              className='w-30'
                             />
+                          </Form.Item>
+                          <Form.Item
+                            {...restField}
+                            name={[name, 'require_confirm']}
+                            valuePropName='checked'
+                            noStyle
+                          >
+                            <Checkbox>
+                              <Tooltip title='选择此分支输出时，会以代码方式要求用户验证'>
+                                需要确认
+                              </Tooltip>
+                            </Checkbox>
                           </Form.Item>
                           <MinusCircleOutlined
                             className='mt-1.5 cursor-pointer text-[#f38ba8]'

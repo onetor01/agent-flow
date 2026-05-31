@@ -12,6 +12,12 @@ export const OutputSchema = z.object({
   output_name: z.string().describe('分支名称（在当前 agent 内唯一）'),
   output_desc: z.string().optional().describe('分支描述（写入提示词，指导 AI 选择正确的输出分支）'),
   next_agent: z.string().optional().describe('下一个进入的 agent 的 id，省略则表示工作流终点'),
+  require_confirm: z
+    .boolean()
+    .optional()
+    .describe(
+      '完成前确认：true 时 Agent 选择此分支调用 AgentComplete 不立即推进，先在 ChatPanel 弹卡片要求用户确认；拒绝时 AgentComplete 作为 isError tool_result 回喂 Agent。粒度按分支独立配置，无 outputs 的 Agent 不适用',
+    ),
 })
 
 /** @see {@link OutputSchema} */
@@ -62,12 +68,6 @@ export const AgentSchema = z.object({
     .boolean()
     .optional()
     .describe('Plan 模式：true 时以只读/计划模式运行，不会实际执行文件修改等写操作'),
-  require_confirm: z
-    .boolean()
-    .optional()
-    .describe(
-      '完成前确认：true 时 Agent 调用 AgentComplete 不立即推进，先在 ChatPanel 弹卡片要求用户确认；拒绝时 AgentComplete 作为 isError tool_result 回喂 Agent',
-    ),
   allowed_read_values_keys: z
     .array(z.string())
     .optional()

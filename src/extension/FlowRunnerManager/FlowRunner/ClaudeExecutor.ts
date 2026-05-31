@@ -51,7 +51,7 @@ export type ExecutorEvents = {
   onToolPermissionRequest: (req: { toolUseId: string; toolName: string; input: unknown }) => void
   /**
    * require_confirm=true 时 AgentComplete 被调用，等待用户确认是否放行。
-   * 上层据此 fire `flow.signal.agentCompleteConfirmRequest`。
+   * 上层据此 fire `flow.signal.agentCompleteConfirmRequest`。粒度按所选 output 判定。
    */
   onCompleteConfirmRequest: (req: { toolUseId: string; input: Record<string, unknown> }) => void
   /**
@@ -324,23 +324,29 @@ export class ClaudeExecutor {
         this.pendingPermissions.set(toolUseID, resolve)
       })
     }
-    // require_confirm=true 时拦截 AgentComplete（chat 模式不挂载此工具，此分支为防御性检查）
-    if (
-      toolName === 'mcp__AgentControllerMcp__AgentComplete' &&
-      this.agent.require_confirm === true &&
-      this.agent.work_mode !== 'chat'
-    ) {
-      log('[ClaudeExecutor] canUseTool AgentComplete pending confirm', { toolUseID })
-      this.events.onCompleteConfirmRequest({
-        toolUseId: toolUseID,
-        input: input as Record<string, unknown>,
-      })
-      return new Promise<PermissionResult>((resolve) => {
-        this.pendingCompleteConfirms.set(toolUseID, {
-          resolve,
-          input: input as Record<string, unknown>,
+    // require_confirm 粒度按 output 配置：根据 AgentComplete 入参里的 output_name
+    // 找到对应 output，require_confirm===true 时拦截。无 outputs / 无 output_name 直接放行。
+    // chat 模式不挂载 AgentComplete，此分支不会进入。
+    if (toolName === 'mcp__AgentControllerMcp__AgentComplete') {
+      const completeInput = input as Record<string, unknown>
+      const outputName = completeInput.output_name
+      const matchedOutput =
+        typeof outputName === 'string'
+          ? this.agent.outputs?.find((o) => o.output_name === outputName)
+          : undefined
+      if (matchedOutput?.require_confirm === true) {
+        log('[ClaudeExecutor] canUseTool AgentComplete pending confirm', { toolUseID, outputName })
+        this.events.onCompleteConfirmRequest({
+          toolUseId: toolUseID,
+          input: completeInput,
         })
-      })
+        return new Promise<PermissionResult>((resolve) => {
+          this.pendingCompleteConfirms.set(toolUseID, {
+            resolve,
+            input: completeInput,
+          })
+        })
+      }
     }
     const { auto_allowed_tools, must_confirm_tools } = this.agent
     const toolInput = input as Record<string, unknown>
