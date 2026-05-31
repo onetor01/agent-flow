@@ -106,6 +106,8 @@ export const AgentEditor: FC = () => {
         work_mode: agent.work_mode ?? 'task',
         no_input: agent.no_input ?? false,
         plan_mode: agent.plan_mode ?? false,
+        disable_claude_preset: agent.disable_claude_preset ?? false,
+        raw_prompt: agent.raw_prompt ?? false,
         allowed_read_values_keys: agent.allowed_read_values_keys ?? [],
         allowed_write_values_keys: agent.allowed_write_values_keys ?? [],
         outputs: (agent.outputs ?? []).map((o) => ({
@@ -200,11 +202,9 @@ export const AgentEditor: FC = () => {
               >
                 <Input />
               </FormItem>
-
               <FormItem name='agent_desc' label='Agent 简介'>
                 <Input placeholder='例如：负责代码评审，检查潜在 bug 与性能问题' />
               </FormItem>
-
               <Flex gap={16}>
                 <FormItem
                   name='model'
@@ -253,7 +253,6 @@ export const AgentEditor: FC = () => {
                   />
                 </FormItem>
               </Flex>
-
               <FormItem
                 name='auto_allowed_tools'
                 label='自动允许的工具'
@@ -271,7 +270,6 @@ export const AgentEditor: FC = () => {
               >
                 <AutoAllowedToolsField />
               </FormItem>
-
               <FormItem
                 name='must_confirm_tools'
                 label='必须确认的工具'
@@ -293,38 +291,25 @@ export const AgentEditor: FC = () => {
                   options={TOOL_OPTIONS}
                 />
               </FormItem>
-              <Flex gap={16}>
-                <FormItem
-                  name='work_mode'
-                  label='工作模式'
-                  tooltip={{
-                    classNames: {
-                      container: 'w-max whitespace-pre',
+              <FormItem name='work_mode' label='工作模式'>
+                <Select
+                  options={[
+                    {
+                      value: 'chat',
+                      label: '对话模式 永不终止的多轮对话',
                     },
-                    title: [
-                      `对话模式 · 永不终止的多轮对话`,
-                      `任务模式 · AI会执行任务并提交结果`,
-                      `静默模式 · 无交互执行任务，后台代替用户自动应答，可以中断`,
-                    ].join('\n'),
-                  }}
-                >
-                  <Select
-                    options={[
-                      {
-                        value: 'chat',
-                        label: '对话模式',
-                      },
-                      {
-                        value: 'task',
-                        label: '任务模式',
-                      },
-                      {
-                        value: 'silent_task',
-                        label: '静默模式',
-                      },
-                    ]}
-                  />
-                </FormItem>
+                    {
+                      value: 'task',
+                      label: '任务模式  AI会执行任务并提交结果',
+                    },
+                    {
+                      value: 'silent_task',
+                      label: '静默模式 无交互执行任务，后台代替用户自动应答',
+                    },
+                  ]}
+                />
+              </FormItem>
+              <Flex gap={16}>
                 <FormItem
                   name='no_input'
                   label='无输入'
@@ -341,8 +326,23 @@ export const AgentEditor: FC = () => {
                 >
                   <Switch />
                 </FormItem>
+                <FormItem
+                  name='disable_claude_preset'
+                  label='禁用Claude提示词'
+                  tooltip='禁用 Claude Code 预设系统提示词'
+                  valuePropName='checked'
+                >
+                  <Switch />
+                </FormItem>
+                <FormItem
+                  name='raw_prompt'
+                  label='提示词完全自定义'
+                  tooltip='直接将用户指定的文本作为系统提示词，不附加任何额外信息'
+                  valuePropName='checked'
+                >
+                  <Switch />
+                </FormItem>
               </Flex>
-
               <FormItem
                 name='allowed_read_values_keys'
                 label={
@@ -376,7 +376,6 @@ export const AgentEditor: FC = () => {
                   options={shareValueKeyOptions}
                 />
               </FormItem>
-
               <FormItem label='输出分支' tooltip='对话模式下不生效'>
                 <Form.List name='outputs'>
                   {(fields, { add, remove }) => (

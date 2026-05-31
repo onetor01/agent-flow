@@ -68,6 +68,20 @@ export const AgentSchema = z.object({
     .boolean()
     .optional()
     .describe('Plan 模式：true 时以只读/计划模式运行，不会实际执行文件修改等写操作'),
+  disable_claude_preset: z
+    .boolean()
+    .optional()
+    .describe(
+      '禁用 Claude Code 预设系统提示词：true 时 SDK 的 systemPrompt 直接使用 buildAgentSystemPrompt 结果，' +
+        '不再附加 claude_code preset；适合不需要 claude code 默认行为的轻量 Agent',
+    ),
+  raw_prompt: z
+    .boolean()
+    .optional()
+    .describe(
+      '提示词完全自定义：true 时 buildAgentSystemPrompt 直接返回 agent_prompt，' +
+        '不附加任何骨架（顶部规则、work_mode 分支、可读写数据、任务描述、输出分支、shareValues 快照均不输出）',
+    ),
   allowed_read_values_keys: z
     .array(z.string())
     .optional()
@@ -478,10 +492,17 @@ export function buildAgentSystemPrompt(
     | 'allowed_write_values_keys'
     | 'no_input'
     | 'agent_name'
+    | 'raw_prompt'
   >,
   shareValueKeys?: readonly ShareValueKey[],
   currentValues?: Record<string, string>,
 ): string {
+  // raw_prompt: 用户要求"提示词完全自定义",直接以 agent_prompt 作为最终系统提示词,
+  // 不附加任何骨架(顶部规则 / work_mode / 可读写数据 / 任务描述 / 输出分支 / shareValues 快照)。
+  if (agent.raw_prompt) {
+    return agent.agent_prompt ?? ''
+  }
+
   const {
     agent_prompt,
     outputs = [],
