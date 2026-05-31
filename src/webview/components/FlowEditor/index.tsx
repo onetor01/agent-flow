@@ -349,7 +349,7 @@ export const FlowEditor: FC = () => {
               <Form.Item
                 name='api_key'
                 label='API Key'
-                tooltip='Flow 默认 api key;Agent 同名字段非空时覆盖,注入 SDK 子进程的 ANTHROPIC_API_KEY'
+                tooltip='Flow 默认 api key;Agent 同名字段非空时覆盖,注入 SDK 子进程的 ANTHROPIC_AUTH_TOKEN'
               >
                 <Input placeholder='sk-ant-...' />
               </Form.Item>

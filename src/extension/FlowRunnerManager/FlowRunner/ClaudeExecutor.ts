@@ -496,7 +496,7 @@ export class ClaudeExecutor {
       options.env = {
         ...process.env,
         ...(this.baseUrl ? { ANTHROPIC_BASE_URL: this.baseUrl } : {}),
-        ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
+        ...(this.apiKey ? { ANTHROPIC_AUTH_TOKEN: this.apiKey } : {}),
       }
     }
     // if (this.agent.work_mode === 'silent_task') {

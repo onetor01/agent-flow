@@ -465,7 +465,7 @@ export const AgentEditor: FC = () => {
               <FormItem
                 name='api_key'
                 label='API Key'
-                tooltip='留空使用 Flow 配置;非空则覆盖 Flow,注入 SDK 子进程的 ANTHROPIC_API_KEY'
+                tooltip='留空使用 Flow 配置;非空则覆盖 Flow,注入 SDK 子进程的 ANTHROPIC_AUTH_TOKEN'
               >
                 <Input placeholder='sk-ant-...' />
               </FormItem>

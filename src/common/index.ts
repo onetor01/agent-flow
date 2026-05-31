@@ -99,7 +99,9 @@ export const AgentSchema = z.object({
   api_key: z
     .string()
     .optional()
-    .describe('Anthropic API key 覆盖；非空时优先于 Flow 同名字段，注入 SDK 的 ANTHROPIC_API_KEY'),
+    .describe(
+      'Anthropic API key 覆盖；非空时优先于 Flow 同名字段，注入 SDK 的 ANTHROPIC_AUTH_TOKEN',
+    ),
 })
 
 /** @see {@link AgentSchema} */
@@ -129,7 +131,9 @@ export const FlowSchema = z.object({
   api_key: z
     .string()
     .optional()
-    .describe('Anthropic API key 默认值；Agent 同名字段非空时覆盖，注入 SDK 的 ANTHROPIC_API_KEY'),
+    .describe(
+      'Anthropic API key 默认值；Agent 同名字段非空时覆盖，注入 SDK 的 ANTHROPIC_AUTH_TOKEN',
+    ),
 })
 
 /** @see {@link FlowSchema} */
