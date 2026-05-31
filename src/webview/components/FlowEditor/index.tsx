@@ -28,7 +28,6 @@ import { Md } from '../text-components'
 
 type FormValues = {
   name: string
-  flow_desc?: string
   shareValuesKeys: ShareValueKey[]
   shareValues: Record<string, string>
 }
@@ -134,7 +133,6 @@ export const FlowEditor: FC = () => {
       form.resetFields()
       form.setFieldsValue({
         name: flow.name,
-        flow_desc: flow.flow_desc ?? '',
         shareValuesKeys: flow.shareValuesKeys ?? [],
         shareValues: runShareValues ?? {},
       })
@@ -166,12 +164,6 @@ export const FlowEditor: FC = () => {
       const target = draft.find((f) => f.id === flow.id)
       if (!target) return
       target.name = values.name.trim() || target.name
-      const desc = values.flow_desc?.trim()
-      if (desc) {
-        target.flow_desc = desc
-      } else {
-        delete target.flow_desc
-      }
       target.shareValuesKeys = newKeys
       for (const agent of target.agents ?? []) {
         if (agent.allowed_read_values_keys) {
@@ -236,11 +228,6 @@ export const FlowEditor: FC = () => {
               >
                 <Input placeholder='工作流名称' />
               </Form.Item>
-
-              <Form.Item name='flow_desc' label='简介'>
-                <Input placeholder='Flow 描述' />
-              </Form.Item>
-
               <Form.Item
                 className='[&_.ant-form-item-explain-error:empty]:hidden'
                 label={

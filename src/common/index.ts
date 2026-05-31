@@ -108,7 +108,6 @@ export type ShareValueKey = z.infer<typeof ShareValueKeySchema>
 export const FlowSchema = z.object({
   id: z.string().describe('Flow 唯一标识'),
   name: z.string().describe('Flow 名称'),
-  flow_desc: z.string().optional().describe('Flow 描述'),
   agents: z.array(AgentSchema).optional().describe('当前 Flow 内的 agent，其 outputs 定义了连接边'),
   shareValuesKeys: z.array(ShareValueKeySchema).optional().describe('Flow 可用的共享数据 key 集合'),
 })
