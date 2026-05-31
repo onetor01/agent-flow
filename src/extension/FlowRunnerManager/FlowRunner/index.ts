@@ -27,6 +27,13 @@ export type FlowRunnerOptions = {
    * 时调用此回调，由外部（reducer 镜像 FlowRunStateManager）作为唯一真相源。
    */
   getLatestShareValues: () => Record<string, string>
+  /**
+   * 取当前 Flow 最新引用。
+   * webview 编辑 agent 后发 `save` 命令会整体替换 currentFlows,旧 Flow 引用会过时;
+   * FlowRunner 不持有 flow 字段,所有读 agent / shareValuesKeys 的地方都通过此回调
+   * 取最新值,确保 fork 后(lazy 模式构造到首次启动间)用户改 agent 在首次启动时生效。
+   */
+  getLatestFlow: () => Flow
 }
 
 /**
@@ -37,18 +44,20 @@ export type FlowRunnerOptions = {
  *
  * 路由规则:所有 command 按 runId 在 Map 中寻址(`checkRun(runId)` = `Map.has(runId)`),
  * Executor 自身不持有任何 run 路由信息。
+ *
+ * 数据源:Flow 不作为字段持有,统一通过 `getLatestFlow()` 回调实时取,确保外部
+ * (PersistedDataController save / setShareValues 等)更新后所有读取链路看到最新值。
  */
 export class FlowRunner {
-  readonly flow: Flow
-
   private executors = new Map<string, ClaudeExecutor>()
   private signalListeners = new Map<keyof FlowRunnerSignalEvents, Set<SignalHandler<any>>>()
   private wildcardListeners = new Set<WildcardSignalHandler>()
   private readonly getLatestShareValues: () => Record<string, string>
+  private readonly getLatestFlow: () => Flow
 
-  constructor(flow: Flow, options: FlowRunnerOptions) {
-    this.flow = flow
+  constructor(options: FlowRunnerOptions) {
     this.getLatestShareValues = options.getLatestShareValues
+    this.getLatestFlow = options.getLatestFlow
   }
 
   /** 监听所有 signal 事件（通配） */
@@ -134,8 +143,10 @@ export class FlowRunner {
    */
   spawnForFork(params: { runId: string; agentId: string; resumeSessionId: string }): void {
     const { runId, agentId, resumeSessionId } = params
-    const agent = this.findAgentById(agentId)
-    if (!agent) {
+    // 提前 fail-fast:agent 必须存在才启动 lazy executor。lazy 闭包内仍会重新查最新 agent
+    // 应用变更;若运行期间 agent 被删,fallback 到此处校验过的 initialAgent 不让首次启动崩。
+    const initialAgent = this.findAgentById(agentId)
+    if (!initialAgent) {
       this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
       return
     }
@@ -148,15 +159,22 @@ export class FlowRunner {
       message: { role: 'user', content: '' },
       parent_tool_use_id: null,
     }
-    const executor: ClaudeExecutor = new ClaudeExecutor(
-      dummyInit,
-      agent,
-      this.getLatestShareValues(),
-      this.flow.shareValuesKeys ?? [],
-      this.buildExecutorEvents(runId, agent, () => executor),
-      resumeSessionId,
-      'lazy',
-    )
+    const executor: ClaudeExecutor = new ClaudeExecutor('lazy', () => {
+      // lazy 模式首次 createQuery 时才进入此闭包:重查 agent / shareValues / shareValuesKeys
+      // 取最新值,让构造到首次启动间用户改动 flow/agent 生效。flow 通过 getLatestFlow()
+      // 回调取最新引用——webview save 命令会整体替换 currentFlows,持有 fork 时刻快照
+      // 会拿到过时的 agents 与 shareValuesKeys。
+      const latestFlow = this.getLatestFlow()
+      const latestAgent = latestFlow.agents?.find((a) => a.id === agentId) ?? initialAgent
+      return {
+        initMessage: dummyInit,
+        agent: latestAgent,
+        currentValues: this.getLatestShareValues(),
+        shareValueKeys: latestFlow.shareValuesKeys ?? [],
+        events: this.buildExecutorEvents(runId, latestAgent, () => executor),
+        resumeSessionId,
+      }
+    })
     this.executors.set(runId, executor)
   }
 
@@ -272,14 +290,13 @@ export class FlowRunner {
     currentValues: Record<string, string>,
     fireFlowStartSignal: boolean,
   ): void {
-    const events = this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal)
-    const executor: ClaudeExecutor = new ClaudeExecutor(
+    const executor: ClaudeExecutor = new ClaudeExecutor('eager', () => ({
       initMessage,
       agent,
       currentValues,
-      this.flow.shareValuesKeys ?? [],
-      events,
-    )
+      shareValueKeys: this.getLatestFlow().shareValuesKeys ?? [],
+      events: this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal),
+    }))
     this.executors.set(runId, executor)
   }
 
@@ -412,7 +429,7 @@ export class FlowRunner {
   // ── 工具方法 ────────────────────────────────────────────────────────────
 
   private findAgentById(id: string): Agent | undefined {
-    return (this.flow.agents ?? []).find((a) => a.id === id)
+    return (this.getLatestFlow().agents ?? []).find((a) => a.id === id)
   }
 
   private killExecutor(runId: string): void {

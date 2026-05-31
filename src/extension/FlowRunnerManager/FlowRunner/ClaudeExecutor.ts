@@ -35,10 +35,25 @@ export type ExecutorResult = {
 
 /**
  * ClaudeExecutor 启动模式:
- * - 'eager'(默认): 普通启动,构造时立即 createQuery 并 push initMessage
- * - 'lazy': 构造时不 createQuery,等用户首次操作触发(普通 fork:user/text/thinking/turn_end)
+ * - 'eager': 普通启动,构造时立即取 options + createQuery + push initMessage
+ * - 'lazy': 构造时不取 options 也不 createQuery,等用户首次操作触发首次 createQuery 时
+ *   才调用 getOptions() 取最新 agent / shareValues / events,允许构造到首次启动间外部
+ *   改动 flow/agent 并应用新数据。fork 路径用此模式。
  */
 export type ExecutorMode = 'eager' | 'lazy'
+
+/**
+ * ClaudeExecutor 启动所需的全部数据。eager 模式构造时立即取,lazy 模式延迟到首次
+ * createQuery 触发时再取——这样调用方能在闭包里返回最新的 agent / shareValues。
+ */
+export type ExecutorOptions = {
+  initMessage: UserMessageType
+  agent: Agent
+  currentValues: Record<string, string>
+  shareValueKeys: readonly ShareValueKey[]
+  events: ExecutorEvents
+  resumeSessionId?: string
+}
 
 export type ExecutorEvents = {
   /** 首条 SDK 消息抵达时触发(eager 模式),用于上层在透传前发 flow.signal.flowStart */
@@ -76,10 +91,16 @@ export type ExecutorEvents = {
  * 在 Map 中按 runId 寻址。Executor 不知道也不需要知道自己绑定的 runId。
  */
 export class ClaudeExecutor {
-  private readonly agent: Agent
-  private readonly prompt: string
+  /** lazy 模式下构造时尚未赋值,首次 createQuery 调 applyOptions 后才确定。eager 模式构造时立即赋值 */
+  private agent!: Agent
+  /** 同 agent —— buildAgentSystemPrompt 结果,在 applyOptions 内一次性计算 */
+  private prompt!: string
   private mcpServer: ReturnType<typeof buildAgentMcpServer> | null = null
   private readonly userInputStream: ReturnType<typeof createMessageChannel<SDKUserMessage>>
+  /** lazy 模式延迟取 options 的入口;eager 模式构造时也只调用一次后丢弃语义不变 */
+  private readonly getOptions: () => ExecutorOptions
+  /** options 是否已经 applyOptions 过 —— eager 在构造时即 true,lazy 在首次 createQuery 时翻 true */
+  private optionsApplied = false
 
   private queryInstance: Query | null = null
   private completed = false
@@ -87,7 +108,7 @@ export class ClaudeExecutor {
   /**
    * 首条 SDK 消息是否已处理。
    * - eager 模式:首条 SDK 消息抵达时触发 onStarted + 透传 initMessage,然后置 true
-   * - resume(fork)模式:_sessionId 已知,构造时直接置 true,不再触发 onStarted
+   * - resume(fork)模式:_sessionId 已知,applyOptions 时直接置 true,不再触发 onStarted
    */
   private initEmitted = false
   /**
@@ -104,7 +125,8 @@ export class ClaudeExecutor {
   private resolveResultArrived: (() => void) | null = null
 
   private _sessionId: string | null = null
-  private events: ExecutorEvents
+  /** lazy 模式构造时尚未赋值,首次 createQuery 后由 applyOptions 写入 */
+  private events!: ExecutorEvents
 
   /** SDK 在首条消息中分配的会话 ID;`null` 表示尚未建立会话。仅供日志/内部 resume 使用 */
   get sessionId(): string | null {
@@ -127,39 +149,39 @@ export class ClaudeExecutor {
   >()
 
   /**
-   * @param agent - Agent 定义(model、outputs、prompt 等)
-   * @param currentValues - Agent 启动时的可读 values 快照(注入系统提示词,运行中不重读)
-   * @param shareValueKeys - Flow 声明的全部共享数据 key 与 desc(注入系统提示词的「# 可读数据」/「# 可写数据」节)
-   * @param resumeSessionId - 若提供，构造时即以该 sessionId resume 已有 SDK 会话
-   *   （fork 后的延续启动走此路径）；否则首次握手由 SDK 分配。
-   * @param mode - fork 路径专用模式:
-   *   - 'eager'(默认):构造时立即 createQuery 并 push initMessage(原非 fork 路径)
-   *   - 'lazy':构造时不 createQuery、不 push initMessage,等用户首次操作触发(普通 fork)
+   * @param mode - 启动模式,见 {@link ExecutorMode}
+   * @param getOptions - 返回启动所需全部数据的闭包。
+   *   - eager: 构造时立即同步调用一次,作用与原版直传参数一致
+   *   - lazy: 构造时不调用,等首次 createQuery 触发再调用 —— 调用方可在闭包内动态返回
+   *     最新的 agent / shareValues,把构造到首次启动间的外部改动应用到本次启动
    */
-  constructor(
-    initMessage: UserMessageType,
-    agent: Agent,
-    currentValues: Record<string, string>,
-    shareValueKeys: readonly ShareValueKey[],
-    events: ExecutorEvents,
-    resumeSessionId?: string,
-    mode: ExecutorMode = 'eager',
-  ) {
-    this.agent = agent
-    this.events = events
+  constructor(mode: ExecutorMode, getOptions: () => ExecutorOptions) {
     this.userInputStream = createMessageChannel<SDKUserMessage>()
-    // values 是写在系统提示词里的 不能即时读写 可以直接构造
-    this.prompt = buildAgentSystemPrompt(agent, shareValueKeys, currentValues)
-    if (resumeSessionId) {
+    this.getOptions = getOptions
+    if (mode === 'eager') {
+      const opts = getOptions()
+      this.applyOptions(opts)
+      this.createQuery(opts.initMessage)
+    }
+    // mode === 'lazy': 构造时不取 options,等首次 createQuery 时再读最新值
+  }
+
+  /**
+   * 把 options 应用到实例字段。eager 在构造时调用一次;lazy 在首次 createQuery 调用一次。
+   * prompt 由 buildAgentSystemPrompt 一次性生成 —— values 是 prompt 时点快照,运行中改值
+   * 不会重读(参见 CLAUDE.md「shareValues 是 prompt 快照」)。
+   */
+  private applyOptions(opts: ExecutorOptions): void {
+    this.agent = opts.agent
+    this.events = opts.events
+    this.prompt = buildAgentSystemPrompt(opts.agent, opts.shareValueKeys, opts.currentValues)
+    if (opts.resumeSessionId) {
       // resume 模式：sessionId 已知;fork 路径(lazy)不透传 initMessage
       // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
-      this._sessionId = resumeSessionId
+      this._sessionId = opts.resumeSessionId
       this.initEmitted = true
     }
-    if (mode === 'eager') {
-      this.createQuery(initMessage)
-    }
-    // mode === 'lazy': 不 createQuery,等用户操作触发
+    this.optionsApplied = true
   }
 
   /** 转发用户消息 */
@@ -391,6 +413,11 @@ export class ClaudeExecutor {
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
   private async createQuery(message: UserMessageType, skipPushInit = false) {
+    // lazy 模式首次 createQuery:此刻才取最新 options 应用,允许构造到首次启动间外部
+    // 改动 flow/agent。eager 模式构造时已 applyOptions,这里直接跳过。
+    if (!this.optionsApplied) {
+      this.applyOptions(this.getOptions())
+    }
     const isSilentMode = this.agent.work_mode === 'silent_task'
     // 同一个 MCP Server 实例不能被 connect 两次（@modelcontextprotocol/sdk
     // Protocol.connect 在 _transport 已存在时直接 throw 'Already connected

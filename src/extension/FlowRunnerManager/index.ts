@@ -4,15 +4,45 @@ import { FlowRunner } from './FlowRunner'
 
 type PostMessage = (msg: ExtensionToWebviewMessage) => void
 type GetLatestShareValues = (flowId: string) => Record<string, string>
+type GetLatestFlow = (flowId: string) => Flow | undefined
 
 export class FlowRunnerManager {
   private runners = new Map<string, FlowRunner>()
   private postMessage: PostMessage
   private getLatestShareValues: GetLatestShareValues
+  private getLatestFlow: GetLatestFlow
 
-  constructor(postMessage: PostMessage, getLatestShareValues: GetLatestShareValues) {
+  constructor(
+    postMessage: PostMessage,
+    getLatestShareValues: GetLatestShareValues,
+    getLatestFlow: GetLatestFlow,
+  ) {
     this.postMessage = postMessage
     this.getLatestShareValues = getLatestShareValues
+    this.getLatestFlow = getLatestFlow
+  }
+
+  /**
+   * 构造 FlowRunner 时注入 flow 数据源 —— FlowRunner 不再持有 flow 字段,
+   * 所有读取链路通过 getLatestFlow(flowId) 实时取,确保 webview save 后改的 agent
+   * 能立即在 lazy 启动闭包里被读到。flowId 在此处闭包绑定,FlowRunner 内无需感知。
+   */
+  private createRunner(flowId: string): FlowRunner {
+    const runner = new FlowRunner({
+      getLatestShareValues: () => this.getLatestShareValues(flowId),
+      getLatestFlow: () => {
+        const flow = this.getLatestFlow(flowId)
+        if (!flow) throw new Error(`[FlowRunnerManager] flow "${flowId}" not found`)
+        return flow
+      },
+    })
+    runner.listenAllSignals((eventType, signalData) => {
+      this.postMessage({
+        type: eventType,
+        data: { ...signalData, flowId },
+      } as ExtensionToWebviewMessage)
+    })
+    return runner
   }
 
   /**
@@ -26,18 +56,10 @@ export class FlowRunnerManager {
   handleCommand(type: keyof ExtensionFlowCommandEvents, data: any): void {
     match(type)
       .with('flow.command.flowStart', () => {
-        const { flowId, runId, agentId, flow, initMessage } =
-          data as ExtensionFlowCommandEvents['flow.command.flowStart'] & { flow: Flow }
+        const { flowId, runId, agentId, initMessage } =
+          data as ExtensionFlowCommandEvents['flow.command.flowStart']
         this.disposeRunner(flowId)
-        const runner = new FlowRunner(flow, {
-          getLatestShareValues: () => this.getLatestShareValues(flowId),
-        })
-        runner.listenAllSignals((eventType, signalData) => {
-          this.postMessage({
-            type: eventType,
-            data: { ...signalData, flowId },
-          } as ExtensionToWebviewMessage)
-        })
+        const runner = this.createRunner(flowId)
         this.runners.set(flowId, runner)
         runner.emit('flow.command.flowStart', { runId, agentId, initMessage })
       })
@@ -99,25 +121,18 @@ export class FlowRunnerManager {
    * - 调用方需提前生成 runId,以便 webview 收到 signal.fork 后用 runId 派发
    *   sendUserMessage / answerQuestion / interrupt
    * - 不发 flow.signal.flowStart;runId 由 extension 端通过 signal.fork 同步
+   * - 调用前必须先把 newFlow 写入 currentFlows,FlowRunner 通过 getLatestFlow(flowId)
+   *   实时取最新引用(lazy 闭包内读到的是用户改 agent 后的最新值)
    */
   spawnForFork(params: {
     flowId: string
-    flow: Flow
     agentId: string
     resumeSessionId: string
     runId: string
   }): void {
-    const { flowId, flow, agentId, resumeSessionId, runId } = params
+    const { flowId, agentId, resumeSessionId, runId } = params
     this.disposeRunner(flowId)
-    const runner = new FlowRunner(flow, {
-      getLatestShareValues: () => this.getLatestShareValues(flowId),
-    })
-    runner.listenAllSignals((eventType, signalData) => {
-      this.postMessage({
-        type: eventType,
-        data: { ...signalData, flowId },
-      } as ExtensionToWebviewMessage)
-    })
+    const runner = this.createRunner(flowId)
     this.runners.set(flowId, runner)
     runner.spawnForFork({ runId, agentId, resumeSessionId })
   }

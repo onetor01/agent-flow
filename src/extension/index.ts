@@ -158,6 +158,7 @@ export function activate(context: vscode.ExtensionContext) {
   const runnerManager = new FlowRunnerManager(
     postMessageToWebview,
     (flowId) => flowRunStateManager.getFlowRunStates()[flowId]?.shareValues ?? {},
+    (flowId) => currentFlows.flows.find((f) => f.id === flowId),
   )
 
   /**
@@ -324,9 +325,10 @@ export function activate(context: vscode.ExtensionContext) {
     // userMessage / answerQuestion / interrupt 都能正常匹配到此 runner。
     // fork 切片末端只可能是 user/text/thinking/turn_end —— SDK 不支持把
     // askUserQuestion 作为 fork 终点。
+    // newFlow 已写入 currentFlows,FlowRunner 通过 getLatestFlow(flowId) 实时取——
+    // lazy 闭包首次启动时会读到用户改 agent 后的最新值。
     runnerManager.spawnForFork({
       flowId: newFlowId,
-      flow: newFlow,
       agentId,
       resumeSessionId: newSessionId,
       runId: newRunId,
@@ -434,9 +436,11 @@ export function activate(context: vscode.ExtensionContext) {
           const { type, data } = e
           if (type === 'flow.command.flowStart') {
             const { flowId } = data as ExtensionFlowCommandEvents['flow.command.flowStart']
+            // flow 必须存在才能启动;FlowRunner 内部通过 getLatestFlow 实时取,
+            // 这里只做 fail-fast 校验,不再把 flow 注入到 data 里
             const flow = currentFlows.flows.find((f) => f.id === flowId)
             if (!flow) return
-            runnerManager.handleCommand(type, { ...data, flow })
+            runnerManager.handleCommand(type, data)
           } else {
             runnerManager.handleCommand(type, data)
           }
