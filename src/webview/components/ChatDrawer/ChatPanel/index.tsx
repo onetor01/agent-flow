@@ -229,6 +229,7 @@ export const ChatPanel: FC<Props> = ({
     .with('interrupted', () => ({ text: '已中断', color: 'warning' }))
     .with('awaiting-question', () => ({ text: '需要回答', color: 'warning' }))
     .with('awaiting-tool-permission', () => ({ text: '请求授权', color: 'warning' }))
+    .with('awaiting-complete-confirm', () => ({ text: '等待完成确认', color: 'warning' }))
     .with('completed', () => ({ text: '已完成', color: 'success' }))
     .with('stopped', () => ({ text: '已停止', color: 'default' }))
     .with('error', () => ({ text: '出错', color: 'error' }))
@@ -312,7 +313,11 @@ export const ChatPanel: FC<Props> = ({
             flowId={flowId}
             agentId={agentId}
             runId={runId}
-            loading={phase === 'running' || phase === 'starting'}
+            loading={
+              phase === 'running' ||
+              phase === 'starting' ||
+              phase === 'awaiting-complete-confirm'
+            }
           />
         ))}
 

@@ -16,10 +16,11 @@ import { match } from 'ts-pattern'
 import type { AskUserQuestionOutput, PendingQuestion, PendingToolPermission } from '@/common'
 import {
   getAnsweredToolPermissions,
+  getPendingCompleteConfirmsFor,
   getPendingQuestionsFor,
   getPendingToolPermissionsFor,
 } from '@/common'
-import type { AgentRun } from '@/webview/store/flow'
+import type { AgentRun, PendingCompleteConfirm } from '@/webview/store/flow'
 import { useFlowStore } from '@/webview/store/flow'
 import { toBubbleItems, type AnsweredInfo, type BubbleCtx } from './MessageBubble'
 
@@ -30,6 +31,7 @@ type Item = BubbleItemType
 const EMPTY_RUNS: AgentRun[] = []
 const EMPTY_PENDING_QUESTIONS: PendingQuestion[] = []
 const EMPTY_PENDING_TOOL_PERMS: PendingToolPermission[] = []
+const EMPTY_PENDING_COMPLETE_CONFIRMS: PendingCompleteConfirm[] = []
 
 /**
  * 暴露给 ChatPanel 的命令式 API。
@@ -118,7 +120,20 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     return getPendingToolPermissionsFor(fs, agentId)
   }, [fs, runId, agentId])
 
+  const pendingCompleteConfirms = useMemo(() => {
+    if (!fs) return EMPTY_PENDING_COMPLETE_CONFIRMS
+    if (runId) {
+      const list = fs.pendingCompleteConfirms
+      const filtered = list.filter((c) => c.runId === runId)
+      if (filtered.length === list.length) return list
+      if (filtered.length === 0) return EMPTY_PENDING_COMPLETE_CONFIRMS
+      return filtered
+    }
+    return getPendingCompleteConfirmsFor(fs, agentId)
+  }, [fs, runId, agentId])
+
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
+  const answerCompleteConfirm = useFlowStore((s) => s.answerCompleteConfirm)
   const forkFlow = useFlowStore((s) => s.forkFlow)
   const { modal } = App.useApp()
 
@@ -137,6 +152,11 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     return new Set(pendingToolPerms.map((p) => p.toolUseId))
   }, [pendingToolPerms])
 
+  const pendingCompleteConfirmToolUseIds = useMemo(() => {
+    if (pendingCompleteConfirms.length === 0) return undefined
+    return new Set(pendingCompleteConfirms.map((c) => c.toolUseId))
+  }, [pendingCompleteConfirms])
+
   const onToolPermissionAllow = useCallback(
     (toolUseId: string) => {
       const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
@@ -152,6 +172,24 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       answerToolPermission(flowId, p.runId, toolUseId, false)
     },
     [answerToolPermission, flowId, pendingToolPerms],
+  )
+
+  const onCompleteConfirmAccept = useCallback(
+    (toolUseId: string) => {
+      const c = pendingCompleteConfirms.find((c) => c.toolUseId === toolUseId)
+      if (!c) return
+      answerCompleteConfirm(flowId, c.runId, toolUseId, true)
+    },
+    [answerCompleteConfirm, flowId, pendingCompleteConfirms],
+  )
+
+  const onCompleteConfirmDeny = useCallback(
+    (toolUseId: string, reason: string) => {
+      const c = pendingCompleteConfirms.find((c) => c.toolUseId === toolUseId)
+      if (!c) return
+      answerCompleteConfirm(flowId, c.runId, toolUseId, false, reason)
+    },
+    [answerCompleteConfirm, flowId, pendingCompleteConfirms],
   )
 
   /**
@@ -187,6 +225,9 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
+      pendingCompleteConfirmToolUseIds,
+      onCompleteConfirmAccept,
+      onCompleteConfirmDeny,
       onFork: onForkRequest,
     }),
     [
@@ -196,6 +237,9 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       answeredToolPermissions,
       onToolPermissionAllow,
       onToolPermissionDeny,
+      pendingCompleteConfirmToolUseIds,
+      onCompleteConfirmAccept,
+      onCompleteConfirmDeny,
       onForkRequest,
     ],
   )

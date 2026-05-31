@@ -119,9 +119,7 @@ type FlowSignalPayload = {
     values?: Record<string, string>
     /**
      * 本回合 SDK 最后一条 result 消息(含 modelUsage / total_cost_usd)。
-     * AgentComplete 暂存后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
-     * (否则 reducer 会把 phase 切到 'result' 触发"生成完毕"通知),改随 agentComplete
-     * 一并上抛;reducer 把它写入对应 run.messages,buildRenderItems 仍能取到算 token。
+     * AgentComplete 调用成功后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
      */
     result?: AIMessageType
   }
@@ -148,6 +146,16 @@ type FlowSignalPayload = {
     toolUseId: string
     toolName: string
     input: unknown
+  }
+  /**
+   * require_confirm=true 时 Agent 调用 AgentComplete，等待用户确认是否放行。
+   * 拒绝时 AgentComplete 会作为 isError tool_result 回喂 Agent。
+   */
+  agentCompleteConfirmRequest: {
+    runId: string
+    toolUseId: string
+    /** AgentComplete MCP 工具的原始入参（content / output_name / values 等） */
+    input: Record<string, unknown>
   }
   /**
    * 会话 fork 完成：从源 Flow 复制 transcript 切片到新 Flow。
@@ -206,6 +214,17 @@ type FlowCommandPayload = {
     runId: string
     toolUseId: string
     allow: boolean
+  }
+  /**
+   * 回答 AgentComplete 完成前确认：同意则放行 AgentComplete 原流程；
+   * 拒绝则 SDK 收到 isError tool_result，Agent 可在同会话继续多轮。
+   */
+  answerAgentCompleteConfirm: {
+    runId: string
+    toolUseId: string
+    accept: boolean
+    /** 拒绝时填写的原因，accept=true 时忽略 */
+    reason?: string
   }
   /** 彻底终止 Flow:销毁 FlowRunner,所有 run 转 stopped。仅需 flowId,不要求 runId */
   killFlow: object

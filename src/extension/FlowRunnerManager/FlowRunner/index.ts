@@ -96,6 +96,11 @@ export class FlowRunner {
           data as FlowRunnerCommandEvents['flow.command.toolPermissionResult'],
         )
       })
+      .with('flow.command.answerAgentCompleteConfirm', () => {
+        this.handleAnswerCompleteConfirm(
+          data as FlowRunnerCommandEvents['flow.command.answerAgentCompleteConfirm'],
+        )
+      })
       .with('flow.command.killFlow', () => {
         // killFlow 走 FlowRunnerManager.disposeRunner，不在此处处理
       })
@@ -242,6 +247,17 @@ export class FlowRunner {
     executor.answerToolPermission(toolUseId, allow)
   }
 
+  private handleAnswerCompleteConfirm({
+    runId,
+    toolUseId,
+    accept,
+    reason,
+  }: FlowRunnerCommandEvents['flow.command.answerAgentCompleteConfirm']): void {
+    const executor = this.executors.get(runId)
+    if (!executor) return
+    executor.answerCompleteConfirm(toolUseId, accept, reason)
+  }
+
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
   /**
@@ -302,6 +318,19 @@ export class FlowRunner {
           runId,
           toolUseId,
           toolName,
+          input,
+        })
+      },
+      onCompleteConfirmRequest: ({
+        toolUseId,
+        input,
+      }: {
+        toolUseId: string
+        input: Record<string, unknown>
+      }) => {
+        this.fire('flow.signal.agentCompleteConfirmRequest', {
+          runId,
+          toolUseId,
           input,
         })
       },

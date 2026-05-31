@@ -17,6 +17,7 @@ const PHASE_CONFIG: Record<
   interrupted: { color: 'bg-[#f9e2af]', label: '已中断', animate: true },
   'awaiting-question': { color: 'bg-[#cba6f7]', label: '需要回答', animate: true },
   'awaiting-tool-permission': { color: 'bg-[#f9e2af]', label: '请求授权', animate: true },
+  'awaiting-complete-confirm': { color: 'bg-[#f9e2af]', label: '等待完成确认', animate: true },
   completed: { color: 'bg-[#a6e3a1]/60', label: '已完成', animate: false },
   stopped: { color: 'bg-[#9399b2]', label: '已停止', animate: false },
   error: { color: 'bg-[#f38ba8]', label: '出错', animate: false },

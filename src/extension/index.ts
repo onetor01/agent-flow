@@ -141,6 +141,7 @@ export function activate(context: vscode.ExtensionContext) {
       .with('result', () => `Agent「${agentName}」生成完毕`)
       .with('awaiting-question', () => `Agent「${agentName}」需要回答`)
       .with('awaiting-tool-permission', () => `Agent「${agentName}」请求授权`)
+      .with('awaiting-complete-confirm', () => `Agent「${agentName}」等待完成确认`)
       .with('flow-completed', () => `工作流「${flowName}」已完成`)
       .with('agent-error', () => `Agent「${agentName}」运行出错`)
       .exhaustive()
@@ -306,6 +307,7 @@ export function activate(context: vscode.ExtensionContext) {
       answeredToolPermissions: { ...sourceState.answeredToolPermissions },
       pendingQuestions: [],
       pendingToolPermissions: [],
+      pendingCompleteConfirms: [],
       shareValues: { ...sourceState.shareValues },
     }
 

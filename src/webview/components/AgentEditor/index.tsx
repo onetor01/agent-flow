@@ -92,6 +92,8 @@ export const AgentEditor: FC = () => {
         must_confirm_tools: agent.must_confirm_tools,
         work_mode: agent.work_mode ?? 'task',
         no_input: agent.no_input ?? false,
+        plan_mode: agent.plan_mode ?? false,
+        require_confirm: agent.require_confirm ?? false,
         allowed_read_values_keys: agent.allowed_read_values_keys ?? [],
         allowed_write_values_keys: agent.allowed_write_values_keys ?? [],
         outputs: (agent.outputs ?? []).map((o) => ({
@@ -323,6 +325,18 @@ export const AgentEditor: FC = () => {
                   label='Plan模式'
                   tooltip='系统提示词倾向会改变，且无法执行写操作'
                   valuePropName='checked'
+                >
+                  <Switch />
+                </FormItem>
+                <FormItem
+                  name='require_confirm'
+                  label='完成前确认'
+                  tooltip='开启后 Agent 调用 AgentComplete 不立即推进，先弹卡片要求用户确认；拒绝时 AgentComplete 作为工具错误回喂 Agent'
+                  valuePropName='checked'
+                  style={{
+                    display:
+                      (watchedValues as any)?.work_mode === 'chat' ? 'none' : undefined,
+                  }}
                 >
                   <Switch />
                 </FormItem>

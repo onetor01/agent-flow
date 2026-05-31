@@ -62,6 +62,12 @@ export const AgentSchema = z.object({
     .boolean()
     .optional()
     .describe('Plan 模式：true 时以只读/计划模式运行，不会实际执行文件修改等写操作'),
+  require_confirm: z
+    .boolean()
+    .optional()
+    .describe(
+      '完成前确认：true 时 Agent 调用 AgentComplete 不立即推进，先在 ChatPanel 弹卡片要求用户确认；拒绝时 AgentComplete 作为 isError tool_result 回喂 Agent',
+    ),
   allowed_read_values_keys: z
     .array(z.string())
     .optional()

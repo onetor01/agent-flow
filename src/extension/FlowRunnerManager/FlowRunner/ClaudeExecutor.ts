@@ -50,6 +50,11 @@ export type ExecutorEvents = {
   /** 工具调用命中 must_confirm 或兜底，等待用户确认 */
   onToolPermissionRequest: (req: { toolUseId: string; toolName: string; input: unknown }) => void
   /**
+   * require_confirm=true 时 AgentComplete 被调用，等待用户确认是否放行。
+   * 上层据此 fire `flow.signal.agentCompleteConfirmRequest`。
+   */
+  onCompleteConfirmRequest: (req: { toolUseId: string; input: Record<string, unknown> }) => void
+  /**
    * silent_task 模式下 AskUserQuestion 被自动应答时触发,
    * 上层据此 fire `flow.signal.answerQuestion`,reducer 写入 answeredQuestions
    * 并移出 pendingQuestions —— 让 webview 在无人值守模式下也能看到自动答案。
@@ -111,6 +116,12 @@ export class ClaudeExecutor {
 
   /** 挂起中的工具权限请求：toolUseId -> { resolver, input } */
   private pendingToolPermissions = new Map<
+    string,
+    { resolve: (result: PermissionResult) => void; input: Record<string, unknown> }
+  >()
+
+  /** 挂起中的 AgentComplete 完成前确认：toolUseId -> { resolve, input } */
+  private pendingCompleteConfirms = new Map<
     string,
     { resolve: (result: PermissionResult) => void; input: Record<string, unknown> }
   >()
@@ -257,6 +268,22 @@ export class ClaudeExecutor {
     }
   }
 
+  /**
+   * 回答 AgentComplete 完成前确认。
+   * - accept=true：放行原 AgentComplete 工具调用（SDK 执行 MCP 工具，onComplete 触发正常流程）
+   * - accept=false：SDK 收到 isError tool_result，Agent 在同会话继续多轮
+   */
+  answerCompleteConfirm(toolUseId: string, accept: boolean, reason?: string): void {
+    const pending = this.pendingCompleteConfirms.get(toolUseId)
+    if (!pending) return
+    this.pendingCompleteConfirms.delete(toolUseId)
+    if (accept) {
+      pending.resolve({ behavior: 'allow', updatedInput: pending.input })
+    } else {
+      pending.resolve({ behavior: 'deny', message: reason ?? '用户拒绝' })
+    }
+  }
+
   private rejectAllPendingPermissions(reason: string): void {
     for (const [, resolver] of this.pendingPermissions) {
       resolver({ behavior: 'deny', message: reason })
@@ -266,6 +293,10 @@ export class ClaudeExecutor {
       pending.resolve({ behavior: 'deny', message: reason })
     }
     this.pendingToolPermissions.clear()
+    for (const [, pending] of this.pendingCompleteConfirms) {
+      pending.resolve({ behavior: 'deny', message: reason })
+    }
+    this.pendingCompleteConfirms.clear()
   }
 
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
@@ -291,6 +322,24 @@ export class ClaudeExecutor {
       // 挂起，等待 answerQuestion() 被调用
       return new Promise<PermissionResult>((resolve) => {
         this.pendingPermissions.set(toolUseID, resolve)
+      })
+    }
+    // require_confirm=true 时拦截 AgentComplete（chat 模式不挂载此工具，此分支为防御性检查）
+    if (
+      toolName === 'mcp__AgentControllerMcp__AgentComplete' &&
+      this.agent.require_confirm === true &&
+      this.agent.work_mode !== 'chat'
+    ) {
+      log('[ClaudeExecutor] canUseTool AgentComplete pending confirm', { toolUseID })
+      this.events.onCompleteConfirmRequest({
+        toolUseId: toolUseID,
+        input: input as Record<string, unknown>,
+      })
+      return new Promise<PermissionResult>((resolve) => {
+        this.pendingCompleteConfirms.set(toolUseID, {
+          resolve,
+          input: input as Record<string, unknown>,
+        })
       })
     }
     const { auto_allowed_tools, must_confirm_tools } = this.agent
@@ -421,10 +470,8 @@ export class ClaudeExecutor {
           this.initEmitted = true
           this.events.onStarted()
         }
-        // AgentComplete 已暂存时,本回合的 result 消息不单独透传给上层(否则
-        // reducer 会把 phase 切到 'result' 触发"生成完毕"通知),改随下面的
-        // onComplete 通过 agentComplete signal 一并上抛。其他类型消息正常透传。
-        const skipForward = msg.type === 'result' && this.pendingCompleteResult !== null
+        // AgentComplete结果已暂存 视作会话结束 拦截所有消息
+        const skipForward = this.pendingCompleteResult !== null
         if (!skipForward) {
           this.events?.onMessage(msg)
         }
