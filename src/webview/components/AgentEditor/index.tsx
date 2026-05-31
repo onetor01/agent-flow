@@ -110,6 +110,8 @@ export const AgentEditor: FC = () => {
         raw_prompt: agent.raw_prompt ?? false,
         allowed_read_values_keys: agent.allowed_read_values_keys ?? [],
         allowed_write_values_keys: agent.allowed_write_values_keys ?? [],
+        base_url: agent.base_url ?? '',
+        api_key: agent.api_key ?? '',
         outputs: (agent.outputs ?? []).map((o) => ({
           output_name: o.output_name,
           output_desc: o.output_desc,
@@ -452,6 +454,20 @@ export const AgentEditor: FC = () => {
                     </>
                   )}
                 </Form.List>
+              </FormItem>
+              <FormItem
+                name='base_url'
+                label='Base URL'
+                tooltip='留空使用 Flow 配置;非空则覆盖 Flow,注入 SDK 子进程的 ANTHROPIC_BASE_URL'
+              >
+                <Input placeholder='例如 https://api.anthropic.com' />
+              </FormItem>
+              <FormItem
+                name='api_key'
+                label='API Key'
+                tooltip='留空使用 Flow 配置;非空则覆盖 Flow,注入 SDK 子进程的 ANTHROPIC_API_KEY'
+              >
+                <Input placeholder='sk-ant-...' />
               </FormItem>
             </div>
           </div>

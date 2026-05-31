@@ -53,6 +53,8 @@ export type ExecutorOptions = {
   shareValueKeys: readonly ShareValueKey[]
   events: ExecutorEvents
   resumeSessionId?: string
+  flowBaseUrl?: string
+  flowApiKey?: string
 }
 
 export type ExecutorEvents = {
@@ -95,6 +97,9 @@ export class ClaudeExecutor {
   private agent!: Agent
   /** 同 agent —— buildAgentSystemPrompt 结果,在 applyOptions 内一次性计算 */
   private prompt!: string
+  /** SDK 子进程 env 注入项,applyOptions 内确定;空字符串/未提供时不覆盖 process.env */
+  private baseUrl?: string
+  private apiKey?: string
   private mcpServer: ReturnType<typeof buildAgentMcpServer> | null = null
   private readonly userInputStream: ReturnType<typeof createMessageChannel<SDKUserMessage>>
   /** lazy 模式延迟取 options 的入口;eager 模式构造时也只调用一次后丢弃语义不变 */
@@ -175,6 +180,8 @@ export class ClaudeExecutor {
     this.agent = opts.agent
     this.events = opts.events
     this.prompt = buildAgentSystemPrompt(opts.agent, opts.shareValueKeys, opts.currentValues)
+    this.baseUrl = opts.agent.base_url || opts.flowBaseUrl
+    this.apiKey = opts.agent.api_key || opts.flowApiKey
     if (opts.resumeSessionId) {
       // resume 模式：sessionId 已知;fork 路径(lazy)不透传 initMessage
       // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
@@ -481,6 +488,16 @@ export class ClaudeExecutor {
       canUseTool: this.canUseTool,
       cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
       includePartialMessages: true,
+    }
+    // env 注入:SDK 文档约定 options.env 一旦设置会**替换**整个子进程 env,
+    // 因此必须 spread process.env 保住 PATH/HOME 等。仅当 baseUrl / apiKey 任一非空
+    // 才覆盖,否则保持默认继承 —— 避免无谓地把整个 process.env 物化到 SDK 子进程。
+    if (this.baseUrl || this.apiKey) {
+      options.env = {
+        ...process.env,
+        ...(this.baseUrl ? { ANTHROPIC_BASE_URL: this.baseUrl } : {}),
+        ...(this.apiKey ? { ANTHROPIC_API_KEY: this.apiKey } : {}),
+      }
     }
     // if (this.agent.work_mode === 'silent_task') {
     //   options.maxTurns = 10

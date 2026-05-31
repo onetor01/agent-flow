@@ -173,6 +173,8 @@ export class FlowRunner {
         shareValueKeys: latestFlow.shareValuesKeys ?? [],
         events: this.buildExecutorEvents(runId, latestAgent, () => executor),
         resumeSessionId,
+        flowBaseUrl: latestFlow.base_url,
+        flowApiKey: latestFlow.api_key,
       }
     })
     this.executors.set(runId, executor)
@@ -290,13 +292,18 @@ export class FlowRunner {
     currentValues: Record<string, string>,
     fireFlowStartSignal: boolean,
   ): void {
-    const executor: ClaudeExecutor = new ClaudeExecutor('eager', () => ({
-      initMessage,
-      agent,
-      currentValues,
-      shareValueKeys: this.getLatestFlow().shareValuesKeys ?? [],
-      events: this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal),
-    }))
+    const executor: ClaudeExecutor = new ClaudeExecutor('eager', () => {
+      const latestFlow = this.getLatestFlow()
+      return {
+        initMessage,
+        agent,
+        currentValues,
+        shareValueKeys: latestFlow.shareValuesKeys ?? [],
+        events: this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal),
+        flowBaseUrl: latestFlow.base_url,
+        flowApiKey: latestFlow.api_key,
+      }
+    })
     this.executors.set(runId, executor)
   }
 

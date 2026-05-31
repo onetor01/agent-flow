@@ -30,6 +30,8 @@ type FormValues = {
   name: string
   shareValuesKeys: ShareValueKey[]
   shareValues: Record<string, string>
+  base_url: string
+  api_key: string
 }
 
 type SortableRowProps = {
@@ -135,6 +137,8 @@ export const FlowEditor: FC = () => {
         name: flow.name,
         shareValuesKeys: flow.shareValuesKeys ?? [],
         shareValues: runShareValues ?? {},
+        base_url: flow.base_url ?? '',
+        api_key: flow.api_key ?? '',
       })
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditingKey(null)
@@ -165,6 +169,8 @@ export const FlowEditor: FC = () => {
       if (!target) return
       target.name = values.name.trim() || target.name
       target.shareValuesKeys = newKeys
+      target.base_url = values.base_url
+      target.api_key = values.api_key
       for (const agent of target.agents ?? []) {
         if (agent.allowed_read_values_keys) {
           agent.allowed_read_values_keys = agent.allowed_read_values_keys.filter(
@@ -332,6 +338,20 @@ export const FlowEditor: FC = () => {
                     )
                   }}
                 </Form.List>
+              </Form.Item>
+              <Form.Item
+                name='base_url'
+                label='Base URL'
+                tooltip='Flow 默认 base url;Agent 同名字段非空时覆盖,注入 SDK 子进程的 ANTHROPIC_BASE_URL'
+              >
+                <Input placeholder='例如 https://api.anthropic.com' />
+              </Form.Item>
+              <Form.Item
+                name='api_key'
+                label='API Key'
+                tooltip='Flow 默认 api key;Agent 同名字段非空时覆盖,注入 SDK 子进程的 ANTHROPIC_API_KEY'
+              >
+                <Input placeholder='sk-ant-...' />
               </Form.Item>
             </div>
           </div>

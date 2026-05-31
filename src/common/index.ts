@@ -90,6 +90,14 @@ export const AgentSchema = z.object({
     .array(z.string())
     .optional()
     .describe('允许写入的 values key 子集；Agent 仅能在 AgentComplete 时写入这些 key'),
+  base_url: z
+    .string()
+    .optional()
+    .describe('Anthropic API base URL 覆盖；非空时优先于 Flow 同名字段，注入 SDK 的 ANTHROPIC_BASE_URL'),
+  api_key: z
+    .string()
+    .optional()
+    .describe('Anthropic API key 覆盖；非空时优先于 Flow 同名字段，注入 SDK 的 ANTHROPIC_API_KEY'),
 })
 
 /** @see {@link AgentSchema} */
@@ -110,6 +118,14 @@ export const FlowSchema = z.object({
   name: z.string().describe('Flow 名称'),
   agents: z.array(AgentSchema).optional().describe('当前 Flow 内的 agent，其 outputs 定义了连接边'),
   shareValuesKeys: z.array(ShareValueKeySchema).optional().describe('Flow 可用的共享数据 key 集合'),
+  base_url: z
+    .string()
+    .optional()
+    .describe('Anthropic API base URL 默认值；Agent 同名字段非空时覆盖，注入 SDK 的 ANTHROPIC_BASE_URL'),
+  api_key: z
+    .string()
+    .optional()
+    .describe('Anthropic API key 默认值；Agent 同名字段非空时覆盖，注入 SDK 的 ANTHROPIC_API_KEY'),
 })
 
 /** @see {@link FlowSchema} */
