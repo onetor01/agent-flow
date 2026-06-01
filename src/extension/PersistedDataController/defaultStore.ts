@@ -163,7 +163,7 @@ const PresetFlows: Flow[] = [
         no_input: true,
         code: "if(values.worktreePath){\n  await runCommand(`git worktree remove -f ${values.worktreePath}`)\n  return { content: 'worktree已移除' }\n}\n\nreturn { content: '没有worktree' }",
         outputs: [],
-        id: '04a12ebd-b4cd-456f-ad90-9a1350830301',
+        id: '5',
       },
     ],
     shareValuesKeys: [
