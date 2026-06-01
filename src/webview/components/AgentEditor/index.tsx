@@ -25,8 +25,8 @@ import type { Agent } from '@/common'
 import { BUILTIN_TOOL_NAMES, MCP_WILDCARD, buildAgentSystemPrompt } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
-import { Md } from '../text-components'
 import { CodeEditor } from '../CodeEditor'
+import { Md } from '../text-components'
 
 /**
  * 编辑器表单值 —— agent / code 两类节点共用一张表单(node_type / code 为隐藏字段)。

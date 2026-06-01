@@ -1,11 +1,15 @@
-import { autocompletion, type CompletionContext, type CompletionSource } from '@codemirror/autocomplete'
+import { useEffect, useRef } from 'react'
+import type { FC } from 'react'
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionSource,
+} from '@codemirror/autocomplete'
 import { javascript } from '@codemirror/lang-javascript'
 import { indentRange } from '@codemirror/language'
 import { Compartment, type Extension } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView, keymap } from '@codemirror/view'
-import { useEffect, useRef } from 'react'
-import type { FC } from 'react'
 
 export type CodeEditorProps = {
   value?: string
@@ -26,12 +30,8 @@ const theme = [
 ]
 
 // ── 补全源工厂：根据 shareValueKeys / outputs 动态生成 input / values / runCommand 补全 ──
-function createCompletionSource(
-  shareValueKeys: string[],
-  outputs: string[],
-): CompletionSource {
-  const outputType =
-    outputs.length > 0 ? outputs.map((n) => `'${n}'`).join(' | ') : 'undefined'
+function createCompletionSource(shareValueKeys: string[], outputs: string[]): CompletionSource {
+  const outputType = outputs.length > 0 ? outputs.map((n) => `'${n}'`).join(' | ') : 'undefined'
 
   return (ctx: CompletionContext) => {
     // values.xxx → 补全 shareValueKeys

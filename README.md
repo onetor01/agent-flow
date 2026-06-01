@@ -48,6 +48,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **API 端点分层配置**：Flow 与 Agent 均可单独配置 `base_url` / `api_key`；Agent 非空时覆盖 Flow 默认值，留空则回落到 Flow，两端都不填时沿用环境变量，便于同一工作流内不同 Agent 走不同的模型服务。
 - **完成前确认（按分支独立配置）**：在 Output 上开启 `require_confirm`，Agent 选择该分支调用 `AgentComplete` 时不立即推进，先在对话中弹出确认卡片要求用户确认（同意 / 拒绝，拒绝可填原因）；同意才流转到下一节点，拒绝则作为工具错误回喂 Agent 让其继续修正。粒度按分支独立——同一 Agent 的不同 output 可以分别配置；无 outputs / `chat` 模式不适用。
 - **上下文隔离**：每个 Agent 有自己独立的对话上下文。
+- **Code 节点**：`node_type='code'` 的节点不走 AI SDK，而是把 `code` 字段当 `async function (input, values, runCommand) { ... }` 函数体执行。入参 `input` 为上游节点输出文本（`no_input` 时为 `'开始'`），`values` 为当前 Flow 全部 shareValues 快照（全量读不受授权约束），`runCommand` 为在 workspace 下执行 shell 命令的异步函数。返回值映射为 `{ output_name?, content?, values? }` 驱动下一跳，`values` 与现有 shareValues 合并。代码编辑器基于 CodeMirror，提供 `input` / `values.*` / `runCommand` 补全和 `Shift+Alt+F` 格式化。
 - **共享数据按 key 授权读写**：Flow 在 `shareValuesKeys` 中声明全部可用 key（每个 key 可附加 `desc` 标注语义）；Agent 各自配置 `allowed_read_values_keys` / `allowed_write_values_keys`，只能看到 / 写入被授权的 key。被授权读取的 key 与当前值会注入到 Agent 系统提示词「# 可用数据」节；写入只能在 `AgentComplete` 时通过 `values` 参数一次性提交，未授权 key 会被静默丢弃。
 - **工具权限按命令级控制**：每个 Agent 通过 `auto_allowed_tools`（自动放行）/ `must_confirm_tools`（必须用户确认，优先级更高）配置工具权限。除整工具名外，Bash 支持命令级控制——裸 `Bash` 匹配所有命令，`Bash(git status)` 仅匹配以该前缀开头的命令。复合命令（`&&` / `;` 等拆分）下，自动放行要求**所有子命令**都命中规则才生效（防止夹带未授权命令绕过），必须确认则**任一子命令**命中即触发。
 - **连线约束**：每个 output 最多连一条出边；`next_agent` 允许指向自身以支持循环。

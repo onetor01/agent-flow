@@ -3,7 +3,7 @@
   "license": "MIT",
   "displayName": "agent-flow",
   "description": "可视化地编排 Agent 工作流",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "publisher": "FanetheDivine",
   "repository": {
     "type": "git",

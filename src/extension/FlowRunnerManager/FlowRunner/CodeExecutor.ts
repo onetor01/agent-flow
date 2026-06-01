@@ -7,11 +7,7 @@ import {
   UserMessageType,
 } from '@/common'
 import { logError } from '../../logger'
-import {
-  ExecutorEvents,
-  ExecutorMode,
-  ExecutorResult,
-} from './ClaudeExecutor'
+import { ExecutorEvents, ExecutorMode, ExecutorResult } from './ClaudeExecutor'
 
 /**
  * CodeExecutor 启动所需的全部数据。与 ClaudeExecutor 对齐:eager 构造时立即取,lazy
@@ -71,8 +67,7 @@ function normalizeCodeResult(raw: unknown): {
   if (typeof raw === 'string') return { content: raw }
   if (typeof raw === 'object') {
     const obj = raw as Record<string, unknown>
-    const hasShape =
-      'output_name' in obj || 'content' in obj || 'values' in obj
+    const hasShape = 'output_name' in obj || 'content' in obj || 'values' in obj
     if (hasShape) {
       return {
         outputName: typeof obj.output_name === 'string' ? obj.output_name : undefined,
@@ -279,11 +274,9 @@ export class CodeExecutor {
       uuid: globalThis.crypto.randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
       session_id: this._sessionId,
     }
-    return (
-      opts.isError
-        ? { ...base, subtype: 'error_during_execution' }
-        : { ...base, subtype: 'success' }
-    ) as unknown as AIMessageType
+    return (opts.isError
+      ? { ...base, subtype: 'error_during_execution' }
+      : { ...base, subtype: 'success' }) as unknown as AIMessageType
   }
 }
 
