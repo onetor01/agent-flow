@@ -1,5 +1,5 @@
 import { useCallback, useRef, type FC, type ReactNode } from 'react'
-import { Drawer } from 'antd'
+import { Drawer, Modal } from 'antd'
 import {
   agentChatInputState,
   getAgentPhase,
@@ -56,6 +56,13 @@ export const ChatDrawer: FC<Props> = ({
     return agentId
   })
 
+  // 当前面板对应的 agent 是否为 code 节点 —— 用于发送前的富文本拦截
+  const isCodeNode = useFlowStore((s): boolean => {
+    if (!flowId || !effectiveAgentId) return false
+    const flow = s.flows.find((f) => f.id === flowId)
+    return flow?.agents?.find((a) => a.id === effectiveAgentId)?.node_type === 'code'
+  })
+
   const agentPhase = useFlowStore((s): AgentPhase => {
     if (!flowId || !effectiveAgentId) return 'idle'
     return getAgentPhase(s.flowRunStates[flowId], effectiveAgentId)
@@ -84,9 +91,37 @@ export const ChatDrawer: FC<Props> = ({
       // disabled / loading 状态不允许发送
       if (inputState === 'disabled' || inputState === 'loading') return false
 
+      // code 节点不接收富文本(图片 / 附件 / 其他非 text 块):弹确认提示
+      // 用户确认后仅提取 text 块拼接为字符串再发送。
+      // 注:本期 CodeExecutor 是 eager 一次性执行,正常路径不会让用户走到 sendUserMessage,
+      // 但发送入口仍按节点类型做这层 UI 拦截,避免用户误以为图片可被代码节点处理。
+      let effectiveContent = content
+      if (isCodeNode && Array.isArray(content)) {
+        const hasNonText = content.some((b: any) => b?.type !== 'text')
+        if (hasNonText) {
+          const ok = await new Promise<boolean>((resolve) => {
+            Modal.confirm({
+              title: '代码节点无法接收富文本',
+              content: '确定提取其中的纯文本继续发送?',
+              okText: '继续发送',
+              cancelText: '取消',
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            })
+          })
+          if (!ok) return false
+          const textOnly = content
+            .filter((b: any) => b?.type === 'text')
+            .map((b: any) => b.text ?? '')
+            .filter(Boolean)
+            .join('\n')
+          effectiveContent = textOnly
+        }
+      }
+
       // 同会话追问条件:有 active run + phase=result/interrupted
       if (activeRunId && (agentPhase === 'result' || agentPhase === 'interrupted')) {
-        sendUserMessage(flowId, activeRunId, content)
+        sendUserMessage(flowId, activeRunId, effectiveContent)
         chatPanelRef.current?.forceScrollToBottom()
         return true
       }
@@ -95,13 +130,22 @@ export const ChatDrawer: FC<Props> = ({
       // useStartFlow 内部会根据 FlowPhase !== idle 弹窗确认
       const started = await startFlow(flowId, effectiveAgentId, {
         type: 'user',
-        message: { role: 'user', content },
+        message: { role: 'user', content: effectiveContent },
         parent_tool_use_id: null,
       })
       if (started) chatPanelRef.current?.forceScrollToBottom()
       return started
     },
-    [flowId, effectiveAgentId, inputState, agentPhase, activeRunId, startFlow, sendUserMessage],
+    [
+      flowId,
+      effectiveAgentId,
+      inputState,
+      agentPhase,
+      activeRunId,
+      isCodeNode,
+      startFlow,
+      sendUserMessage,
+    ],
   )
 
   return (

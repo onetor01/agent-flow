@@ -1,7 +1,7 @@
 import { createSdkMcpServer, SdkMcpToolDefinition, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { toJSONSchema } from 'zod/v4/core'
-import { type Agent, AgentSchema, FlowSchema, OutputSchema, validateFlow } from '.'
+import { type Agent, type Flow, AgentSchema, FlowSchema, OutputSchema, validateFlow } from '.'
 
 // 仅extension可用
 
@@ -254,6 +254,33 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
     '获取 Flow 数据结构的 JSON Schema 定义。在生成、修改或理解工作流结构时调用，以获取准确的字段定义与约束。',
     {},
     withErrorBoundary('getFlowJSONSchema', async () => {
+      // AI 设计 Flow 用的精简 schema：从完整 schema 派生
+      // node_type 固定 agent / model 固定 sonnet / auto_allowed_tools 固定 true / work_mode 固定 task
+      // 不暴露 CodeSchema、must_confirm_tools、require_confirm、base_url、api_key 等
+      const LiteOutput = OutputSchema.pick({
+        output_name: true,
+        output_desc: true,
+        next_agent: true,
+      })
+      const LiteAgent = AgentSchema.pick({
+        id: true,
+        agent_name: true,
+        agent_desc: true,
+        agent_prompt: true,
+        allowed_read_values_keys: true,
+        allowed_write_values_keys: true,
+      }).extend({
+        no_input: z.literal(true),
+        node_type: z.literal('agent'),
+        auto_allowed_tools: z.literal(true),
+        outputs: z.array(LiteOutput).optional().describe('输出分支，可以连接任意数量的 agent'),
+      }) satisfies z.ZodType<Agent>
+      const LiteFlow = FlowSchema.pick({ id: true, name: true, shareValuesKeys: true }).extend({
+        agents: z
+          .array(LiteAgent)
+          .optional()
+          .describe('当前 Flow 内的 agent，其 outputs 定义了连接边'),
+      }) satisfies z.ZodType<Flow>
       return {
         content: [
           {
@@ -262,9 +289,9 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
               toJSONSchema(
                 z
                   .registry<{ id?: string }>()
-                  .add(OutputSchema, { id: 'Output' })
-                  .add(AgentSchema, { id: 'Agent' })
-                  .add(FlowSchema, { id: 'Flow' }),
+                  .add(LiteOutput, { id: 'Output' })
+                  .add(LiteAgent, { id: 'Agent' })
+                  .add(LiteFlow, { id: 'Flow' }),
               ).schemas,
               null,
               2,

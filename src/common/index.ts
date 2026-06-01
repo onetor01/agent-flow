@@ -26,7 +26,16 @@ export type Output = z.infer<typeof OutputSchema>
 /** Agent，具有多轮对话能力的独立任务执行单元 */
 export const AgentSchema = z.object({
   id: z.string().describe('Agent 唯一 ID'),
-  model: z.string().min(1).describe('使用的模型，可选 "sonnet"（复杂推理）或 "haiku"（快速简单）'),
+  /**
+   * 节点类型,省略即 'agent':走 ClaudeExecutor + AI SDK,与 work_mode/agent_prompt/model 等字段配合。
+   * node_type='code' 的节点由 {@link CodeSchema}(从本 schema 派生)定义,走 CodeExecutor 不调 AI。
+   */
+  node_type: z.literal('agent').optional().describe('节点类型,默认 agent'),
+  model: z
+    .string()
+    .min(1)
+    .describe('使用的模型，可选 "sonnet"（复杂推理）或 "haiku"（快速简单）')
+    .optional(),
   effort: z
     .enum(['low', 'medium', 'high', 'xhigh', 'max'])
     .optional()
@@ -55,6 +64,7 @@ export const AgentSchema = z.object({
     ),
   work_mode: z
     .enum(['task', 'chat', 'silent_task'])
+    .optional()
     .describe(
       '工作方式：task-任务达成后调用 AgentComplete 提交结果；chat-与用户的持续长期对话；silent_task-无人值守自动循环，必须通过 AgentComplete 终止',
     ),
@@ -107,6 +117,32 @@ export const AgentSchema = z.object({
 /** @see {@link AgentSchema} */
 export type Agent = z.infer<typeof AgentSchema>
 
+/**
+ * Code 节点 —— 从 {@link AgentSchema} 派生,仅保留有向图所需字段 + 代码体。
+ * 走 CodeExecutor:把 `code` 当作 `async function (input, values, runCommand) { ... }` 函数体执行,
+ * 不调用 AI、不挂 MCP、不走 SDK,运行时不读 model/effort/agent_prompt/work_mode/tools 等字段。
+ */
+export const CodeSchema = AgentSchema.pick({
+  id: true,
+  agent_name: true,
+  agent_desc: true,
+  outputs: true,
+  no_input: true,
+}).extend({
+  node_type: z.literal('code').describe('节点类型,固定 code'),
+  /**
+   * code 节点的函数体源码;外层签名固定为 `async function (input, values, runCommand) { ... }`,
+   * 返回值映射到 ExecutorResult: `{ output_name?, content, values? }`。
+   * 入参语义:input = 上游 AgentComplete.content / no_input 时为 '开始';
+   * values = 当前 shareValues 全量(全量读不受 allowed_read_values_keys 约束);
+   * runCommand = async (command: string, timeout?: number) => Promise<string>,在 VSCode workspaceFolder 下执行 shell 命令并返回 stdout+stderr;timeout 单位毫秒,默认 600000(10 分钟)
+   */
+  code: z.string().describe('代码节点的 JS 函数体'),
+})
+
+/** @see {@link CodeSchema} */
+export type Code = z.infer<typeof CodeSchema>
+
 /** 共享数据 key 声明：key 为字段名，desc 仅用于设计期标注语义（不进入 prompt / MCP schema） */
 export const ShareValueKeySchema = z.object({
   key: z.string().describe('共享数据 key 名称，在 Flow 内唯一'),
@@ -120,7 +156,10 @@ export type ShareValueKey = z.infer<typeof ShareValueKeySchema>
 export const FlowSchema = z.object({
   id: z.string().describe('Flow 唯一标识'),
   name: z.string().describe('Flow 名称'),
-  agents: z.array(AgentSchema).optional().describe('当前 Flow 内的 agent，其 outputs 定义了连接边'),
+  agents: z
+    .array(z.union([AgentSchema, CodeSchema]))
+    .optional()
+    .describe('当前 Flow 内的 agent,其 outputs 定义了连接边'),
   shareValuesKeys: z.array(ShareValueKeySchema).optional().describe('Flow 可用的共享数据 key 集合'),
   base_url: z
     .string()
@@ -529,7 +568,7 @@ export function buildAgentSystemPrompt(
   const {
     agent_prompt,
     outputs = [],
-    work_mode,
+    work_mode = 'task',
     allowed_read_values_keys = [],
     allowed_write_values_keys = [],
   } = agent
@@ -620,7 +659,7 @@ export function buildAgentSystemPrompt(
           '## 任务描述',
           agent_prompt,
           '## 完成任务',
-          '一旦达成「任务描述」的结束条件，**立即**调用 AgentControllerMcp 的 AgentComplete 工具提交结果并选择输出分支，否则系统会持续以「继续」让你循环。',
+          '一旦达成「任务描述」的结束条件，**立即**调用 AgentControllerMcp 的 AgentComplete 工具提交结果并选择输出分支。',
           '## 输出分支',
           outputs.length === 0
             ? '此任务没有输出分支。'

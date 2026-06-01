@@ -1,5 +1,5 @@
 import { type Node, type Edge, MarkerType } from '@xyflow/react'
-import type { Agent, Flow } from '@/common'
+import type { Agent, Code, Flow } from '@/common'
 
 // ── Node / Edge 数据类型 ────────────────────────────────────────────────────
 
@@ -29,9 +29,10 @@ const LAYER_GAP = 120
 // 同一层内节点之间的垂直间距
 const SIBLING_GAP = 40
 
-function estimateNodeHeight(agent: Agent): number {
+function estimateNodeHeight(agent: Agent | Code): number {
   let h = HEADER_H
-  if (agent.model) h += MODEL_ROW_H
+  // code 节点没有 model 但显示 'code' 徽章;非 code 分支 agent 已收窄,可直接读 model
+  if (agent.node_type === 'code' || agent.model) h += MODEL_ROW_H
   const n = agent.outputs?.length ?? 0
   if (n > 0) h += OUTPUT_BLOCK_PADDING + n * OUTPUT_ROW_H + (n - 1) * OUTPUT_GAP
   return h
@@ -46,7 +47,7 @@ function estimateNodeHeight(agent: Agent): number {
  *   2. 层内重心排序：按父节点在上一层中的平均下标排序，降低交叉。
  *   3. 高度感知垂直堆叠：每层按估算高度竖排，整层整体在 y=0 居中。
  */
-function agentsToNodes(flowId: string, agents: Agent[]): AgentNode[] {
+function agentsToNodes(flowId: string, agents: (Agent | Code)[]): AgentNode[] {
   if (agents.length === 0) return []
 
   const agentMap = new Map(agents.map((a) => [a.id, a]))
@@ -150,7 +151,7 @@ function agentsToNodes(flowId: string, agents: Agent[]): AgentNode[] {
 }
 
 /** 将 Flow 中 Agent 的 outputs 转换为 ReactFlow 边 */
-function agentsToEdges(agents: Agent[]): Edge[] {
+function agentsToEdges(agents: (Agent | Code)[]): Edge[] {
   const edges: Edge[] = []
   for (const agent of agents) {
     for (const output of agent.outputs ?? []) {
@@ -184,7 +185,7 @@ export function flowToReactFlow(flow: Flow): { nodes: AgentNode[]; edges: Edge[]
 /** 从 ReactFlow 的节点和边还原 Flow（保留 flow 上 agents 以外的所有字段） */
 export function reactFlowToFlow(flow: Flow, nodes: AgentNode[], edges: Edge[]): Flow {
   const agents = flow.agents ?? []
-  const agentMap = new Map<string, Agent>()
+  const agentMap = new Map<string, Agent | Code>()
 
   // 先把节点还原为 Agent，保留原始 outputs（清空 next_agent 以便从边重建）
   for (const node of nodes) {

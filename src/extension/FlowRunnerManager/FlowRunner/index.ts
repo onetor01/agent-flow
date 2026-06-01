@@ -1,8 +1,13 @@
+import { execaCommand } from 'execa'
+import * as fs from 'fs'
+import * as path from 'path'
 import { match } from 'ts-pattern'
+import * as vscode from 'vscode'
 import {
   type Agent,
   type AIMessageType,
   type AskUserQuestionOutput,
+  type Code,
   type FlowRunnerCommandEvents,
   type Flow,
   type FlowRunnerSignalEvents,
@@ -10,6 +15,53 @@ import {
 } from '@/common'
 import { logError } from '../../logger'
 import { ClaudeExecutor, type ExecutorResult } from './ClaudeExecutor'
+import { CodeExecutor } from './CodeExecutor'
+
+/**
+ * Windows 上 `bash` 命令可能被 WSL 拦截,需要显式定位 Git Bash 的 bash.exe。
+ * 策略:用 `where git` 找到 git.exe 路径,推导同目录下的 bash.exe(Git for Windows 布局:
+ * `Git/cmd/git.exe` → `Git/bin/bash.exe`);找不到则尝试常见安装路径。
+ * 结果缓存,只解析一次。
+ */
+let _gitBashPath: string | undefined
+let _gitBashResolved = false
+async function resolveGitBash(): Promise<string | undefined> {
+  if (_gitBashResolved) return _gitBashPath
+  _gitBashResolved = true
+  try {
+    const { stdout } = await execaCommand('where git')
+    const gitExe = stdout.trim().split('\n')[0].trim()
+    if (gitExe) {
+      // Git/cmd/git.exe → Git/bin/bash.exe
+      const candidate = path.resolve(path.dirname(gitExe), '..', 'bin', 'bash.exe')
+      if (fs.existsSync(candidate)) {
+        _gitBashPath = candidate
+        return _gitBashPath
+      }
+    }
+  } catch {
+    /* where git 失败则继续尝试 */
+  }
+  // 常见安装路径兜底
+  const fallbacks = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+  ]
+  for (const p of fallbacks) {
+    if (fs.existsSync(p)) {
+      _gitBashPath = p
+      return _gitBashPath
+    }
+  }
+  return undefined
+}
+
+/**
+ * 节点执行器联合 —— ClaudeExecutor 走 AI SDK,CodeExecutor 把 agent.code 当函数体执行。
+ * 路由侧 FlowRunner 不区分二者:两者都实现 sendUserMessage / interrupt / answerQuestion /
+ * answerToolPermission / answerCompleteConfirm / kill 接口,且 ExecutorEvents 同构。
+ */
+type Executor = ClaudeExecutor | CodeExecutor
 
 type SignalHandler<K extends keyof FlowRunnerSignalEvents> = (
   data: FlowRunnerSignalEvents[K],
@@ -49,7 +101,7 @@ export type FlowRunnerOptions = {
  * (PersistedDataController save / setShareValues 等)更新后所有读取链路看到最新值。
  */
 export class FlowRunner {
-  private executors = new Map<string, ClaudeExecutor>()
+  private executors = new Map<string, Executor>()
   private signalListeners = new Map<keyof FlowRunnerSignalEvents, Set<SignalHandler<any>>>()
   private wildcardListeners = new Set<WildcardSignalHandler>()
   private readonly getLatestShareValues: () => Record<string, string>
@@ -150,6 +202,13 @@ export class FlowRunner {
       this.fire('flow.signal.error', { msg: `Agent "${agentId}" not found in flow` })
       return
     }
+    // code 节点没有 SDK session,无法 fork;webview 端不应给出 fork 入口。这里只兜底
+    if (initialAgent.node_type === 'code') {
+      this.fire('flow.signal.error', {
+        msg: `代码节点 "${initialAgent.agent_name}" 不支持 fork`,
+      })
+      return
+    }
     // 本期单 executor 约束:fork 时清掉所有现存 executor
     this.killAllExecutors()
     // dummy initMessage:fork 模式下不会被透传到上层、也不会作为 SDK prompt push,
@@ -165,7 +224,9 @@ export class FlowRunner {
       // 回调取最新引用——webview save 命令会整体替换 currentFlows,持有 fork 时刻快照
       // 会拿到过时的 agents 与 shareValuesKeys。
       const latestFlow = this.getLatestFlow()
-      const latestAgent = latestFlow.agents?.find((a) => a.id === agentId) ?? initialAgent
+      const found = latestFlow.agents?.find((a) => a.id === agentId)
+      // fork 仅支持 node_type='agent';若最新 flow 把该节点改成 code,回退到构造时校验过的 initialAgent
+      const latestAgent = found && found.node_type !== 'code' ? found : initialAgent
       return {
         initMessage: dummyInit,
         agent: latestAgent,
@@ -281,17 +342,42 @@ export class FlowRunner {
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
   /**
-   * 启动一个 Agent run:创建 ClaudeExecutor 并写入 executors Map。
+   * 启动一个 Agent run:按 node_type 分流 ClaudeExecutor / CodeExecutor 并写入 executors Map。
    * @param fireFlowStartSignal - 是否在首条 SDK 消息抵达时 fire flow.signal.flowStart
    *   (eager 路径需要;fork 路径由外层 spawnForFork 走 signal.fork 替代,故为 false)
    */
   private runAgent(
     runId: string,
     initMessage: UserMessageType,
-    agent: Agent,
+    agent: Agent | Code,
     currentValues: Record<string, string>,
     fireFlowStartSignal: boolean,
   ): void {
+    if (agent.node_type === 'code') {
+      const executor: CodeExecutor = new CodeExecutor('eager', () => {
+        const latestFlow = this.getLatestFlow()
+        const cwd = vscode.workspace.workspaceFolders?.[0].uri.fsPath
+        return {
+          initMessage,
+          agent,
+          currentValues,
+          shareValueKeys: latestFlow.shareValuesKeys ?? [],
+          runCommand: async (command: string, timeout?: number) => {
+            // Windows 上 `bash` 会被 WSL 拦截,需要显式定位 Git Bash
+            const shell = process.platform === 'win32' ? ((await resolveGitBash()) ?? 'bash') : true
+            const { stdout, stderr } = await execaCommand(command, {
+              cwd,
+              timeout: timeout ?? 600_000,
+              shell,
+            })
+            return stdout + stderr
+          },
+          events: this.buildExecutorEvents(runId, agent, () => executor, fireFlowStartSignal),
+        }
+      })
+      this.executors.set(runId, executor)
+      return
+    }
     const executor: ClaudeExecutor = new ClaudeExecutor('eager', () => {
       const latestFlow = this.getLatestFlow()
       return {
@@ -307,11 +393,13 @@ export class FlowRunner {
     this.executors.set(runId, executor)
   }
 
-  /** 构造 ClaudeExecutor 的事件回调 —— 上层路由(runId、kill)在此闭包注入 */
+  /** 构造 Executor 的事件回调 —— 上层路由(runId、kill)在此闭包注入。
+   * 闭包对 ClaudeExecutor / CodeExecutor 同构:onComplete 回调里只比对 executor 引用,
+   * 不区分类型,所以 getExecutor 用 Executor 联合即可。 */
   private buildExecutorEvents(
     runId: string,
-    agent: Agent,
-    getExecutor: () => ClaudeExecutor,
+    agent: Agent | Code,
+    getExecutor: () => Executor,
     fireFlowStartSignal: boolean = false,
   ) {
     return {
@@ -363,12 +451,16 @@ export class FlowRunner {
       },
       onError: (err: Error) => {
         logError(`[FlowRunner] agent ${agent.id} error:`, err)
-        this.fire('flow.signal.agentError', { runId, agentId: agent.id, err })
+        this.fire('flow.signal.agentError', {
+          runId,
+          agentId: agent.id,
+          err: err.message || String(err),
+        })
       },
     }
   }
 
-  private onAgentComplete(runId: string, agent: Agent, result: ExecutorResult): void {
+  private onAgentComplete(runId: string, agent: Agent | Code, result: ExecutorResult): void {
     try {
       this.doOnAgentComplete(runId, agent, result)
     } catch (err) {
@@ -380,7 +472,7 @@ export class FlowRunner {
     }
   }
 
-  private doOnAgentComplete(runId: string, agent: Agent, result: ExecutorResult): void {
+  private doOnAgentComplete(runId: string, agent: Agent | Code, result: ExecutorResult): void {
     const { outputName, content } = result
 
     // 查找下一个 agent
@@ -435,7 +527,7 @@ export class FlowRunner {
 
   // ── 工具方法 ────────────────────────────────────────────────────────────
 
-  private findAgentById(id: string): Agent | undefined {
+  private findAgentById(id: string): Agent | Code | undefined {
     return (this.getLatestFlow().agents ?? []).find((a) => a.id === id)
   }
 

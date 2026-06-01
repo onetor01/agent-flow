@@ -1,9 +1,15 @@
 import { memo } from 'react'
 import type { FC } from 'react'
 import { App, Badge, Tag, Tooltip, Typography } from 'antd'
-import { EditOutlined, MessageOutlined, PlayCircleOutlined, RobotOutlined } from '@ant-design/icons'
+import {
+  CodeOutlined,
+  EditOutlined,
+  MessageOutlined,
+  PlayCircleOutlined,
+  RobotOutlined,
+} from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { getFlowPhase, type Agent } from '@/common'
+import { getFlowPhase, type Agent, type Code } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
@@ -21,7 +27,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const { flowId, agentId, agentName } = data
 
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))
-  const agent: Agent | undefined = flow?.agents?.find((a) => a.id === agentId)
+  const agent: Agent | Code | undefined = flow?.agents?.find((a) => a.id === agentId)
   const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
 
   const { message } = App.useApp()
@@ -36,6 +42,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const isAgentActive = useFlowStore(
     (s) => s.flowRunStates[flowId]?.runs.at(-1)?.agentId === agentId,
   )
+  const isCodeNode = agent?.node_type === 'code'
   const outputs = agent?.outputs ?? []
 
   return (
@@ -60,8 +67,8 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           className='flex items-center gap-1.5 rounded-t-[10px] border-b border-[#313244] px-3 py-2'
           style={{ background: 'linear-gradient(135deg, #313244, #1e1e2e)' }}
         >
-          <span className='text-sm text-[#cba6f7]'>
-            <RobotOutlined />
+          <span className={cn('text-sm', isCodeNode ? 'text-[#94e2d5]' : 'text-[#cba6f7]')}>
+            {isCodeNode ? <CodeOutlined /> : <RobotOutlined />}
           </span>
           <div
             className='flex-1 overflow-hidden'
@@ -140,13 +147,22 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           </span>
         </div>
 
-        {/* Agent 信息 */}
-        {agent?.model && (
+        {/* Agent 信息：code 节点显示标签,普通 agent 显示 model */}
+        {isCodeNode ? (
           <div className='px-3 pt-1'>
-            <Tag color='blue' style={{ fontSize: 10 }}>
-              {agent.model}
+            <Tag color='cyan' style={{ fontSize: 10 }}>
+              code
             </Tag>
           </div>
+        ) : (
+          // isCodeNode 为 false 已将 agent 收窄为普通 agent,直接读 model
+          agent?.model && (
+            <div className='px-3 pt-1'>
+              <Tag color='blue' style={{ fontSize: 10 }}>
+                {agent.model}
+              </Tag>
+            </div>
+          )
         )}
 
         {/* 输出端口列表 */}

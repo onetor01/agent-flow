@@ -23,7 +23,7 @@ import {
   flowIsDestructiveReadOnly,
   getFlowPhase,
 } from '@/common'
-import type { Agent } from '@/common'
+import type { Agent, Code } from '@/common'
 import { clearBuildCacheForRuns } from '../components/ChatDrawer/ChatPanel/buildRenderItems'
 import { postMessageToExtension, subscribeExtensionMessage } from '../utils/ExtensionMessage'
 
@@ -108,7 +108,7 @@ type FlowStoreType = StoreState & {
   closeChatDrawer: () => void
   setEditingAgent: (agent?: { flowId: string; agentId: string }) => void
   setEditingFlowId: (id?: string) => void
-  copyAgents: (newAgents: Agent[], flowId: string) => Agent[] | undefined
+  copyAgents: (newAgents: (Agent | Code)[], flowId: string) => (Agent | Code)[] | undefined
 }
 
 // Re-export 类型和工具函数，保持现有引用兼容
@@ -485,7 +485,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       })
     },
     copyAgents: (newAgents, flowId) => {
-      let remapped: Agent[] = []
+      let remapped: (Agent | Code)[] = []
       get().save((flows) => {
         const flow = flows.find((f) => f.id === flowId)
         if (!flow) return

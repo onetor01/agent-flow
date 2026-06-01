@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { FC } from 'react'
 import { App, Button, Tooltip } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { PlusOutlined, CodeOutlined } from '@ant-design/icons'
 import {
   ReactFlow,
   Background,
@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useEventListener } from 'ahooks'
 import z from 'zod'
-import { AgentSchema, getFlowPhase, type Agent } from '@/common'
+import { AgentSchema, getFlowPhase, type Agent, type Code } from '@/common'
 import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import AgentNodeComponent from './AgentNode'
@@ -151,42 +151,58 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
   )
 
   // 添加 Agent：在鼠标附近放置
-  const handleAddAgent = useCallback(() => {
-    const { copyAgents } = useFlowStore.getState()
-    const defaultAgent: Agent = {
-      id: crypto.randomUUID(),
-      agent_name: 'example-agent',
-      model: 'haiku',
-      auto_allowed_tools: true,
-      work_mode: 'task',
-      agent_prompt: '将用户输入视作纯文本，原样输出。',
-      outputs: [{ output_name: '输出', output_desc: '用户输入原文' }],
-    }
-    const remapped = copyAgents([defaultAgent], flowId)
-    if (!remapped?.length) return
+  const handleAddAgent = useCallback(
+    (kind: 'agent' | 'code' = 'agent') => {
+      const { copyAgents } = useFlowStore.getState()
+      const defaultAgent: Agent | Code =
+        kind === 'code'
+          ? {
+              id: crypto.randomUUID(),
+              agent_name: 'code-node',
+              node_type: 'code',
+              code: [
+                '// 入参 input: 上一节点 AgentComplete.content;values: 当前 shareValues 全量;runCommand: 执行 shell 命令',
+                '// 返回 { output_name?, content?, values? } —— output_name 决定下一跳,values 写回 shareValues',
+                "return { output_name: '输出', content: input }",
+              ].join('\n'),
+              outputs: [{ output_name: '输出', output_desc: '代码节点输出' }],
+            }
+          : {
+              id: crypto.randomUUID(),
+              agent_name: 'example-agent',
+              model: 'haiku',
+              auto_allowed_tools: true,
+              work_mode: 'task',
+              agent_prompt: '将用户输入视作纯文本，原样输出。',
+              outputs: [{ output_name: '输出', output_desc: '用户输入原文' }],
+            }
+      const remapped = copyAgents([defaultAgent], flowId)
+      if (!remapped?.length) return
 
-    const pos =
-      mousePosition.current && reactFlowInstance.current
-        ? reactFlowInstance.current.screenToFlowPosition(mousePosition.current)
-        : reactFlowInstance.current
-          ? reactFlowInstance.current.screenToFlowPosition({
-              x: window.innerWidth / 2,
-              y: window.innerHeight / 2,
-            })
-          : null
-    if (!pos) return
+      const pos =
+        mousePosition.current && reactFlowInstance.current
+          ? reactFlowInstance.current.screenToFlowPosition(mousePosition.current)
+          : reactFlowInstance.current
+            ? reactFlowInstance.current.screenToFlowPosition({
+                x: window.innerWidth / 2,
+                y: window.innerHeight / 2,
+              })
+            : null
+      if (!pos) return
 
-    isInternalChange.current = true
-    setNodes((prev) => [
-      ...prev,
-      ...remapped.map((agent) => ({
-        id: agent.id,
-        type: 'agent' as const,
-        position: { x: pos.x, y: pos.y },
-        data: { flowId, agentId: agent.id, agentName: agent.agent_name },
-      })),
-    ])
-  }, [flowId, setNodes])
+      isInternalChange.current = true
+      setNodes((prev) => [
+        ...prev,
+        ...remapped.map((agent) => ({
+          id: agent.id,
+          type: 'agent' as const,
+          position: { x: pos.x, y: pos.y },
+          data: { flowId, agentId: agent.id, agentName: agent.agent_name },
+        })),
+      ])
+    },
+    [flowId, setNodes],
+  )
 
   // 跟踪鼠标位置，用于粘贴时定位
   useEventListener('mousemove', (e) => {
@@ -322,14 +338,23 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
           nodeColor={() => '#6366f1'}
           maskColor='rgba(0,0,0,0.6)'
         />
-        <Panel position='top-left' style={{ padding: 8 }}>
+        <Panel position='top-left' style={{ padding: 8, display: 'flex', gap: 8 }}>
           <Tooltip title='添加 Agent'>
             <Button
               size='large'
               type='text'
               icon={<PlusOutlined style={{ fontSize: 20 }} />}
               className='rounded-lg bg-[#313244]! text-[#cdd6f4]! shadow-[0_2px_12px_rgba(150,150,200,0.3)] hover:bg-[#45475a]! hover:text-[#6366f1]!'
-              onClick={handleAddAgent}
+              onClick={() => handleAddAgent('agent')}
+            />
+          </Tooltip>
+          <Tooltip title='添加代码节点'>
+            <Button
+              size='large'
+              type='text'
+              icon={<CodeOutlined style={{ fontSize: 20 }} />}
+              className='rounded-lg bg-[#313244]! text-[#cdd6f4]! shadow-[0_2px_12px_rgba(150,150,200,0.3)] hover:bg-[#45475a]! hover:text-[#a6e3a1]!'
+              onClick={() => handleAddAgent('code')}
             />
           </Tooltip>
         </Panel>

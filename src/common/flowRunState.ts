@@ -6,7 +6,7 @@ import type {
   ExtensionToWebviewMessage,
   UserMessageType,
 } from './event'
-import type { AskUserQuestionInput, AskUserQuestionOutput, Agent, Flow } from './index'
+import type { AskUserQuestionInput, AskUserQuestionOutput, Agent, Code, Flow } from './index'
 
 // ── TokenUsage ────────────────────────────────────────────────────────────
 
@@ -322,15 +322,16 @@ export function updateFlowRunState(
   if (!state) return { state: undefined, effects }
 
   const findFlow = (flowId: string): Flow | undefined => flows.find((f) => f.id === flowId)
-  const findAgent = (flow: Flow | undefined, agentId: string): Agent | undefined =>
+  const findAgent = (flow: Flow | undefined, agentId: string): Agent | Code | undefined =>
     flow?.agents?.find((a) => a.id === agentId)
 
   const pushEffect = (opts: Omit<MessageEffect, 'flowName' | 'agentName'>) => {
     const flow = findFlow(opts.flowId)
     const agent = findAgent(flow, opts.agentId)
-    // 静默模式的agent减少通知
+    // 静默模式的agent减少通知 代码节点也通知
     if (
-      agent?.work_mode === 'silent_task' &&
+      agent &&
+      (agent.node_type === 'code' || agent.work_mode === 'silent_task') &&
       opts.reason !== 'agent-error' &&
       opts.reason !== 'flow-completed' &&
       opts.reason !== 'awaiting-complete-confirm'

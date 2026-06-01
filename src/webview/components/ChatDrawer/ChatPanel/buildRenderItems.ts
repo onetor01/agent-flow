@@ -73,6 +73,11 @@ export type RenderItem =
       /** 截至本 session 结束的总成本，来自最后一条 result.total_cost_usd */
       totalCost?: number
     }
+  | {
+      kind: 'error'
+      key: string
+      message: string
+    }
 
 type CacheEntry = {
   nextScanStart: number
@@ -301,6 +306,23 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       if (cached.lastTurnContextUsage) {
         cached.contextUsageByItemKey.set(completeKey, cached.lastTurnContextUsage)
       }
+      continue
+    }
+
+    if (msg.type === 'flow.signal.agentError') {
+      items.push({
+        kind: 'error',
+        key: `${mIdx}-error`,
+        message: msg.data.err,
+      })
+      continue
+    }
+    if (msg.type === 'flow.signal.error') {
+      items.push({
+        kind: 'error',
+        key: `${mIdx}-error`,
+        message: msg.data.msg,
+      })
       continue
     }
 

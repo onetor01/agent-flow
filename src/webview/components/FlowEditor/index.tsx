@@ -172,6 +172,8 @@ export const FlowEditor: FC = () => {
       target.base_url = values.base_url
       target.api_key = values.api_key
       for (const agent of target.agents ?? []) {
+        // allowed_*_values_keys 仅 node_type='agent' 节点有,code 节点跳过
+        if (agent.node_type === 'code') continue
         if (agent.allowed_read_values_keys) {
           agent.allowed_read_values_keys = agent.allowed_read_values_keys.filter(
             (k) => !removedKeys.includes(k),

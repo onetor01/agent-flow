@@ -137,7 +137,7 @@ type FlowSignalPayload = {
   /** Agent被中断了 */
   agentInterrupted: { runId: string }
   /** agent错误 */
-  agentError: { runId: string; agentId: string; err: Error }
+  agentError: { runId: string; agentId: string; err: string }
   /** flow运行错误 */
   error: { runId?: string; msg: string }
   /** 工具调用命中 must_confirm 或兜底，等待用户确认 */

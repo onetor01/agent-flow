@@ -650,6 +650,20 @@ function renderItemToBubble(
         ),
       }
     }
+    case 'error': {
+      return {
+        key: item.key,
+        role: 'ai',
+        content: (
+          <div className='flex min-w-20 flex-col gap-2'>
+            <Tag color={'error'} className='self-start'>
+              错误信息
+            </Tag>
+            <div className='break-all whitespace-pre-wrap'>{item.message}</div>
+          </div>
+        ),
+      }
+    }
   }
 }
 
