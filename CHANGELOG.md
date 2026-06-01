@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.35
+
+- 修复默认flow
+
 ## v0.0.34
 
 - 修复lock文件
