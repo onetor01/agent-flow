@@ -5,4 +5,5 @@ node_modules
 .vscode-test/
 *.vsix
 .claude/settings.local.json
+.claude/worktrees/*
 .mcp.json
