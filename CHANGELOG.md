@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.34
+
+- 修复lock文件
+
 ## v0.0.33
 
 - **Code 节点**：新增 `node_type='code'`，不走 AI SDK，把 `code` 字段当作 `async function (input, values, runCommand) { ... }` 函数体执行。入参 `input` 为上游节点输出文本，`values` 为完整 shareValues 快照（全量读写不受授权约束），`runCommand` 为在 workspace 下执行 shell 命令的异步函数（基于 execa 9.x）。返回值映射为 `{ output_name?, content?, values? }` 驱动下一跳，`values` 与现有 shareValues 合并。
