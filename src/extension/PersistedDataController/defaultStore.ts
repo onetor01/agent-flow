@@ -274,6 +274,16 @@ const PresetFlows: Flow[] = [
         outputs: [],
         id: '4',
       },
+      {
+        agent_name: '用户对话-deepseek',
+        model: 'glm-5.1',
+        effort: 'high',
+        auto_allowed_tools: true,
+        work_mode: 'chat',
+        no_input: false,
+        outputs: [],
+        id: '6',
+      },
     ],
   },
   {
