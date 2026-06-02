@@ -264,6 +264,16 @@ const PresetFlows: Flow[] = [
         outputs: [],
         id: '5',
       },
+      {
+        agent_name: '用户对话-glm',
+        model: 'glm-5.1',
+        effort: 'high',
+        auto_allowed_tools: true,
+        work_mode: 'chat',
+        no_input: false,
+        outputs: [],
+        id: '4',
+      },
     ],
   },
   {
