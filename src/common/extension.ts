@@ -270,6 +270,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         output_name: true,
         output_desc: true,
         next_agent: true,
+        require_confirm: true,
       })
       const LiteAgent = AgentSchema.pick({
         id: true,
