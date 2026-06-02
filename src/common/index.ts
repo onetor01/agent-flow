@@ -36,15 +36,6 @@ export const AgentSchema = z.object({
   agent_desc: z.string().optional().describe('节点简介'),
   agent_prompt: z.string().describe('Agent的系统提示词，详细描述Agent的任务和约束').optional(),
   outputs: z.array(OutputSchema).optional().describe('输出分支，每个分支可以选择一个后继'),
-  auto_allowed_tools: z
-    .union([z.literal(true), z.array(z.string())])
-    .optional()
-    .describe(
-      '自动允许执行的工具：true 表示全部放行；字符串数组为白名单。' +
-        '特殊值 "MCP" 匹配所有 mcp__* 工具。' +
-        'Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。' +
-        '组合命令（&&/||/|/;/&）需所有子命令都命中才自动放行。裸 "Bash" 匹配整个工具',
-    ),
   must_confirm_tools: z
     .array(z.string())
     .optional()
@@ -439,7 +430,7 @@ export function matchSubCommand(subCmd: string, commandPattern: string): boolean
  * - 裸 `Bash`（不带括号）：匹配整个 Bash 工具，不检查命令内容
  *
  * @param toolName - SDK 传入的工具名
- * @param patterns - auto_allowed_tools、must_confirm_tools 或 deny_tools 的字符串数组
+ * @param patterns - must_confirm_tools 或 deny_tools 的字符串数组
  * @param input - 工具调用的入参（Bash 工具含 `command` 字段）
  */
 export function matchTool(

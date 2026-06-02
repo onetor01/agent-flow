@@ -377,7 +377,7 @@ export class ClaudeExecutor {
         })
       }
     }
-    const { auto_allowed_tools, must_confirm_tools, deny_tools } = this.agent
+    const { must_confirm_tools, deny_tools } = this.agent
     const toolInput = input as Record<string, unknown>
     // 优先级 0：命中 deny 列表，直接禁止，不弹窗。
     // Bash 命令级：组合命令中任一子命令命中即禁止（防绕过）
@@ -400,22 +400,7 @@ export class ClaudeExecutor {
     ) {
       return this.requestToolPermission(toolUseID, toolName, toolInput)
     }
-    // 优先级 2：auto_allowed 为 true 或命中数组，直接放行。
-    // Bash 命令级：组合命令需所有子命令都命中才自动放行（matchTool 内置语义）
-    if (auto_allowed_tools === true) {
-      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
-    }
-    if (auto_allowed_tools && matchTool(toolName, auto_allowed_tools, toolInput)) {
-      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
-    }
-    // 兜底：silent_task 永远没有用户在场,未授权工具直接 deny;否则要求用户确认
-    if (this.agent.work_mode === 'silent_task') {
-      return Promise.resolve({
-        behavior: 'deny',
-        message: `silent_task 模式未授权工具 "${toolName}",请在 auto_allowed_tools 中显式加入。`,
-      })
-    }
-    return this.requestToolPermission(toolUseID, toolName, toolInput)
+    return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
   }
 
   private requestToolPermission(

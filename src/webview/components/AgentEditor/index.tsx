@@ -114,7 +114,6 @@ export const AgentEditor: FC = () => {
         model: src.model,
         effort: src.effort,
         agent_prompt: src.agent_prompt,
-        auto_allowed_tools: src.auto_allowed_tools,
         must_confirm_tools: src.must_confirm_tools,
         deny_tools: src.deny_tools,
         work_mode: src.work_mode ?? 'task',
@@ -282,25 +281,6 @@ export const AgentEditor: FC = () => {
                     />
                   </FormItem>
                 </Flex>
-              )}
-              {!isCodeNode && (
-                <FormItem
-                  name='auto_allowed_tools'
-                  label='自动允许的工具'
-                  tooltip={{
-                    classNames: {
-                      container: 'w-max whitespace-pre',
-                    },
-                    title: [
-                      `不需要用户确认、自动执行的工具，开启「允许全部」表示全部放行`,
-                      `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
-                      `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
-                      `组合命令需所有子命令都命中才自动放行`,
-                    ].join('\n'),
-                  }}
-                >
-                  <AutoAllowedToolsField />
-                </FormItem>
               )}
               {!isCodeNode && (
                 <FormItem
