@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useEventListener } from 'ahooks'
 import z from 'zod'
-import { AgentSchema, getFlowPhase, type Agent, type Code } from '@/common'
+import { AgentSchema, CodeSchema, getFlowPhase, type Agent, type Code } from '@/common'
 import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import AgentNodeComponent from './AgentNode'
@@ -252,11 +252,11 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
     }
 
     const { activeFlowId, copyAgents } = useFlowStore.getState()
-
-    const singleAgent = AgentSchema.safeParse(parsed)
-    const agents = singleAgent.success
-      ? [singleAgent.data]
-      : (z.array(AgentSchema).safeParse(parsed).data ?? null)
+    const NodeSchema = z.union([AgentSchema, CodeSchema])
+    const singleResult = NodeSchema.safeParse(parsed)
+    const agents = singleResult.success
+      ? [singleResult.data]
+      : z.array(NodeSchema).safeParse(parsed).data ?? null
     if (!agents) return
 
     const remapped = copyAgents(agents, activeFlowId!)
