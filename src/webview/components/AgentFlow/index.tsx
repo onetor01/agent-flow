@@ -161,7 +161,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
               agent_name: 'code-node',
               node_type: 'code',
               code: [
-                '// 入参 input: 上一节点 AgentComplete.content;values: 当前 shareValues 全量;runCommand: 执行 shell 命令',
+                '// 入参 input，字符串输入;values: 当前 shareValues 全量;runCommand: 执行 shell 命令',
                 '// 返回 { output_name?, content?, values? } —— output_name 决定下一跳,values 写回 shareValues',
                 "return { output_name: '输出', content: input }",
               ].join('\n'),

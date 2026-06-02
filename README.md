@@ -41,15 +41,15 @@ pnpm build-extension   # 生成 .vsix 文件
 
 - **框选 / 拖拽画布**：左键拖空白处框选节点，中键或右键拖拽平移画布。
 - **模型自由搭配**：每个 Agent 独立配置模型（opus / sonnet / haiku）、思考强度（effort）与简介描述。
-- **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `AgentComplete` 流转到下一节点）/ `chat`（长期对话，禁止 `AgentComplete`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `AgentComplete` 或 `terminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
+- **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `CompleteTask` 流转到下一节点）/ `chat`（长期对话，禁止 `CompleteTask`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `CompleteTask` 或 `TerminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
 - **无输入启动**：开启 `no_input` 的 Agent 在节点上显示启动按钮，点击后始终以"开始"为初始消息自动运行，无需手动输入。
 - **Plan 模式**：开启 `plan_mode` 的 Agent 以计划 / 只读模式运行——Claude 注入的系统提示词倾向改变（偏向先制定计划），且不会实际执行文件修改等写操作，适合先让 Agent 给出方案再决定是否落地。
 - **系统提示词自由度**：除默认骨架外，Agent 可开启 `disable_claude_preset`（不再附加 Claude Code 预设系统提示词，仅用插件构建的提示词，适合轻量 Agent）或 `raw_prompt`（提示词完全自定义，直接以 `agent_prompt` 作为最终系统提示词，不附加任何骨架——顶部规则 / work_mode 分支 / 可读写数据 / 任务描述 / 输出分支 / 共享数据快照均不输出）。
 - **API 端点分层配置**：Flow 与 Agent 均可单独配置 `base_url` / `api_key`；Agent 非空时覆盖 Flow 默认值，留空则回落到 Flow，两端都不填时沿用环境变量，便于同一工作流内不同 Agent 走不同的模型服务。
-- **完成前确认（按分支独立配置）**：在 Output 上开启 `require_confirm`，Agent 选择该分支调用 `AgentComplete` 时不立即推进，先在对话中弹出确认卡片要求用户确认（同意 / 拒绝，拒绝可填原因）；同意才流转到下一节点，拒绝则作为工具错误回喂 Agent 让其继续修正。粒度按分支独立——同一 Agent 的不同 output 可以分别配置；无 outputs / `chat` 模式不适用。
+- **完成前确认（按分支独立配置）**：在 Output 上开启 `require_confirm`，Agent 选择该分支调用 `CompleteTask` 时不立即推进，先在对话中弹出确认卡片要求用户确认（同意 / 拒绝，拒绝可填原因）；同意才流转到下一节点，拒绝则作为工具错误回喂 Agent 让其继续修正。粒度按分支独立——同一 Agent 的不同 output 可以分别配置；无 outputs / `chat` 模式不适用。
 - **上下文隔离**：每个 Agent 有自己独立的对话上下文。
 - **Code 节点**：`node_type='code'` 的节点不走 AI SDK，而是把 `code` 字段当 `async function (input, values, runCommand) { ... }` 函数体执行。入参 `input` 为上游节点输出文本（`no_input` 时为 `'开始'`），`values` 为当前 Flow 全部 shareValues 快照（全量读不受授权约束），`runCommand` 为在 workspace 下执行 shell 命令的异步函数。返回值映射为 `{ output_name?, content?, values? }` 驱动下一跳，`values` 与现有 shareValues 合并。代码编辑器基于 CodeMirror，提供 `input` / `values.*` / `runCommand` 补全和 `Shift+Alt+F` 格式化。
-- **共享数据按 key 授权读写**：Flow 在 `shareValuesKeys` 中声明全部可用 key（每个 key 可附加 `desc` 标注语义）；Agent 各自配置 `allowed_read_values_keys` / `allowed_write_values_keys`，只能看到 / 写入被授权的 key。被授权读取的 key 与当前值会注入到 Agent 系统提示词「# 可用数据」节；写入只能在 `AgentComplete` 时通过 `values` 参数一次性提交，未授权 key 会被静默丢弃。
+- **共享数据按 key 授权读写**：Flow 在 `shareValuesKeys` 中声明全部可用 key（每个 key 可附加 `desc` 标注语义）；Agent 各自配置 `allowed_read_values_keys` / `allowed_write_values_keys`，只能看到 / 写入被授权的 key。被授权读取的 key 与当前值会注入到 Agent 系统提示词「# 可用数据」节；写入只能在 `CompleteTask` 时通过 `values` 参数一次性提交，未授权 key 会被静默丢弃。
 - **工具权限按命令级控制**：每个 Agent 通过 `auto_allowed_tools`（自动放行）/ `must_confirm_tools`（必须用户确认，优先级更高）配置工具权限。除整工具名外，Bash 支持命令级控制——裸 `Bash` 匹配所有命令，`Bash(git status)` 仅匹配以该前缀开头的命令。复合命令（`&&` / `;` 等拆分）下，自动放行要求**所有子命令**都命中规则才生效（防止夹带未授权命令绕过），必须确认则**任一子命令**命中即触发。
 - **连线约束**：每个 output 最多连一条出边；`next_agent` 允许指向自身以支持循环。
 
@@ -71,7 +71,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **智能通知**：Agent 等待回复或工作流完成时，若面板不在前台，自动弹出 VSCode 系统通知，点击即可跳转回对应聊天。
 - **关闭面板不打断运行**：关闭 Webview 后 Agent 继续在后台执行，重新打开时自动恢复全部历史消息与运行态，等待用户回复 / 完成等通知照常送达。
 - **Flow 编辑器**：Flow 列表项的数据库按钮打开 FlowEditor 抽屉，集中编辑工作流名称、`base_url` / `api_key`、`shareValuesKeys`（拖拽列表维护，每项支持 `key` / `desc`、重复校验、一键清空）以及运行中各 key 的当前值；删除 key 时自动清理所有 Agent 的 `allowed_read/write_values_keys` 引用。
-- **AgentComplete 完成卡片**：每个 Agent 完成时的卡片直接展示本回合写入的共享数据（按 `key/value` 列出），便于回看数据流转；`AgentComplete` 后立即中断 SDK，避免模型继续生成多余文字，且中断回合的 token / 费用统计不会丢。AgentComplete 的 `content` 现在会作为下一个 Agent 的首条用户消息回显，保证 UI 与运行时输入对齐；选择无后续 Agent 的分支完成时，也会带上输出分支名便于展示。
+- **CompleteTask 完成卡片**：每个 Agent 完成时的卡片直接展示本回合写入的共享数据（按 `key/value` 列出），便于回看数据流转；`CompleteTask` 后立即中断 SDK，避免模型继续生成多余文字，且中断回合的 token / 费用统计不会丢。CompleteTask 的 `content` 现在会作为下一个 Agent 的首条用户消息回显，保证 UI 与运行时输入对齐；选择无后续 Agent 的分支完成时，也会带上输出分支名便于展示。
 - **Token 消耗可视化**：消息级、回合级、Flow 级三层展示 token 用量与费用，AI 气泡自动回填实际消耗，优先显示 SDK 实际费用而非估算；`agent_complete` 时展示按模型分组的 session 累计 breakdown。
 - **上下文窗口占用展示**：在 turn_end / agent_complete 卡片内部展示上下文占用条，展示「最后一次 API 调用真实喂给模型的 input + cache 总量 / 模型上下文窗口」，按占用率以红 / 黄 / 灰渐变上色（≥80% 红、≥50% 黄）。
 - **Starting 阶段节点高亮与红点**：启动阶段（session 尚未建立）Agent 节点也能正确高亮显示，对话框同步展示红点提示。

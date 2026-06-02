@@ -16,7 +16,7 @@ export const OutputSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      '完成前确认：true 时 Agent 选择此分支调用 AgentComplete 不立即推进，先在 ChatPanel 弹卡片要求用户确认；拒绝时 AgentComplete 作为 isError tool_result 回喂 Agent。粒度按分支独立配置，无 outputs 的 Agent 不适用',
+      '完成前确认：true 时 Agent 选择此分支调用 CompleteTask 不立即推进，先在 ChatPanel 弹卡片要求用户确认；拒绝时 CompleteTask 作为 isError tool_result 回喂 Agent。粒度按分支独立配置，无 outputs 的 Agent 不适用',
     ),
 })
 
@@ -66,7 +66,7 @@ export const AgentSchema = z.object({
     .enum(['task', 'chat', 'silent_task'])
     .optional()
     .describe(
-      '工作方式：task-任务达成后调用 AgentComplete 提交结果；chat-与用户的持续长期对话；silent_task-无人值守自动循环，必须通过 AgentComplete 终止',
+      '工作方式：task-任务达成后调用 CompleteTask 提交结果；chat-与用户的持续长期对话；silent_task-无人值守自动循环，必须通过 CompleteTask 终止',
     ),
   no_input: z
     .boolean()
@@ -99,7 +99,7 @@ export const AgentSchema = z.object({
   allowed_write_values_keys: z
     .array(z.string())
     .optional()
-    .describe('允许写入的 values key 子集；Agent 仅能在 AgentComplete 时写入这些 key'),
+    .describe('允许写入的 values key 子集；Agent 仅能在 CompleteTask 时写入这些 key'),
   base_url: z
     .string()
     .optional()
@@ -133,7 +133,7 @@ export const CodeSchema = AgentSchema.pick({
   /**
    * code 节点的函数体源码;外层签名固定为 `async function (input, values, runCommand) { ... }`,
    * 返回值映射到 ExecutorResult: `{ output_name?, content, values? }`。
-   * 入参语义:input = 上游 AgentComplete.content / no_input 时为 '开始';
+   * 入参语义:input = 上游 CompleteTask.content / no_input 时为 '开始';
    * values = 当前 shareValues 全量(全量读不受 allowed_read_values_keys 约束);
    * runCommand = async (command: string, timeout?: number) => Promise<string>,在 VSCode workspaceFolder 下执行 shell 命令并返回 stdout+stderr;timeout 单位毫秒,默认 600000(10 分钟)
    */
@@ -538,11 +538,11 @@ export function matchToolAnySubCommand(
  *
  * 根据 `work_mode` 选取不同的提示词骨架：
  * - `task`：把 `agent_prompt` 视作**任务描述**，
- *   要求 Agent 围绕该任务推进，并在产物达成后调用 AgentComplete
+ *   要求 Agent 围绕该任务推进，并在产物达成后调用 CompleteTask
  * - `chat`：把 `agent_prompt` 视作**长期对话规则**，
- *   会话不会结束、禁止调用 AgentComplete，用户消息就是新的对话输入
+ *   会话不会结束、禁止调用 CompleteTask，用户消息就是新的对话输入
  * - `silent_task`：无人值守自动循环，AskUserQuestion 会被自动应答，
- *   每轮 result 后由系统自动以「继续」续轮，必须通过 AgentComplete 终止
+ *   每轮 result 后由系统自动以「继续」续轮，必须通过 CompleteTask 终止
  */
 export function buildAgentSystemPrompt(
   agent: Pick<
@@ -587,7 +587,7 @@ export function buildAgentSystemPrompt(
     .with('task', () => {
       lines.push(
         '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
-        '遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户，或写入 AgentComplete 的 `content`，**禁止**静默忽略或绕开。',
+        '遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户，或写入 CompleteTask 的 `content`，**禁止**静默忽略或绕开。',
       )
     })
     .with('chat', () => {
@@ -600,7 +600,7 @@ export function buildAgentSystemPrompt(
       lines.push(
         '**禁止**凭空推测，必须通过 Tool 获取有效信息。',
         '**自行决策**，避免使用 AskUserQuestion，不询问用户意见。',
-        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 AgentComplete 的 `content`，**禁止**静默忽略。',
+        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 CompleteTask 的 `content`，**禁止**静默忽略。',
       )
     })
     .exhaustive()
@@ -629,7 +629,7 @@ export function buildAgentSystemPrompt(
     if (writableKeys.length > 0) {
       lines.push(
         '### 可写数据',
-        '当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 AgentComplete 工具的 `values` 参数输出，仅在 `content` 里描述不算写入。',
+        '当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 CompleteTask 工具的 `values` 参数输出，仅在 `content` 里描述不算写入。',
         ...writableKeys.map((k) => `  - ${k}`),
         '#### 写入说明',
         '- 仅可写入上述列出的 key',
@@ -659,7 +659,7 @@ export function buildAgentSystemPrompt(
           '## 任务描述',
           agent_prompt,
           '## 完成任务',
-          '一旦达成「任务描述」的结束条件，**立即**调用 AgentControllerMcp 的 AgentComplete 工具提交结果并选择输出分支。',
+          '一旦达成「任务描述」的结束条件，**立即**调用 AgentControllerMcp 的 CompleteTask 工具提交结果并选择输出分支。',
           '## 输出分支',
           outputs.length === 0
             ? '此任务没有输出分支。'
@@ -671,10 +671,10 @@ export function buildAgentSystemPrompt(
       .exhaustive()
   }
 
-  if (work_mode === 'silent_task') {
+  if (work_mode === 'task' || work_mode === 'silent_task') {
     lines.push(
       '# **停止会话**',
-      '**确定无法完成任务时**，调用 AgentControllerMcp 的 `terminateTask` 工具中止任务。例如缺失任务目标、缺失关键信息且无工具可获取、环境异常等极端情况。',
+      '**确定无法完成任务时**，调用 AgentControllerMcp 的 `TerminateTask` 工具中止任务。例如缺失关键信息且无工具可获取、环境异常等极端情况。',
     )
   }
   // ── 底部：运行时可变（shareValues 快照） ────────────────────────────────

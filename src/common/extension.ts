@@ -15,7 +15,7 @@ export type AgentMcpServerOptions = {
     values?: Record<string, string>
   }) => void
   /**
-   * silent_task 模式专用:模型确定无法完成任务时调用 `terminateTask` 工具,
+   * 模型确定无法完成任务时调用 `TerminateTask` 工具,
    * 由此回调上抛 reason,executor 据此走 error 路径终止本 run。
    */
   onTerminate?: (reason: string) => void
@@ -48,10 +48,10 @@ function withErrorBoundary<TArgs>(
  * 构建 Agent 控制用 MCP Server
  *
  * 内置工具：
- * - `AgentComplete` — 完成任务并选择输出分支（可选写入 values）
- * - `terminateTask` — silent_task 专用,极端情况(确定无法完成)时中止任务
- * - `validateFlow` — 校验工作流定义是否合法
- * - `getFlowJSONSchema` — 获取 Flow 的 JSON Schema 定义
+ * - `CompleteTask` — 完成任务并选择输出分支（可选写入 values）
+ * - `TerminateTask` — 极端情况(确定无法完成)时中止任务
+ * - `ValidateFlow` — 校验工作流定义是否合法
+ * - `GetFlowJSONSchema` — 获取 Flow 的 JSON Schema 定义
  */
 export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcpServerOptions) {
   const tools: SdkMcpToolDefinition<any>[] = []
@@ -107,7 +107,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
 
     const agentCompleteTool = hasOutputs
       ? tool(
-          'AgentComplete',
+          'CompleteTask',
           completeDesc,
           {
             output_name: z.enum(outputNames as [string, ...string[]]).describe('选择的输出分支名'),
@@ -126,7 +126,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
                 }
               : {}),
           },
-          withErrorBoundary('AgentComplete', async ({ output_name, content, values }) => {
+          withErrorBoundary('CompleteTask', async ({ output_name, content, values }) => {
             const filteredValues: Record<string, string> = {}
             if (values && writeKeys.length > 0) {
               for (const key of writeKeys) {
@@ -155,7 +155,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
           }),
         )
       : tool(
-          'AgentComplete',
+          'CompleteTask',
           completeDesc,
           {
             content: z
@@ -173,7 +173,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
                 }
               : {}),
           },
-          withErrorBoundary('AgentComplete', async ({ content, values }) => {
+          withErrorBoundary('CompleteTask', async ({ content, values }) => {
             const filteredValues: Record<string, string> = {}
             if (values && writeKeys.length > 0) {
               for (const key of writeKeys) {
@@ -202,36 +202,36 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         )
     tools.push(agentCompleteTool)
   }
-  // silent_task 专用:极端情况(确定无法完成)时中止任务,走 error 路径终止本 run。
-  if (agent.work_mode === 'silent_task') {
-    const terminateTaskTool = tool(
-      'terminateTask',
+  // task / silent_task:极端情况(确定无法完成)时中止任务,走 error 路径终止本 run。
+  if (agent.work_mode === 'task' || agent.work_mode === 'silent_task') {
+    const TerminateTaskTool = tool(
+      'TerminateTask',
       [
         '当确定**无法完成**「任务描述」时调用此工具中止任务。',
         '## 调用约束',
         '- 调用此工具会**强制终止本次会话**,不可撤销;只在已经穷尽所有可行手段、确认任务不可达成时调用',
         '- 必须在 reason 中说明无法完成的具体原因(缺失关键信息 / 工具不可用 / 环境异常等)',
-        '- 优先尝试 AgentComplete 提交部分结果;只有连部分结果都给不出时才用本工具',
+        '- 优先尝试 CompleteTask 提交部分结果;只有连部分结果都给不出时才用本工具',
       ].join('\n'),
       {
         reason: z.string().describe('无法完成任务的具体原因,简洁明确'),
       },
-      withErrorBoundary('terminateTask', async ({ reason }) => {
+      withErrorBoundary('TerminateTask', async ({ reason }) => {
         onTerminate?.(reason)
         return {
           content: [{ type: 'text', text: `任务已中止:${reason}` }],
         }
       }),
     )
-    tools.push(terminateTaskTool)
+    tools.push(TerminateTaskTool)
   }
   const validateFlowTool = tool(
-    'validateFlow',
+    'ValidateFlow',
     '校验工作流定义是否合法。在生成或修改工作流后调用此工具，确保定义符合规则。',
     {
       flow: z.string().describe('工作流定义的 JSON 字符串，需符合 Flow 类型'),
     },
-    withErrorBoundary('validateFlow', async ({ flow }) => {
+    withErrorBoundary('ValidateFlow', async ({ flow }) => {
       const parsed = FlowSchema.parse(JSON.parse(flow))
       const result = validateFlow(parsed)
       const hasErrors = Object.keys(result).length > 0
@@ -250,10 +250,10 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
   )
 
   const getFlowJSONSchemaTool = tool(
-    'getFlowJSONSchema',
+    'GetFlowJSONSchema',
     '获取 Flow 数据结构的 JSON Schema 定义。在生成、修改或理解工作流结构时调用，以获取准确的字段定义与约束。',
     {},
-    withErrorBoundary('getFlowJSONSchema', async () => {
+    withErrorBoundary('GetFlowJSONSchema', async () => {
       // AI 设计 Flow 用的精简 schema：从完整 schema 派生
       // node_type 固定 agent / model 固定 sonnet / auto_allowed_tools 固定 true / work_mode 固定 task
       // 不暴露 CodeSchema、must_confirm_tools、require_confirm、base_url、api_key 等

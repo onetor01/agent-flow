@@ -81,10 +81,10 @@ export class FlowRunnerManager {
           data as ExtensionFlowCommandEvents['flow.command.toolPermissionResult']
         this.runners.get(flowId)?.emit('flow.command.toolPermissionResult', rest)
       })
-      .with('flow.command.answerAgentCompleteConfirm', () => {
+      .with('flow.command.answerCompleteTaskConfirm', () => {
         const { flowId, ...rest } =
-          data as ExtensionFlowCommandEvents['flow.command.answerAgentCompleteConfirm']
-        this.runners.get(flowId)?.emit('flow.command.answerAgentCompleteConfirm', rest)
+          data as ExtensionFlowCommandEvents['flow.command.answerCompleteTaskConfirm']
+        this.runners.get(flowId)?.emit('flow.command.answerCompleteTaskConfirm', rest)
       })
       .with('flow.command.setShareValues', () => {
         const { flowId, ...rest } =

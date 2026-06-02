@@ -115,11 +115,11 @@ type FlowSignalPayload = {
     runId: string
     content: string
     output: { name?: string; newRunId?: string }
-    /** Agent 通过 AgentComplete 写入的增量 values，由 reducer 合并到 FlowRunState.shareValues */
+    /** Agent 通过 CompleteTask 写入的增量 values，由 reducer 合并到 FlowRunState.shareValues */
     values?: Record<string, string>
     /**
      * 本回合 SDK 最后一条 result 消息(含 modelUsage / total_cost_usd)。
-     * AgentComplete 调用成功后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
+     * CompleteTask 调用成功后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
      */
     result?: AIMessageType
   }
@@ -148,13 +148,13 @@ type FlowSignalPayload = {
     input: unknown
   }
   /**
-   * require_confirm=true 时 Agent 调用 AgentComplete，等待用户确认是否放行。
-   * 拒绝时 AgentComplete 会作为 isError tool_result 回喂 Agent。
+   * require_confirm=true 时 Agent 调用 CompleteTask，等待用户确认是否放行。
+   * 拒绝时 CompleteTask 会作为 isError tool_result 回喂 Agent。
    */
   agentCompleteConfirmRequest: {
     runId: string
     toolUseId: string
-    /** AgentComplete MCP 工具的原始入参（content / output_name / values 等） */
+    /** CompleteTask MCP 工具的原始入参（content / output_name / values 等） */
     input: Record<string, unknown>
   }
   /**
@@ -216,10 +216,10 @@ type FlowCommandPayload = {
     allow: boolean
   }
   /**
-   * 回答 AgentComplete 完成前确认：同意则放行 AgentComplete 原流程；
+   * 回答 CompleteTask 完成前确认：同意则放行 CompleteTask 原流程；
    * 拒绝则 SDK 收到 isError tool_result，Agent 可在同会话继续多轮。
    */
-  answerAgentCompleteConfirm: {
+  answerCompleteTaskConfirm: {
     runId: string
     toolUseId: string
     accept: boolean

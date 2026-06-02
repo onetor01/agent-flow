@@ -411,7 +411,7 @@ export const AgentEditor: FC = () => {
                 <FormItem
                   name='allowed_write_values_keys'
                   label='可写共享数据'
-                  tooltip='Agent 完成时通过 AgentComplete 可写入的 shareValues key 子集'
+                  tooltip='Agent 完成时通过 CompleteTask 可写入的 shareValues key 子集'
                 >
                   <Select
                     mode='multiple'

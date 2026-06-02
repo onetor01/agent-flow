@@ -199,7 +199,7 @@ export type PendingToolPermission = {
 
 export type PendingCompleteConfirm = {
   toolUseId: string
-  /** AgentComplete MCP 工具的原始入参（content / output_name / values 等） */
+  /** CompleteTask MCP 工具的原始入参（content / output_name / values 等） */
   input: Record<string, unknown>
   /** 所属 run */
   runId: string
@@ -225,7 +225,7 @@ export type FlowRunState = {
   answeredToolPermissions: Record<string, { allow: boolean }>
   /** 当前未回答的工具权限请求队列(按 runId 区分归属) */
   pendingToolPermissions: PendingToolPermission[]
-  /** 当前挂起的 AgentComplete 完成前确认队列(按 runId 区分归属) */
+  /** 当前挂起的 CompleteTask 完成前确认队列(按 runId 区分归属) */
   pendingCompleteConfirms: PendingCompleteConfirm[]
   /** Flow 运行时的共享数据 */
   shareValues: Record<string, string>
@@ -434,8 +434,8 @@ export function updateFlowRunState(
         const nextAgent = output ? flow?.agents?.find((a) => a.id === output.next_agent) : undefined
         if (nextAgent && data.output.newRunId) {
           // 追加新 AgentRun(由 extension 端生成的 newRunId)。
-          // 把 AgentComplete 的 content 作为下一个 Agent 的首条用户消息回显 ——
-          // FlowRunner.doOnAgentComplete 已经把同一份 content 喂给了 SDK prompt,
+          // 把 CompleteTask 的 content 作为下一个 Agent 的首条用户消息回显 ——
+          // FlowRunner.doOnCompleteTask 已经把同一份 content 喂给了 SDK prompt,
           // 这里只是让 UI 与运行时输入对齐(no_input 的 next agent 用 '开始',与
           // FlowRunner 的 nextInitMessage 同源)。
           const nextInitMessage: UserMessageType = {
@@ -543,7 +543,7 @@ export function updateFlowRunState(
           (p) => p.toolUseId !== data.toolUseId,
         )
       })
-      .with({ type: 'flow.command.answerAgentCompleteConfirm' }, ({ data }) => {
+      .with({ type: 'flow.command.answerCompleteTaskConfirm' }, ({ data }) => {
         draft.pendingCompleteConfirms = draft.pendingCompleteConfirms.filter(
           (c) => c.toolUseId !== data.toolUseId,
         )

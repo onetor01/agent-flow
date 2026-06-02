@@ -82,7 +82,7 @@ type FlowStoreType = StoreState & {
   ) => void
   /** 回答工具权限请求 —— 调用方持有 pendingToolPermission.runId 直接传入 */
   answerToolPermission: (flowId: string, runId: string, toolUseId: string, allow: boolean) => void
-  /** 回答 AgentComplete 完成前确认 */
+  /** 回答 CompleteTask 完成前确认 */
   answerCompleteConfirm: (
     flowId: string,
     runId: string,
@@ -447,7 +447,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
     },
     answerCompleteConfirm: (flowId, runId, toolUseId, accept, reason) => {
       dispatchCommand({
-        type: 'flow.command.answerAgentCompleteConfirm',
+        type: 'flow.command.answerCompleteTaskConfirm',
         data: { flowId, runId, toolUseId, accept, reason },
       })
     },

@@ -66,7 +66,7 @@ export type RenderItem =
       key: string
       outputName?: string
       displayContent?: string
-      /** Agent 通过 AgentComplete 写入的 values 变更（reducer 会合并到 Flow.shareValues） */
+      /** Agent 通过 CompleteTask 写入的 values 变更（reducer 会合并到 Flow.shareValues） */
       values?: Record<string, string>
       /** 截至本 session 结束的 token 累计（按模型拆分），来自最后一条 result.modelUsage */
       modelBreakdown?: Array<{ model: string; usage: ModelTokenUsage }>
@@ -203,7 +203,7 @@ function readContextWindow(modelUsage: unknown, mainModel: string | undefined): 
  *
  * 两处调用:
  * - result aiMessage(每 turn 结束):用返回的 modelUsages / turnContextUsage 生成 turn_end。
- * - agentComplete.data.result:AgentComplete 暂存后这条 result 不再单独透传为 aiMessage
+ * - agentComplete.data.result:CompleteTask 暂存后这条 result 不再单独透传为 aiMessage
  *   (见 src/common/event.ts 的 agentComplete.result),不走下面的 result 分支,只取副作用
  *   刷新 cached,让随后的 agent_complete 卡片拿到截至 session 结束的累计 / 成本 / 窗口。
  *
@@ -283,7 +283,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
 
     if (msg.type === 'flow.signal.agentComplete') {
       const data = msg.data
-      // AgentComplete 暂存后这条 result 不再单独透传为 aiMessage(不走下面的 result 分支),
+      // CompleteTask 暂存后这条 result 不再单独透传为 aiMessage(不走下面的 result 分支),
       // 在此手动并入缓存,否则 modelBreakdown / totalCost / 窗口占用会停留在上一条 result。
       if (data.result) applyResultToCache(data.result, cached)
       // session 结束时把缓存里累计到此刻的 modelUsage / total_cost 作为 breakdown
@@ -439,19 +439,18 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
           return
         }
         if (block.type === 'tool_use' || block.type === 'mcp_tool_use') {
-          // 匹配AgentControllerMcp提供的AgentComplete tool
+          // 匹配AgentControllerMcp提供的CompleteTask tool
           // 此后同一session不应展示
           const toolName =
             'server_name' in block ? `${block.server_name}::${block.name}` : block.name
           if (
-            toolName === 'AgentControllerMcp::AgentComplete' ||
-            toolName === 'mcp__AgentControllerMcp__AgentComplete' ||
+            toolName.includes('CompleteTask') ||
             (block.type === 'mcp_tool_use' &&
               (block as any).server_name === 'AgentControllerMcp' &&
-              block.name === 'AgentComplete')
+              block.name === 'CompleteTask')
           ) {
-            // 创建 render item 让 MessageBubble 可挂 AgentCompleteConfirmCard；
-            // pendingAgentCompleteId 非空时 user 消息放行以便处理 tool_result（拒绝 vs 接受）。
+            // 创建 render item 让 MessageBubble 可挂 CompleteTaskConfirmCard；
+            // pendingCompleteTaskId 非空时 user 消息放行以便处理 tool_result（拒绝 vs 接受）。
             items.push({ kind: 'tool_use', key, toolUseId: block.id, toolName, input: block.input })
             pendingTooluse[block.id] = items.length - 1
             return

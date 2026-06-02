@@ -58,7 +58,7 @@ function createCompletionSource(shareValueKeys: string[], outputs: string[]): Co
           label: 'input',
           type: 'variable',
           detail: 'string',
-          info: '上游节点 AgentComplete.content 传入的文本；no_input 模式时为 "开始"',
+          info: '上游节点 CompleteTask.content 传入的文本，或者用户输入',
         },
         {
           label: 'values',

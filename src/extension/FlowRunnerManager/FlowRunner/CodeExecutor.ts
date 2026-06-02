@@ -120,8 +120,8 @@ function validateCodeOutput(
  * - 错误:不发 result onMessage、不发 assistant 错误堆栈,直接 onError 让 reducer 切 error 终态;
  *   错误详情通过 logError 落日志
  *
- * ChatDrawer 在 code 节点上的展示形态:仅由上游 AgentComplete.content 注入的 user 气泡 +
- * 本节点 AgentComplete 完成卡片构成,中间不出现 assistant 气泡。
+ * ChatDrawer 在 code 节点上的展示形态:仅由上游 CompleteTask.content 注入的 user 气泡 +
+ * 本节点 CompleteTask 完成卡片构成,中间不出现 assistant 气泡。
  *
  * 第一版限制:
  * - 不支持作为 fork 起点(无 SDK session 可 fork —— spawnForFork 仅用 ClaudeExecutor)
@@ -162,7 +162,7 @@ export class CodeExecutor {
     this.optionsApplied = true
   }
 
-  /** 与 ClaudeExecutor 同构接口:CodeExecutor 一次性执行,完成后 doOnAgentComplete 已 kill 当前 executor,后续 sendUserMessage 不会被路由到这里 */
+  /** 与 ClaudeExecutor 同构接口:CodeExecutor 一次性执行,完成后 doOnCompleteTask 已 kill 当前 executor,后续 sendUserMessage 不会被路由到这里 */
   async sendUserMessage(_message: SDKUserMessage): Promise<void> {
     // noop —— 见类注释「第一版限制」
   }
@@ -188,7 +188,7 @@ export class CodeExecutor {
     // noop
   }
 
-  /** noop —— code 节点不调 AgentComplete */
+  /** noop —— code 节点不调 CompleteTask */
   answerCompleteConfirm(_toolUseId: string, _accept: boolean, _reason?: string): void {
     // noop
   }

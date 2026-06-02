@@ -157,9 +157,9 @@ export class FlowRunner {
           data as FlowRunnerCommandEvents['flow.command.toolPermissionResult'],
         )
       })
-      .with('flow.command.answerAgentCompleteConfirm', () => {
+      .with('flow.command.answerCompleteTaskConfirm', () => {
         this.handleAnswerCompleteConfirm(
-          data as FlowRunnerCommandEvents['flow.command.answerAgentCompleteConfirm'],
+          data as FlowRunnerCommandEvents['flow.command.answerCompleteTaskConfirm'],
         )
       })
       .with('flow.command.killFlow', () => {
@@ -333,7 +333,7 @@ export class FlowRunner {
     toolUseId,
     accept,
     reason,
-  }: FlowRunnerCommandEvents['flow.command.answerAgentCompleteConfirm']): void {
+  }: FlowRunnerCommandEvents['flow.command.answerCompleteTaskConfirm']): void {
     const executor = this.executors.get(runId)
     if (!executor) return
     executor.answerCompleteConfirm(toolUseId, accept, reason)
@@ -415,7 +415,7 @@ export class FlowRunner {
         // 只接受当前 Map 里仍然绑定的 executor 的完成事件;切换到下一个 agent 时
         // 旧 executor 已被 kill 并从 Map 中移除,onComplete 即使到达也丢弃。
         if (this.executors.get(runId) !== getExecutor()) return
-        this.onAgentComplete(runId, agent, result)
+        this.onCompleteTask(runId, agent, result)
       },
       onToolPermissionRequest: ({
         toolUseId,
@@ -460,19 +460,19 @@ export class FlowRunner {
     }
   }
 
-  private onAgentComplete(runId: string, agent: Agent | Code, result: ExecutorResult): void {
+  private onCompleteTask(runId: string, agent: Agent | Code, result: ExecutorResult): void {
     try {
-      this.doOnAgentComplete(runId, agent, result)
+      this.doOnCompleteTask(runId, agent, result)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      logError(`[FlowRunner] onAgentComplete failed (agent=${agent.id}):`, err)
+      logError(`[FlowRunner] onCompleteTask failed (agent=${agent.id}):`, err)
       this.fire('flow.signal.error', { msg: `agent complete failed: ${msg}` })
       // 继续向上抛，让 MCP withErrorBoundary 也能把 isError 反馈给 AI
       throw err
     }
   }
 
-  private doOnAgentComplete(runId: string, agent: Agent | Code, result: ExecutorResult): void {
+  private doOnCompleteTask(runId: string, agent: Agent | Code, result: ExecutorResult): void {
     const { outputName, content } = result
 
     // 查找下一个 agent
@@ -486,7 +486,7 @@ export class FlowRunner {
         return
       }
 
-      // 终结旧 executor(query 仍可能在发送 AgentComplete 的 tool_result 尾音)。
+      // 终结旧 executor(query 仍可能在发送 CompleteTask 的 tool_result 尾音)。
       // 必须 kill 后再建新 executor —— 旧消息不会被错误地挂到新 run 上。本期 runtime
       // 单 executor 约束,kill 旧 executor + Map.delete(oldRunId) + Map.set(newRunId,..)
       this.killExecutor(runId)

@@ -38,7 +38,7 @@ export type BubbleCtx = {
   answeredToolPermissions?: Record<string, { allow: boolean }>
   onToolPermissionAllow?: (toolUseId: string) => void
   onToolPermissionDeny?: (toolUseId: string) => void
-  /** 当前挂起的 AgentComplete 完成前确认 toolUseId 集合 */
+  /** 当前挂起的 CompleteTask 完成前确认 toolUseId 集合 */
   pendingCompleteConfirmToolUseIds?: Set<string>
   onCompleteConfirmAccept?: (toolUseId: string) => void
   onCompleteConfirmDeny?: (toolUseId: string, reason: string) => void
@@ -286,9 +286,9 @@ function ForkButton({ onFork }: { onFork: () => void }): ReactNode {
   )
 }
 
-/** AgentComplete 结果主体：完成分支 Tag + content + 共享数据写入(values)。
+/** CompleteTask 结果主体：完成分支 Tag + content + 共享数据写入(values)。
  *  被「完成卡片」(agent_complete) 与「完成前确认卡片」复用。 */
-const AgentCompleteBody: FC<{
+const CompleteTaskBody: FC<{
   outputName?: string
   content?: string
   values?: Record<string, string>
@@ -325,7 +325,7 @@ const AgentCompleteBody: FC<{
 
 /** 完成前确认卡片 —— 作为 AI 气泡渲染（role:'ai'），样式与 agent_complete 完成气泡完全一致：
  *  左侧 filled 气泡、无自绘边框，气泡外观由 Bubble filled 提供 */
-const AgentCompleteConfirmCard: FC<{
+const CompleteTaskConfirmCard: FC<{
   outputName?: string
   content?: string
   values?: Record<string, string>
@@ -344,7 +344,7 @@ const AgentCompleteConfirmCard: FC<{
 
   return (
     <div className='flex flex-col gap-2 overflow-x-hidden'>
-      <AgentCompleteBody outputName={outputName} content={content} values={values} />
+      <CompleteTaskBody outputName={outputName} content={content} values={values} />
       <div className='flex items-center gap-2 border-t border-[#45475a] pt-2'>
         <ExclamationCircleOutlined className='text-[#f9e2af]' />
         <span className='text-xs font-semibold text-[#cdd6f4]'>完成前确认</span>
@@ -537,7 +537,7 @@ function renderItemToBubble(
             toolName={item.toolName}
             input={item.input}
             result={item.result}
-            treatNoResultAsSuccess={sessionCompleted && item.toolName.includes('AgentComplete')}
+            treatNoResultAsSuccess={sessionCompleted && item.toolName.includes('CompleteTask')}
           />
         ),
       }
@@ -548,7 +548,7 @@ function renderItemToBubble(
               key: item.key + '-confirm',
               role: 'ai',
               content: (
-                <AgentCompleteConfirmCard
+                <CompleteTaskConfirmCard
                   outputName={completeInput?.output_name ?? completeInput?.output?.name}
                   content={
                     typeof completeInput?.content === 'string' ? completeInput.content : undefined
@@ -619,7 +619,7 @@ function renderItemToBubble(
         content: (
           <Copyable text={completionText}>
             <div>
-              <AgentCompleteBody
+              <CompleteTaskBody
                 outputName={item.outputName}
                 content={item.displayContent}
                 values={item.values}
