@@ -496,9 +496,9 @@ export class ClaudeExecutor {
         ...(this.apiKey ? { ANTHROPIC_AUTH_TOKEN: this.apiKey } : {}),
       }
     }
-    // if (this.agent.work_mode === 'silent_task') {
-    //   options.maxTurns = 10
-    // }
+    if (this.agent.work_mode === 'silent_task') {
+      options.maxTurns = 60
+    }
     if (this._sessionId) {
       options.resume = this._sessionId
     }
@@ -608,8 +608,8 @@ function createMessageChannel<T>() {
  * - SILENT_CONTINUE_TEXT: 每轮 result 后系统自动注入的用户消息内容,推动模型推进下一步。
  * - SILENT_MAX_TURNS: 给 SDK options.maxTurns 兜底,防止模型不调 CompleteTask 无限循环。
  */
-const SILENT_ASK_AUTO_ANSWER = '自行处理'
-const SILENT_CONTINUE_TEXT = '自行处理'
+const SILENT_ASK_AUTO_ANSWER = '自行处理，任务结束后调用CompleteTask，无法结束则调用TerminateTask'
+const SILENT_CONTINUE_TEXT = SILENT_ASK_AUTO_ANSWER
 
 /** silent_task 自动续轮用的 user 消息。session_id 在 result 之后已确定。 */
 function buildSilentContinueMessage(sessionId: string | null): SDKUserMessage {
