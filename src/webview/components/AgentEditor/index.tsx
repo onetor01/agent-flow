@@ -120,7 +120,6 @@ export const AgentEditor: FC = () => {
         no_input: src.no_input ?? false,
         plan_mode: src.plan_mode ?? false,
         disable_claude_preset: src.disable_claude_preset ?? false,
-        raw_prompt: src.raw_prompt ?? false,
         allowed_read_values_keys: src.allowed_read_values_keys ?? [],
         allowed_write_values_keys: src.allowed_write_values_keys ?? [],
         base_url: src.base_url ?? '',
@@ -368,14 +367,6 @@ export const AgentEditor: FC = () => {
                       name='disable_claude_preset'
                       label='禁用Claude提示词'
                       tooltip='禁用 Claude Code 预设系统提示词'
-                      valuePropName='checked'
-                    >
-                      <Switch />
-                    </FormItem>
-                    <FormItem
-                      name='raw_prompt'
-                      label='提示词完全自定义'
-                      tooltip='直接将用户指定的文本作为系统提示词，不附加任何额外信息'
                       valuePropName='checked'
                     >
                       <Switch />
