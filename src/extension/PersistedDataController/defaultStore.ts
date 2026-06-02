@@ -52,6 +52,7 @@ const PresetFlows: Flow[] = [
           '如果用户提及了飞书文档/飞书项目*url*，将*链接*置于`飞书工作项`模块，用于关联原始需求/缺陷。这个模块是可选的。',
           '如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块。这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码。',
           '摘要中应当包含`代码要求`、`代码验证方式`两个模块。这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等。',
+          '如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行。',
         ].join('\n'),
         outputs: [
           {
@@ -77,6 +78,7 @@ const PresetFlows: Flow[] = [
         effort: 'high',
         auto_allowed_tools: true,
         work_mode: 'task',
+        plan_mode: true,
         allowed_read_values_keys: ['worktreePath', 'summary', 'feedback'],
         allowed_write_values_keys: ['summary', 'feedback'],
         outputs: [
@@ -98,6 +100,7 @@ const PresetFlows: Flow[] = [
           '### 执行步骤',
           '####  1.审查代码',
           '根据需求摘要summary、用户意见feedback审查代码。',
+          '如果需求内容较多，应当将其拆分为任务列表，并使用`Workflow`编排subAgent并行执行。',
           '如果你认为当前代码不能满足要求，或者存在逻辑上的问题，结束任务，将你的意见写入feedback。',
           '#### 2.代码合并',
           '如果worktreePath不存在，跳过此步骤。',
@@ -130,7 +133,8 @@ const PresetFlows: Flow[] = [
           '如果worktreePath存在，你应当将其视作工作区路径，你的所有命令都*必须*在该路径下执行。',
           '### 执行步骤',
           '#### 1.修改代码',
-          '根据需求摘要summary、用户意见feedback修改代码',
+          '根据需求摘要summary、用户意见feedback修改代码。',
+          '如果需求内容较多，应当将其拆分为任务列表，并使用`Workflow`编排subAgent并行执行。',
           '#### 2.提交代码',
           '按照不同模块分别提交代码，只在完全无关时才分开提交。',
           'commit message仅有`subject`和`body`两部分组成。',
