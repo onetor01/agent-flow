@@ -256,7 +256,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
     const singleResult = NodeSchema.safeParse(parsed)
     const agents = singleResult.success
       ? [singleResult.data]
-      : z.array(NodeSchema).safeParse(parsed).data ?? null
+      : (z.array(NodeSchema).safeParse(parsed).data ?? null)
     if (!agents) return
 
     const remapped = copyAgents(agents, activeFlowId!)

@@ -41,7 +41,7 @@ pnpm build-extension   # 生成 .vsix 文件
 
 - **框选 / 拖拽画布**：左键拖空白处框选节点，中键或右键拖拽平移画布。
 - **模型自由搭配**：每个 Agent 独立配置模型（opus / sonnet / haiku）、思考强度（effort）与简介描述。
-- **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `CompleteTask` 流转到下一节点）/ `chat`（长期对话，禁止 `CompleteTask`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `CompleteTask` 或 `TerminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
+- **三种工作模式**：`task`（围绕任务推进，达成结束条件后调 `CompleteTask` 流转到下一节点，极端情况下可调 `TerminateTask` 中止任务）/ `chat`（长期对话，禁止 `CompleteTask`）/ `silent_task`（无人值守循环：AskUserQuestion 自动应答、每轮 result 自动续「继续」、未授权工具直接 deny，由 `CompleteTask` 或 `TerminateTask` 终止；首次切换时弹一次警告 modal，需谨慎选择模型 / effort / 提示词）。
 - **无输入启动**：开启 `no_input` 的 Agent 在节点上显示启动按钮，点击后始终以"开始"为初始消息自动运行，无需手动输入。
 - **Plan 模式**：开启 `plan_mode` 的 Agent 以计划 / 只读模式运行——Claude 注入的系统提示词倾向改变（偏向先制定计划），且不会实际执行文件修改等写操作，适合先让 Agent 给出方案再决定是否落地。
 - **系统提示词自由度**：除默认骨架外，Agent 可开启 `disable_claude_preset`（不再附加 Claude Code 预设系统提示词，仅用插件构建的提示词，适合轻量 Agent）或 `raw_prompt`（提示词完全自定义，直接以 `agent_prompt` 作为最终系统提示词，不附加任何骨架——顶部规则 / work_mode 分支 / 可读写数据 / 任务描述 / 输出分支 / 共享数据快照均不输出）。
