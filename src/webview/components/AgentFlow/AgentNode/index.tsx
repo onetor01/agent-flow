@@ -4,11 +4,13 @@ import { App, Badge, Tag, Tooltip, Typography } from 'antd'
 import {
   CodeOutlined,
   EditOutlined,
+  LoginOutlined,
   MessageOutlined,
   PlayCircleOutlined,
   RobotOutlined,
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { match } from 'ts-pattern'
 import { getFlowPhase, type Agent, type Code } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
@@ -67,8 +69,13 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           className='flex items-center gap-1.5 rounded-t-[10px] border-b border-[#313244] px-3 py-2'
           style={{ background: 'linear-gradient(135deg, #313244, #1e1e2e)' }}
         >
-          <span className={cn('text-sm', isCodeNode ? 'text-[#94e2d5]' : 'text-[#cba6f7]')}>
-            {isCodeNode ? <CodeOutlined /> : <RobotOutlined />}
+          <span className={cn('text-sm')}>
+            {match({ is_entry: agent?.is_entry, isCodeNode })
+              .with({ is_entry: true }, () => <LoginOutlined className='text-[#a6e3a1]' />)
+              .with({ isCodeNode: true }, () => <CodeOutlined className='text-[#94e2d5]' />)
+              .otherwise(() => (
+                <RobotOutlined className='text-[#cba6f7]' />
+              ))}
           </span>
           <div
             className='flex-1 overflow-hidden'

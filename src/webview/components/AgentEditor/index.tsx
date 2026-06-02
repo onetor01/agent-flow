@@ -373,6 +373,14 @@ export const AgentEditor: FC = () => {
                     </FormItem>
                   </>
                 )}
+                <FormItem
+                  name='is_entry'
+                  label='入口节点'
+                  tooltip='将一个节点明确指定为入口，样式和位置做特殊处理'
+                  valuePropName='checked'
+                >
+                  <Switch />
+                </FormItem>
               </Flex>
               {!isCodeNode && (
                 <FormItem

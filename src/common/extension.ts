@@ -278,6 +278,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         agent_prompt: true,
         allowed_read_values_keys: true,
         allowed_write_values_keys: true,
+        is_entry: true,
       }).extend({
         no_input: z.literal(true),
         node_type: z.literal('agent'),
@@ -290,6 +291,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         agent_desc: true,
         code: true,
         no_input: true,
+        is_entry: true,
       }).extend({
         node_type: z.literal('code'),
         outputs: z.array(LiteOutput).optional().describe('输出分支，可以连接任意数量的 agent'),

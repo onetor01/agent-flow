@@ -26,6 +26,7 @@ export type Output = z.infer<typeof OutputSchema>
 /** Agent，具有多轮对话能力的独立任务执行单元 */
 export const AgentSchema = z.object({
   id: z.string().describe('Agent 唯一 ID'),
+  is_entry: z.boolean().optional().describe('建议的入口节点'),
   /**
    * 节点类型,省略即 'agent':走 ClaudeExecutor + AI SDK,与 work_mode/agent_prompt/model 等字段配合。
    * node_type='code' 的节点由 {@link CodeSchema}(从本 schema 派生)定义,走 CodeExecutor 不调 AI。
@@ -115,6 +116,7 @@ export const CodeSchema = AgentSchema.pick({
   agent_desc: true,
   outputs: true,
   no_input: true,
+  is_entry: true,
 }).extend({
   node_type: z.literal('code').describe('节点类型,固定 code'),
   /**
