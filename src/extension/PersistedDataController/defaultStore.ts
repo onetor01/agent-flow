@@ -299,7 +299,7 @@ const PresetFlows: Flow[] = [
         no_input: false,
         allowed_read_values_keys: ['requirement', 'feedback'],
         allowed_write_values_keys: ['requirement', 'steps', 'feedback'],
-        disable_claude_preset: true,
+        isolation_mode: true,
         agent_prompt: [
           '### 你的职责',
           '将用户需求拆成步骤列表。',
@@ -343,7 +343,7 @@ const PresetFlows: Flow[] = [
         no_input: false,
         allowed_read_values_keys: ['steps', 'feedback', 'generatedFlow', 'changeList'],
         allowed_write_values_keys: ['generatedFlow', 'changeList', 'feedback'],
-        disable_claude_preset: true,
+        isolation_mode: true,
         agent_prompt: [
           '### 你的职责',
           '生成符合 FlowSchema 的工作流 JSON。',
@@ -403,7 +403,7 @@ const PresetFlows: Flow[] = [
         no_input: false,
         allowed_read_values_keys: ['generatedFlow', 'steps', 'requirement', 'changeList'],
         allowed_write_values_keys: ['feedback', 'generatedFlow'],
-        disable_claude_preset: true,
+        isolation_mode: true,
         agent_prompt: [
           '### 你的职责',
           '把当前版本的工作流展示给用户，收集反馈。',

@@ -78,13 +78,7 @@ export const AgentSchema = z.object({
     .boolean()
     .optional()
     .describe('Plan 模式：true 时以只读/计划模式运行，不会实际执行文件修改等写操作'),
-  disable_claude_preset: z
-    .boolean()
-    .optional()
-    .describe(
-      '禁用 Claude Code 预设系统提示词：true 时 SDK 的 systemPrompt 直接使用 buildAgentSystemPrompt 结果，' +
-        '不再附加 claude_code preset；适合不需要 claude code 默认行为的轻量 Agent',
-    ),
+  isolation_mode: z.boolean().optional().describe('不再注入全局/项目/local的settings和CLAUDE.md'),
   allowed_read_values_keys: z
     .array(z.string())
     .optional()

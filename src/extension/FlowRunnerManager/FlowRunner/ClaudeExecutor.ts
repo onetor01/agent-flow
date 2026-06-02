@@ -471,18 +471,15 @@ export class ClaudeExecutor {
     const options: Options = {
       model: this.agent.model,
       effort: this.agent.effort,
-      // disable_claude_preset: 禁用 Claude Code 预设,systemPrompt 直接以 buildAgentSystemPrompt 结果作纯字符串
-      // 默认: 仍走 preset claude_code,把骨架 append 到内置提示词后,excludeDynamicSections 保住缓存命中
-      systemPrompt: this.agent.disable_claude_preset
-        ? this.prompt
-        : {
-            type: 'preset',
-            preset: 'claude_code',
-            append: this.prompt,
-            // 把 SDK 内置的 cwd / memory / git status 等动态节剥离到首条 user message,
-            // system prompt 保住纯静态、可跨会话命中 prompt 缓存。
-            excludeDynamicSections: true,
-          },
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: this.prompt,
+        // 把 SDK 内置的 cwd / memory / git status 等动态节剥离到首条 user message,
+        // system prompt 保住纯静态、可跨会话命中 prompt 缓存。
+        excludeDynamicSections: true,
+      },
+      settingSources: this.agent.isolation_mode ? [] : undefined,
       mcpServers: { AgentControllerMcp: this.mcpServer },
       permissionMode: this.agent.plan_mode ? 'plan' : 'default',
       canUseTool: this.canUseTool,

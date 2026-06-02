@@ -119,7 +119,7 @@ export const AgentEditor: FC = () => {
         work_mode: src.work_mode ?? 'task',
         no_input: src.no_input ?? false,
         plan_mode: src.plan_mode ?? false,
-        disable_claude_preset: src.disable_claude_preset ?? false,
+        isolation_mode: src.isolation_mode ?? false,
         allowed_read_values_keys: src.allowed_read_values_keys ?? [],
         allowed_write_values_keys: src.allowed_write_values_keys ?? [],
         base_url: src.base_url ?? '',
@@ -364,9 +364,9 @@ export const AgentEditor: FC = () => {
                       <Switch />
                     </FormItem>
                     <FormItem
-                      name='disable_claude_preset'
-                      label='禁用Claude提示词'
-                      tooltip='禁用 Claude Code 预设系统提示词'
+                      name='isolation_mode'
+                      label='隔离模式'
+                      tooltip='不再注入全局/项目/local的settings和CLAUDE.md'
                       valuePropName='checked'
                     >
                       <Switch />
