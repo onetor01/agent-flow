@@ -216,7 +216,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
     const TerminateTaskTool = tool(
       'TerminateTask',
       [
-        '当确定**无法完成**「任务描述」时调用此工具中止任务。',
+        '当确定**无法完成**「任务描述」时调用此工具中止任务，例如缺失关键信息且无工具可获取、环境异常、输出分支和任务执行情况偏差极大等极端情况。',
         '## 调用约束',
         '- 调用此工具会**强制终止本次会话**,不可撤销;只在已经穷尽所有可行手段、确认任务不可达成时调用',
         '- 必须在 reason 中说明无法完成的具体原因(缺失关键信息 / 工具不可用 / 环境异常等)',
