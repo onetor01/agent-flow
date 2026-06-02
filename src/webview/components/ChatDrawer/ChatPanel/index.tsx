@@ -114,19 +114,26 @@ export const ChatPanel: FC<Props> = ({
       let lastModelUsage: Record<string, unknown> | undefined
       let lastResultCost: number | undefined
       let runModel: string | undefined
-      for (const msg of run.messages) {
+      // 从后往前找第一条 result(累计快照取最新即可,无需遍历全部)
+      for (let i = run.messages.length - 1; i >= 0; i--) {
+        const msg = run.messages[i]
+        let resultMsg: any | undefined
         if (msg.type === 'flow.signal.aiMessage' && msg.data.message.type === 'result') {
-          const result = msg.data.message as any
-          if (result.modelUsage && typeof result.modelUsage === 'object') {
-            lastModelUsage = result.modelUsage
-          }
-          if (typeof result.total_cost_usd === 'number') {
-            lastResultCost = result.total_cost_usd
-          }
-          if (typeof result.model === 'string') {
-            runModel = result.model
-          }
+          resultMsg = msg.data.message
+        } else if (msg.type === 'flow.signal.agentComplete' && msg.data.result) {
+          resultMsg = msg.data.result
         }
+        if (!resultMsg) continue
+        if (!lastModelUsage && resultMsg.modelUsage && typeof resultMsg.modelUsage === 'object') {
+          lastModelUsage = resultMsg.modelUsage
+        }
+        if (lastResultCost === undefined && typeof resultMsg.total_cost_usd === 'number') {
+          lastResultCost = resultMsg.total_cost_usd
+        }
+        if (!runModel && typeof resultMsg.model === 'string') {
+          runModel = resultMsg.model
+        }
+        if (lastModelUsage && lastResultCost !== undefined && runModel) break
       }
       let runTokens = 0
       if (lastModelUsage) {
