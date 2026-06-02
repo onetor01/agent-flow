@@ -1,4 +1,6 @@
 import { type Node, type Edge, MarkerType } from '@xyflow/react'
+import { forceSimulation, forceLink, forceCollide, forceY } from 'd3-force'
+import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 import type { Agent, Code, Flow } from '@/common'
 
 // ── Node / Edge 数据类型 ────────────────────────────────────────────────────
@@ -8,6 +10,8 @@ export type AgentNodeData = {
   flowId: string
   agentId: string
   agentName: string
+  /** 入度为 0（无前驱）：布局视作入口层，AgentNode 同 is_entry 显示入口图标 */
+  noPredecessors: boolean
 }
 
 /** Agent 节点类型 */
@@ -24,10 +28,12 @@ const MODEL_ROW_H = 28
 const OUTPUT_ROW_H = 24
 const OUTPUT_GAP = 4
 const OUTPUT_BLOCK_PADDING = 14 // pt-1.5 + pb-2
-// 层与层之间的水平间距
-const LAYER_GAP = 120
-// 同一层内节点之间的垂直间距
-const SIBLING_GAP = 40
+// 三层（入口 / 中间 / 出口）之间的列间距（x 方向，节点宽 + 留白）
+const COLUMN_GAP = NODE_WIDTH + 140
+// 同层节点垂直最小间距（喂给 d3-force forceCollide）
+const NODE_GAP = 32
+// d3-force 静态布局迭代次数
+const SIM_TICKS = 300
 
 function estimateNodeHeight(agent: Agent | Code): number {
   let h = HEADER_H
@@ -38,116 +44,110 @@ function estimateNodeHeight(agent: Agent | Code): number {
   return h
 }
 
+/** d3-force 模拟节点：x 锁定为所在层的列（fx），y 由力模拟决定 */
+type LayoutDatum = SimulationNodeDatum & { id: string; height: number; layer: number }
+
 /**
  * 将 Flow 中的 Agent 列表布局为 ReactFlow 节点。
  *
- * 算法：Sugiyama 风格的分层布局（左→右，与节点左右 handle 方向一致）
- *   1. 最长路径分层：入度为 0 的 agent 为源，沿 outputs 做一次前向松弛，
- *      level(v) = max(level(u)) + 1。环/孤点 fallback 到 level 0。
- *   2. 层内重心排序：按父节点在上一层中的平均下标排序，降低交叉。
- *   3. 高度感知垂直堆叠：每层按估算高度竖排，整层整体在 y=0 居中。
+ * 分两步：
+ *  1) 按优先级把节点划分为三层（layer 决定 x 列，从左到右）：
+ *     - layer 0 入口层：is_entry=true 或没有前驱（入度为 0），优先级最高；
+ *     - layer 2 出口层：没有后继（outputs 无指向存在节点的 next_agent），优先级最低；
+ *     - layer 1 中间层：其余节点。
+ *     层内按「前驱越少越靠上、前驱相同则后继越多越靠下」排序，作为力模拟初始 y 顺序。
+ *  2) 每层用 d3-force 排列 y：fx 锁定 x 到所在层的列，forceLink 把相连节点在 y 上拉近
+ *     以减少连线交叉，forceCollide 按节点半高防止同层重叠，forceY 轻微回中防整体漂移。
+ *
+ * d3-force 力模拟天然处理分叉与环（环上节点互相吸引、collide 排斥），无需特殊去环。
+ * 最后把模拟中心坐标转换为 ReactFlow 左上角坐标 (x - NODE_WIDTH/2, y - height/2)。
  */
 function agentsToNodes(flowId: string, agents: (Agent | Code)[]): AgentNode[] {
   if (agents.length === 0) return []
 
   const agentMap = new Map(agents.map((a) => [a.id, a]))
 
-  // 1) 分层：入度 + 最长路径松弛
-  const inDegree = new Map<string, number>()
-  const parents = new Map<string, string[]>()
-  for (const a of agents) {
-    inDegree.set(a.id, 0)
-    parents.set(a.id, [])
-  }
+  // 入度 / 出度（排除自环），并收集力模拟用的边
+  const inDeg = new Map<string, number>(agents.map((a) => [a.id, 0]))
+  const outDeg = new Map<string, number>(agents.map((a) => [a.id, 0]))
+  const links: SimulationLinkDatum<LayoutDatum>[] = []
   for (const a of agents) {
     for (const o of a.outputs ?? []) {
-      if (o.next_agent && agentMap.has(o.next_agent)) {
-        inDegree.set(o.next_agent, (inDegree.get(o.next_agent) ?? 0) + 1)
-        parents.get(o.next_agent)!.push(a.id)
-      }
+      if (!o.next_agent || !agentMap.has(o.next_agent) || o.next_agent === a.id) continue
+      outDeg.set(a.id, (outDeg.get(a.id) ?? 0) + 1)
+      inDeg.set(o.next_agent, (inDeg.get(o.next_agent) ?? 0) + 1)
+      links.push({ source: a.id, target: o.next_agent })
     }
   }
 
-  const level = new Map<string, number>()
-  const sources = agents.filter((a) => inDegree.get(a.id) === 0)
-  const queue: string[] = sources.map((a) => a.id)
-  for (const id of queue) level.set(id, 0)
+  // 三层划分：is_entry 最高、无后继最低、其余居中（is_entry 优先于无后继判定）
+  const layerOf = (a: Agent | Code): number => {
+    if (a.is_entry || (inDeg.get(a.id) ?? 0) === 0) return 0
+    const hasSuccessor = (a.outputs ?? []).some((o) => o.next_agent && agentMap.has(o.next_agent))
+    return hasSuccessor ? 1 : 2
+  }
 
-  // 有环则无源，fallback：全部放 level 0
-  const maxIter = agents.length * agents.length + 1
-  let head = 0
-  let iter = 0
-  while (head < queue.length && iter++ < maxIter) {
-    const id = queue[head++]
-    const lv = level.get(id)!
-    for (const o of agentMap.get(id)?.outputs ?? []) {
-      if (!o.next_agent || !agentMap.has(o.next_agent)) continue
-      const cur = level.get(o.next_agent) ?? -1
-      if (lv + 1 > cur) {
-        level.set(o.next_agent, lv + 1)
-        queue.push(o.next_agent)
-      }
+  const data: LayoutDatum[] = agents.map((a) => ({
+    id: a.id,
+    height: estimateNodeHeight(a),
+    layer: layerOf(a),
+  }))
+  const dataById = new Map(data.map((d) => [d.id, d]))
+
+  // 按层分组，层内按优先级排序后设初始 y、锁定 x
+  const byLayer = new Map<number, LayoutDatum[]>()
+  for (const d of data) {
+    const group = byLayer.get(d.layer) ?? []
+    group.push(d)
+    byLayer.set(d.layer, group)
+  }
+  for (const [layer, group] of byLayer) {
+    // 前驱越少越靠上；前驱相同则后继越多越靠下
+    group.sort(
+      (a, b) =>
+        (inDeg.get(a.id) ?? 0) - (inDeg.get(b.id) ?? 0) ||
+        (outDeg.get(b.id) ?? 0) - (outDeg.get(a.id) ?? 0),
+    )
+    group.forEach((d, i) => {
+      d.fx = layer * COLUMN_GAP
+      d.y = (i - (group.length - 1) / 2) * (d.height + NODE_GAP)
+    })
+  }
+
+  // d3-force 静态布局：x 由 fx 锁定，只优化 y
+  const sim = forceSimulation(data)
+    .force(
+      'link',
+      forceLink<LayoutDatum, SimulationLinkDatum<LayoutDatum>>(links)
+        .id((d) => d.id)
+        .distance(0)
+        .strength(0.08),
+    )
+    .force(
+      'collide',
+      forceCollide<LayoutDatum>()
+        .radius((d) => d.height / 2 + NODE_GAP / 2)
+        .strength(1),
+    )
+    .force('y', forceY<LayoutDatum>(0).strength(0.02))
+    .stop()
+  for (let i = 0; i < SIM_TICKS; i++) sim.tick()
+
+  return agents.map((a) => {
+    const d = dataById.get(a.id)!
+    return {
+      id: a.id,
+      type: 'agent',
+      // 模拟中心坐标 → ReactFlow 左上角坐标
+      position: { x: (d.x ?? 0) - NODE_WIDTH / 2, y: (d.y ?? 0) - d.height / 2 },
+      data: {
+        flowId,
+        agentId: a.id,
+        agentName: a.agent_name,
+        noPredecessors: (inDeg.get(a.id) ?? 0) === 0,
+      },
     }
-  }
-  for (const a of agents) if (!level.has(a.id)) level.set(a.id, 0)
-
-  // 压缩 level：环会导致松弛膨胀（同一节点被反复入队推高 level），
-  // 将实际使用的 level 映射为连续整数以消除空隙。对 DAG 无影响。
-  const uniqueLevels = [...new Set(level.values())].sort((a, b) => a - b)
-  const compactMap = new Map(uniqueLevels.map((lv, idx) => [lv, idx]))
-  for (const [id, lv] of level) {
-    level.set(id, compactMap.get(lv)!)
-  }
-
-  // 2) 分组 & 层内重心排序
-  const levelGroups = new Map<number, string[]>()
-  for (const a of agents) {
-    const lv = level.get(a.id)!
-    if (!levelGroups.has(lv)) levelGroups.set(lv, [])
-    levelGroups.get(lv)!.push(a.id)
-  }
-  const sortedLevels = [...levelGroups.keys()].sort((a, b) => a - b)
-
-  const layerOrder = new Map<number, string[]>()
-  // 第一层按 agents 原顺序稳定排列
-  layerOrder.set(sortedLevels[0], levelGroups.get(sortedLevels[0])!.slice())
-
-  for (let i = 1; i < sortedLevels.length; i++) {
-    const prevIndex = new Map(layerOrder.get(sortedLevels[i - 1])!.map((id, idx) => [id, idx]))
-    const ids = levelGroups.get(sortedLevels[i])!.slice()
-    ids.sort((x, y) => {
-      const barycenter = (id: string): number => {
-        const ps = parents.get(id) ?? []
-        const idxs = ps.map((p) => prevIndex.get(p)).filter((v): v is number => v !== undefined)
-        if (idxs.length === 0) return Number.POSITIVE_INFINITY
-        return idxs.reduce((s, v) => s + v, 0) / idxs.length
-      }
-      return barycenter(x) - barycenter(y)
-    })
-    layerOrder.set(sortedLevels[i], ids)
-  }
-
-  // 3) 高度感知垂直堆叠：整层居中
-  const nodes: AgentNode[] = []
-  for (const lv of sortedLevels) {
-    const ids = layerOrder.get(lv)!
-    const heights = ids.map((id) => estimateNodeHeight(agentMap.get(id)!))
-    const totalH = heights.reduce((s, h) => s + h, 0) + (ids.length - 1) * SIBLING_GAP
-    let y = -totalH / 2
-    const x = lv * (NODE_WIDTH + LAYER_GAP)
-    ids.forEach((id, idx) => {
-      const a = agentMap.get(id)!
-      nodes.push({
-        id: a.id,
-        type: 'agent',
-        position: { x, y },
-        data: { flowId, agentId: a.id, agentName: a.agent_name },
-      })
-      y += heights[idx] + SIBLING_GAP
-    })
-  }
-
-  return nodes
+  })
 }
 
 /** 将 Flow 中 Agent 的 outputs 转换为 ReactFlow 边 */
@@ -156,15 +156,21 @@ function agentsToEdges(agents: (Agent | Code)[]): Edge[] {
   for (const agent of agents) {
     for (const output of agent.outputs ?? []) {
       if (!output.next_agent) continue
+      const edgeKey = `${agent.id}->${output.next_agent}:${output.output_name}`
       edges.push({
-        id: `${agent.id}->${output.next_agent}:${output.output_name}`,
+        id: edgeKey,
         source: agent.id,
         target: output.next_agent,
         sourceHandle: `output-${output.output_name}`,
         type: 'midArrow',
         animated: false,
         style: { stroke: '#6366f1', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1', width: 20, height: 20 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: '#6366f1',
+          width: 20,
+          height: 20,
+        },
       })
     }
   }

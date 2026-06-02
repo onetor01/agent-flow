@@ -26,7 +26,7 @@ const handleStyle = {
 
 const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const { data } = props
-  const { flowId, agentId, agentName } = data
+  const { flowId, agentId, agentName, noPredecessors } = data
 
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))
   const agent: Agent | Code | undefined = flow?.agents?.find((a) => a.id === agentId)
@@ -70,8 +70,9 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           style={{ background: 'linear-gradient(135deg, #313244, #1e1e2e)' }}
         >
           <span className={cn('text-sm')}>
-            {match({ is_entry: agent?.is_entry, isCodeNode })
-              .with({ is_entry: true }, () => <LoginOutlined className='text-[#a6e3a1]' />)
+            {/* is_entry 或无前驱（入度为 0）均显示入口图标 */}
+            {match({ isEntry: agent?.is_entry || noPredecessors, isCodeNode })
+              .with({ isEntry: true }, () => <LoginOutlined className='text-[#a6e3a1]' />)
               .with({ isCodeNode: true }, () => <CodeOutlined className='text-[#94e2d5]' />)
               .otherwise(() => (
                 <RobotOutlined className='text-[#cba6f7]' />

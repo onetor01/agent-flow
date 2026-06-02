@@ -96,6 +96,7 @@
     "ahooks": "^3.9.7",
     "antd": "^6.3.5",
     "clsx": "^2.1.1",
+    "d3-force": "^3.0.0",
     "dayjs": "^1.11.20",
     "execa": "^9.6.1",
     "immer": "^11.1.4",
@@ -141,6 +142,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "@types/d3-force": "^3.0.10",
     "@types/lodash-es": "^4.17.12",
     "@types/mocha": "^10.0.10",
     "@types/node": "~22.19.17",

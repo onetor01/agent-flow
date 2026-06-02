@@ -197,7 +197,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
           id: agent.id,
           type: 'agent' as const,
           position: { x: pos.x, y: pos.y },
-          data: { flowId, agentId: agent.id, agentName: agent.agent_name },
+          data: { flowId, agentId: agent.id, agentName: agent.agent_name, noPredecessors: true },
         })),
       ])
     },
@@ -272,6 +272,20 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
     const Y_GAP = 160
     const cols = Math.min(remapped.length, 3)
     const remappedIds = new Set(remapped.map((a) => a.id))
+
+    // 计算哪些粘贴的节点有前驱（来自现有边或新粘贴的边）
+    const existingIncoming = new Set(
+      edges.filter((e) => remappedIds.has(e.target)).map((e) => e.target)
+    )
+    const newIncoming = new Set(
+      remapped.flatMap((a) =>
+        (a.outputs ?? [])
+          .filter((o) => o.next_agent && remappedIds.has(o.next_agent))
+          .map((o) => o.next_agent!)
+      )
+    )
+    const hasIncoming = new Set([...existingIncoming, ...newIncoming])
+
     isInternalChange.current = true
     setNodes((prev) => [
       ...prev,
@@ -282,7 +296,12 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
           x: pastePos.x + (idx % cols) * X_GAP - ((cols - 1) * X_GAP) / 2,
           y: pastePos.y + Math.floor(idx / cols) * Y_GAP,
         },
-        data: { flowId: activeFlowId!, agentId: agent.id, agentName: agent.agent_name },
+        data: {
+          flowId: activeFlowId!,
+          agentId: agent.id,
+          agentName: agent.agent_name,
+          noPredecessors: !hasIncoming.has(agent.id),
+        },
       })),
     ])
     setEdges((prev) => [
