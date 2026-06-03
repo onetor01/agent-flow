@@ -190,7 +190,11 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   type='source'
                   position={Position.Right}
                   id={`output-${output.output_name}`}
-                  style={{ ...handleStyle, right: -8 }}
+                  style={{
+                    ...handleStyle,
+                    right: -8,
+                    ...(output.require_confirm ? { background: 'red' } : {}),
+                  }}
                 />
               </div>
             ))}
