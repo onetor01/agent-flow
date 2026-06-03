@@ -35,6 +35,11 @@ pnpm build-extension   # 生成 .vsix 文件
 ![](resources/case2.jpg)
 ![](resources/case3.jpg)
 
+## 预定义的Flow
+
+首次使用插件、持久化的flow json为空、json不合法，会自动加载预设Flow。
+此外，还会随版本更新[预设flow json](./preset-flows.json)，可复制使用
+
 ## 主要功能
 
 ### 1. 可视化编辑工作流
