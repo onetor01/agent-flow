@@ -7,10 +7,9 @@ const src = readFileSync(join(root, 'src/common/PresetFlows.ts'), 'utf-8')
 
 // 提取 export const PresetFlows: Flow[] = [...] 中的数组字面量
 const match = src.match(/=\s*\[/)
-if (!match) throw new Error('文件格式错误')
+if (!match) throw new Error('src/common/PresetFlows.ts文件格式错误')
 const start = match.index + match[0].length - 1
 const arrayLiteral = src.slice(start)
-console.log(arrayLiteral)
 // .join('\n') 是合法 JS，直接 eval 求值
 const flows = eval(arrayLiteral)
 

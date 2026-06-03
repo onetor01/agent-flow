@@ -50,7 +50,12 @@ function estimateNodeHeight(agent: Agent | Code): number {
 type Category = 'entry' | 'middle' | 'exit'
 
 /** d3-force 模拟节点：x 锁定为所在列（fx），y 由力模拟决定 */
-type LayoutDatum = SimulationNodeDatum & { id: string; height: number; category: Category; col: number }
+type LayoutDatum = SimulationNodeDatum & {
+  id: string
+  height: number
+  category: Category
+  col: number
+}
 
 /**
  * 将 Flow 中的 Agent 列表布局为 ReactFlow 节点。

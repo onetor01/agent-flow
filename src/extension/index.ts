@@ -1,5 +1,5 @@
-import * as path from 'path'
 import { forkSession, getSessionMessages } from '@anthropic-ai/claude-agent-sdk'
+import * as path from 'path'
 import { match, P } from 'ts-pattern'
 import * as vscode from 'vscode'
 import type {

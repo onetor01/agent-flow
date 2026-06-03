@@ -1,17 +1,23 @@
 # Changelog
 
-## v0.0.38
+## v0.0.39
 
 ### 新增
 
-- 入口节点：Agent 可标记为建议的入口节点（`is_entry`），在画布上显示绿色入口图标，布局自动固定在入口层；无前驱节点自动视同入口。
-- Agent 可获取 CodeSchema：`getFlowJSONSchema` 返回的 Flow schema 中 agents 数组增加 Code 节点信息。
+- **deny_tools**：为每个 Agent 配置禁止使用的工具清单，被禁止的工具不会出现在 Agent 的工具列表中。
+- **no_output 节点**：Agent 可标记为无输出节点（`no_output`），无输出节点的后继节点首条消息统一使用"执行任务"（与 `no_input` 节点行为对称）。
+- **输出分支确认标注**：需要完成前确认的输出分支在 Agent 编辑器中特别标注，一目了然。
 
 ### 优化
 
-- 画布节点布局算法升级：用 d3-force 替换 dagre，按入口/中间/出口三层分列，力模拟减少连线交叉。
-- TerminateTask 触发条件描述更精确：增加"输出分支和任务执行情况偏差极大"等说明。
+- **统一 tool permission 链路**（PR #25）：AskUserQuestion / CompleteTask 完成前确认 / ExitPlanMode / must_confirm 四类"挂起等待确认"统一为单一 pendingToolPermissions 队列与 ToolPermissionCard 卡片 UI；silent_task 下 ExitPlanMode 自动接受；工具权限默认全部允许（移除"自动确认工具"概念）。
+- **连线静默替换**：在已有连线的输出端口再连线时，静默替换旧连线而不是阻止操作。
+- **无输入/无输出节点展示**优化：视觉布局更直观。
+- **Plan 模式**：支持在主面板打开文件；描述更准确。
+- **silent_task 自动回复**：回复文本更明确强调任务要求，新增 maxTurns 限制。
+- 预设工作流内容与位置调整；提供 JSON 格式的预设 flow 文件（`preset-flows.json`）。
+- 编辑节点时不再额外写入无关字段。
 
 ### 修复
 
-- 计费错误：agentComplete 后 result 消息不再进入消息队列，修复 ChatPanel 计费统计遗漏问题。
+- GetFlowJSONSchema 返回的 Flow Schema 有误，修复并优化描述，AI 设计 Flow 时更准确。

@@ -247,7 +247,10 @@ export const ChatPanel: FC<Props> = ({
   )
 
   const onViewPlan = useCallback((planFilePath: string) => {
-    postMessageToExtension({ type: 'openFile', data: { filename: planFilePath, placement: 'active' } })
+    postMessageToExtension({
+      type: 'openFile',
+      data: { filename: planFilePath, placement: 'active' },
+    })
   }, [])
 
   const onPermAllow = useCallback(
@@ -259,7 +262,13 @@ export const ChatPanel: FC<Props> = ({
 
   const onPermDeny = useCallback(
     (perm: PendingToolPermission, reason?: string) => {
-      answerToolPermission(flowId, perm.runId, perm.toolUseId, false, reason ? { message: reason } : undefined)
+      answerToolPermission(
+        flowId,
+        perm.runId,
+        perm.toolUseId,
+        false,
+        reason ? { message: reason } : undefined,
+      )
     },
     [answerToolPermission, flowId],
   )
@@ -418,51 +427,58 @@ export const ChatPanel: FC<Props> = ({
 
       {/* 工具权限卡片 — 固定在底部；ExitPlanMode / must_confirm 类挂起时展示 */}
       <AnimatePresence>
-        {pendingPermCards.length > 0 && (() => {
-          const perm = pendingPermCards[0]
-          const isExitPlan = perm.toolName.includes('ExitPlanMode')
-          const planFilePath = isExitPlan ? ((perm.input as { planFilePath?: string })?.planFilePath ?? '') : ''
-          return (
-            <motion.div
-              key={`perm-card-${perm.toolUseId}`}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: permCardHeight, opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={
-                permDragging ? { duration: 0 } : { type: 'spring', damping: 24, stiffness: 240 }
-              }
-              className='flex shrink-0 flex-col overflow-hidden border-t border-[#45475a]'
-            >
+        {pendingPermCards.length > 0 &&
+          (() => {
+            const perm = pendingPermCards[0]
+            const isExitPlan = perm.toolName.includes('ExitPlanMode')
+            const planFilePath = isExitPlan
+              ? ((perm.input as { planFilePath?: string })?.planFilePath ?? '')
+              : ''
+            return (
               <motion.div
-                drag='y'
-                dragMomentum={false}
-                dragElastic={0}
-                dragConstraints={{ top: 0, bottom: 0 }}
-                onDragStart={() => setPermDragging(true)}
-                onDrag={(_, info) => {
-                  setPermCardHeight((h) => Math.max(80, Math.min(600, h - info.delta.y)))
-                }}
-                onDragEnd={() => setPermDragging(false)}
-                whileHover={{ backgroundColor: '#585b70' }}
-                whileDrag={{ backgroundColor: '#74758a' }}
-                className='flex h-2 shrink-0 cursor-row-resize items-center justify-center bg-[#313244]'
+                key={`perm-card-${perm.toolUseId}`}
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: permCardHeight, opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={
+                  permDragging ? { duration: 0 } : { type: 'spring', damping: 24, stiffness: 240 }
+                }
+                className='flex shrink-0 flex-col overflow-hidden border-t border-[#45475a]'
               >
-                <div className='h-0.5 w-8 rounded-full bg-[#6c7086]' />
+                <motion.div
+                  drag='y'
+                  dragMomentum={false}
+                  dragElastic={0}
+                  dragConstraints={{ top: 0, bottom: 0 }}
+                  onDragStart={() => setPermDragging(true)}
+                  onDrag={(_, info) => {
+                    setPermCardHeight((h) => Math.max(80, Math.min(600, h - info.delta.y)))
+                  }}
+                  onDragEnd={() => setPermDragging(false)}
+                  whileHover={{ backgroundColor: '#585b70' }}
+                  whileDrag={{ backgroundColor: '#74758a' }}
+                  className='flex h-2 shrink-0 cursor-row-resize items-center justify-center bg-[#313244]'
+                >
+                  <div className='h-0.5 w-8 rounded-full bg-[#6c7086]' />
+                </motion.div>
+                <div className='relative flex-1 overflow-auto px-3 py-2'>
+                  <ToolPermissionCard
+                    toolName={perm.toolName}
+                    input={perm.input}
+                    mode='active'
+                    onAllow={() => onPermAllow(perm)}
+                    onDeny={(reason) => onPermDeny(perm, reason)}
+                    exitPlan={
+                      isExitPlan
+                        ? { planFilePath, onViewPlan: () => onViewPlan(planFilePath) }
+                        : undefined
+                    }
+                    onChangeHeight={(h) => setPermCardHeight(Math.max(80, Math.min(600, h)))}
+                  />
+                </div>
               </motion.div>
-              <div className='relative flex-1 overflow-auto px-3 py-2'>
-                <ToolPermissionCard
-                  toolName={perm.toolName}
-                  input={perm.input}
-                  mode='active'
-                  onAllow={() => onPermAllow(perm)}
-                  onDeny={(reason) => onPermDeny(perm, reason)}
-                  exitPlan={isExitPlan ? { planFilePath, onViewPlan: () => onViewPlan(planFilePath) } : undefined}
-                  onChangeHeight={(h) => setPermCardHeight(Math.max(80, Math.min(600, h)))}
-                />
-              </div>
-            </motion.div>
-          )
-        })()}
+            )
+          })()}
       </AnimatePresence>
     </div>
   )
