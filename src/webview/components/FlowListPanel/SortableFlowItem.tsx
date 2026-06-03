@@ -15,12 +15,17 @@ const PHASE_CONFIG: Record<
   running: { color: 'bg-[#a6e3a1]', label: 'AI 生成中', animate: true },
   result: { color: 'bg-[#89b4fa]', label: '生成完毕', animate: true },
   interrupted: { color: 'bg-[#f9e2af]', label: '已中断', animate: true },
-  'awaiting-question': { color: 'bg-[#cba6f7]', label: '需要回答', animate: true },
   'awaiting-tool-permission': { color: 'bg-[#f9e2af]', label: '请求授权', animate: true },
-  'awaiting-complete-confirm': { color: 'bg-[#f9e2af]', label: '等待完成确认', animate: true },
   completed: { color: 'bg-[#a6e3a1]/60', label: '已完成', animate: false },
   stopped: { color: 'bg-[#9399b2]', label: '已停止', animate: false },
   error: { color: 'bg-[#f38ba8]', label: '出错', animate: false },
+}
+
+function getToolPermLabel(toolName: string | undefined): string {
+  if (toolName?.includes('AskUserQuestion')) return '需要回答'
+  if (toolName?.includes('CompleteTask')) return '任务完成，等待确认'
+  if (toolName?.includes('ExitPlanMode')) return '计划等待确认'
+  return '请求授权'
 }
 
 export type SortableFlowItemProps = {
@@ -35,6 +40,9 @@ export type SortableFlowItemProps = {
 export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
   const { flow, isActive, phase, onClick, onDelete, onRename } = props
   const { save, setActiveFlowId, setFlowListCollapsed, setEditingFlowId } = useFlowStore()
+  const firstPendingToolName = useFlowStore(
+    (state) => state.flowRunStates[flow.id]?.pendingToolPermissions[0]?.toolName,
+  )
   const { id, name } = flow
   const [editing, setEditing] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -46,7 +54,15 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
     opacity: isDragging ? 0.5 : 1,
   }
 
-  const statusConfig = phase && phase !== 'idle' ? PHASE_CONFIG[phase] : undefined
+  const statusConfig =
+    phase && phase !== 'idle'
+      ? phase === 'awaiting-tool-permission'
+        ? {
+            ...PHASE_CONFIG['awaiting-tool-permission'],
+            label: getToolPermLabel(firstPendingToolName),
+          }
+        : PHASE_CONFIG[phase]
+      : undefined
 
   return (
     <div

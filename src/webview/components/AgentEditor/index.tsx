@@ -189,7 +189,7 @@ export const AgentEditor: FC = () => {
             modal.warning({
               title: '谨慎使用静默模式',
               content:
-                '静默模式下，AskUserQuestion 与每轮 result 续轮会被自动应答，直到 Agent 自行完成任务。请谨慎选择模型、effort，并确保输入和提示词的完整。',
+                '静默模式下，AI提问、计划生成与结束生成时会被自动应答，直到 Agent 自行完成任务。请谨慎选择模型、effort，并确保输入和提示词的完整。',
             })
           }
         }}
@@ -362,7 +362,7 @@ export const AgentEditor: FC = () => {
                     <FormItem
                       name='plan_mode'
                       label='Plan模式'
-                      tooltip='系统提示词倾向会改变，AI会写计划并尝试执行，而不是完成任务'
+                      tooltip='对话开始进入Plan模式。系统提示词倾向会改变，AI会写计划并尝试执行，而不是完成任务。对Claude系列模型效果非常明显。'
                       valuePropName='checked'
                     >
                       <Switch />

@@ -1,5 +1,5 @@
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AskUserQuestionOutput, Flow } from '.'
+import type { Flow } from '.'
 import type { FlowRunState } from './flowRunState'
 
 /**
@@ -51,8 +51,8 @@ export type ExtensionFromWebviewEvents = {
   load: undefined
   /** 全量保存 flows */
   save: Flow[]
-  /** 打开文件，line 存在时跳转并选中对应行 */
-  openFile: { filename: string; line?: [number, number] }
+  /** 打开文件；line 存在时跳转并选中对应行；placement 说明打开位置 默认beside */
+  openFile: { filename: string; line?: [number, number]; placement?: 'active' | 'beside' }
   /** 在 VSCode 中预览一段外部粘入的文本附件（非文件系统文件） */
   previewAttachment: { name: string; content: string }
 } & ExtensionFlowCommandEvents
@@ -123,24 +123,17 @@ type FlowSignalPayload = {
      */
     result?: AIMessageType
   }
-  /**
-   * silent_task 模式下 AskUserQuestion 由 ClaudeExecutor 自动应答时上抛的信号。
-   * 载荷与 `flow.command.answerQuestion` 一致；reducer 处理逻辑也一致
-   * （写入 answeredQuestions、移出 pendingQuestions），只是入口换成 signal —— 让
-   * webview 在无人值守模式下也能看到自动答案，与人工回答展示路径统一。
-   */
-  answerQuestion: {
-    runId: string
-    toolUseId: string
-    output: AskUserQuestionOutput
-  }
   /** Agent被中断了 */
   agentInterrupted: { runId: string }
   /** agent错误 */
   agentError: { runId: string; agentId: string; err: string }
   /** flow运行错误 */
   error: { runId?: string; msg: string }
-  /** 工具调用命中 must_confirm 或兜底，等待用户确认 */
+  /**
+   * 工具调用挂起，等待用户确认 —— 唯一的"请求确认"信号。统一通道:AskUserQuestion /
+   * CompleteTask(require_confirm) / ExitPlanMode / must_confirm 工具都走这一个信号,
+   * webview 按 toolName 分流渲染(.includes('CompleteTask'/'ExitPlanMode'/'AskUserQuestion'))。
+   */
   toolPermissionRequest: {
     runId: string
     toolUseId: string
@@ -148,21 +141,24 @@ type FlowSignalPayload = {
     input: unknown
   }
   /**
-   * require_confirm=true 时 Agent 调用 CompleteTask，等待用户确认是否放行。
-   * 拒绝时 CompleteTask 会作为 isError tool_result 回喂 Agent。
+   * silent_task 模式下工具权限由 ClaudeExecutor 自动应答时上抛的信号(如 AskUserQuestion
+   * 自动填答)。载荷与 `flow.command.toolPermissionResult` 同语义,reducer 处理一致
+   * (写 answeredToolPermissions、移出 pendingToolPermissions),只是入口换成 signal ——
+   * 让 webview 在无人值守模式下也能回显自动答案,与人工回答展示路径统一。
    */
-  agentCompleteConfirmRequest: {
+  toolPermissionResult: {
     runId: string
     toolUseId: string
-    /** CompleteTask MCP 工具的原始入参（content / output_name / values 等） */
-    input: Record<string, unknown>
+    allow: boolean
+    updatedInput?: unknown
+    message?: string
   }
   /**
    * 会话 fork 完成：从源 Flow 复制 transcript 切片到新 Flow。
    * - flowId（由 WithFlowId 注入）= sourceFlowId（源 Flow id）
    * - newFlowId / newRunState：新 Flow 的 id 与对应运行态
    * - runId：extension 端 fork 时同步 spawn FlowRunner 分配的运行 ID,
-   *   webview 收到后写入 newRunState 对应 AgentRun;后续 sendUserMessage / answerQuestion /
+   *   webview 收到后写入 newRunState 对应 AgentRun;后续 sendUserMessage / answerToolPermission /
    *   interrupt 都基于此 runId 派发到 runner。**所属 agent 由 newRunState.runs.at(-1).agentId 反推**,
    *   不再单独携带 agentId。
    *
@@ -203,28 +199,21 @@ type FlowCommandPayload = {
   userMessage: { runId: string; message: UserMessageType }
   /** 中断指定 run */
   interrupt: { runId: string }
-  /** 回答 SDK 内建 AskUserQuestion 工具的问题，resolve 对应的 canUseTool 挂起 */
-  answerQuestion: {
-    runId: string
-    toolUseId: string
-    output: AskUserQuestionOutput
-  }
-  /** 回答工具权限请求：允许或拒绝当前挂起的工具调用 */
+  /**
+   * 回答工具权限请求 —— 唯一的"回答"命令。allow(可带 updatedInput 覆盖入参)或
+   * deny(可带 message 回喂模型)。统一通道:
+   * - AskUserQuestion 回答 = allow + updatedInput={questions,answers,annotations?}
+   * - CompleteTask 拒绝 = deny + message=reason
+   * - ExitPlanMode / must_confirm 工具 = allow / deny
+   */
   toolPermissionResult: {
     runId: string
     toolUseId: string
     allow: boolean
-  }
-  /**
-   * 回答 CompleteTask 完成前确认：同意则放行 CompleteTask 原流程；
-   * 拒绝则 SDK 收到 isError tool_result，Agent 可在同会话继续多轮。
-   */
-  answerCompleteTaskConfirm: {
-    runId: string
-    toolUseId: string
-    accept: boolean
-    /** 拒绝时填写的原因，accept=true 时忽略 */
-    reason?: string
+    /** allow 时覆盖原始 input;缺省用 executor 挂起时存的 input */
+    updatedInput?: unknown
+    /** deny 时回喂模型的原因;缺省 'user denied' */
+    message?: string
   }
   /** 彻底终止 Flow:销毁 FlowRunner,所有 run 转 stopped。仅需 flowId,不要求 runId */
   killFlow: object

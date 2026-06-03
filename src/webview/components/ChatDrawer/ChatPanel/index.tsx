@@ -4,22 +4,24 @@ import { CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import { AnimatePresence, motion } from 'motion/react'
 import { match, P } from 'ts-pattern'
-import type { AskUserQuestionOutput, PendingQuestion } from '@/common'
+import type { AskUserQuestionInput, AskUserQuestionOutput, PendingToolPermission } from '@/common'
 import {
   formatTokenCount,
   formatTokenCost,
   getAgentPhase,
   getFlowPhase,
-  getPendingQuestionsFor,
+  getPendingToolPermissionsFor,
   getRunPhase,
 } from '@/common'
 import type { AgentRun } from '@/webview/store/flow'
 import { useFlowStore, flowCanBeKilled, type AgentPhase } from '@/webview/store/flow'
+import { postMessageToExtension } from '@/webview/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { MessageList, type MessageListRef } from './MessageList'
+import { ToolPermissionCard } from './ToolPermissionCard'
 
 // 模块级常量 —— useMemo 在「无 pending」时返回稳定空数组,避免新引用触发上层 effect。
-const EMPTY_PENDING_QUESTIONS: PendingQuestion[] = []
+const EMPTY_PENDING_TOOL_PERMS: PendingToolPermission[] = []
 
 export type ChatPanelRef = {
   forceScrollToBottom: () => void
@@ -51,7 +53,7 @@ export const ChatPanel: FC<Props> = ({
   ref,
 }) => {
   const killFlow = useFlowStore((s) => s.killFlow)
-  const answerQuestion = useFlowStore((s) => s.answerQuestion)
+  const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
 
   const agentName = useFlowStore(
     (s) =>
@@ -69,21 +71,34 @@ export const ChatPanel: FC<Props> = ({
     return getAgentPhase(fs, agentId)
   })
   const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
-  // pendingQuestions 仅给底部 AskUserQuestionCard 用;ctx / pendingToolPerms / answered* 已搬到 MessageList。
+  // pendingToolPerms 给状态标签 / loading / 底部 AskUserQuestionCard 用;ctx / answered* 在 MessageList。
   // selector 必须返回稳定引用,否则 useSyncExternalStore 在 store 未变时仍因引用不同
   // 持续判定快照变化触发重渲染 → "Maximum update depth exceeded"。
   const fs = useFlowStore((s) => s.flowRunStates[flowId])
-  const pendingQuestions = useMemo(() => {
-    if (!fs) return EMPTY_PENDING_QUESTIONS
+  const pendingToolPerms = useMemo(() => {
+    if (!fs) return EMPTY_PENDING_TOOL_PERMS
     if (runId) {
-      const list = fs.pendingQuestions
-      const filtered = list.filter((q) => q.runId === runId)
+      const list = fs.pendingToolPermissions
+      const filtered = list.filter((p) => p.runId === runId)
       if (filtered.length === list.length) return list
-      if (filtered.length === 0) return EMPTY_PENDING_QUESTIONS
+      if (filtered.length === 0) return EMPTY_PENDING_TOOL_PERMS
       return filtered
     }
-    return getPendingQuestionsFor(fs, agentId)
+    return getPendingToolPermissionsFor(fs, agentId)
   }, [fs, runId, agentId])
+  // 底部固定 AskUserQuestionCard 只取 AskUserQuestion 类型的挂起项
+  const pendingQuestions = useMemo(
+    () => pendingToolPerms.filter((p) => p.toolName.includes('AskUserQuestion')),
+    [pendingToolPerms],
+  )
+  // 底部固定工具权限卡片：排除 AskUserQuestion 与 CompleteTask（后者有专属确认卡片）
+  const pendingPermCards = useMemo(
+    () =>
+      pendingToolPerms.filter(
+        (p) => !p.toolName.includes('AskUserQuestion') && !p.toolName.includes('CompleteTask'),
+      ),
+    [pendingToolPerms],
+  )
   const allRuns = useFlowStore((s) => s.flowRunStates[flowId]?.runs)
   // runs:仅本组件 token 统计 + Welcome / Skeleton 长度判断用;消息渲染由 MessageList 自己派生
   const runs = useMemo<AgentRun[]>(() => {
@@ -163,6 +178,10 @@ export const ChatPanel: FC<Props> = ({
   const [cardHeight, setCardHeight] = useState(240)
   const [dragging, setDragging] = useState(false)
 
+  // 工具权限卡片容器高度
+  const [permCardHeight, setPermCardHeight] = useState(240)
+  const [permDragging, setPermDragging] = useState(false)
+
   // 合并所有 pending questions 的 questions 数组到一张卡片
   const mergedInput = useMemo(() => {
     if (pendingQuestions.length === 0)
@@ -174,7 +193,7 @@ export const ChatPanel: FC<Props> = ({
     const toolUseIds: string[] = []
     for (const pq of pendingQuestions) {
       toolUseIds.push(pq.toolUseId)
-      for (const q of pq.input.questions ?? []) {
+      for (const q of (pq.input as AskUserQuestionInput).questions ?? []) {
         allQuestions.push(q)
       }
     }
@@ -200,20 +219,21 @@ export const ChatPanel: FC<Props> = ({
       }
 
       for (const pq of pendingQuestions) {
+        const questions = (pq.input as AskUserQuestionInput).questions ?? []
         const pqAnswers: Record<string, string> = {}
-        for (const q of pq.input.questions ?? []) {
+        for (const q of questions) {
           const ans = answersPerQuestion[q.question] ?? []
           pqAnswers[q.question] = ans.join('\x1F')
         }
-        answerQuestion(flowId, pq.runId, pq.toolUseId, {
-          questions: pq.input.questions,
-          answers: pqAnswers,
+        // AskUserQuestion 回答 = allow + updatedInput={questions,answers}
+        answerToolPermission(flowId, pq.runId, pq.toolUseId, true, {
+          updatedInput: { questions, answers: pqAnswers },
         })
       }
 
       scrollToBottom()
     },
-    [answerQuestion, flowId, pendingQuestions, scrollToBottom],
+    [answerToolPermission, flowId, pendingQuestions, scrollToBottom],
   )
 
   useImperativeHandle(
@@ -226,6 +246,32 @@ export const ChatPanel: FC<Props> = ({
     [scrollToBottom],
   )
 
+  const onViewPlan = useCallback((planFilePath: string) => {
+    postMessageToExtension({ type: 'openFile', data: { filename: planFilePath, placement: 'active' } })
+  }, [])
+
+  const onPermAllow = useCallback(
+    (perm: PendingToolPermission) => {
+      answerToolPermission(flowId, perm.runId, perm.toolUseId, true)
+    },
+    [answerToolPermission, flowId],
+  )
+
+  const onPermDeny = useCallback(
+    (perm: PendingToolPermission, reason?: string) => {
+      answerToolPermission(flowId, perm.runId, perm.toolUseId, false, reason ? { message: reason } : undefined)
+    },
+    [answerToolPermission, flowId],
+  )
+
+  // awaiting-tool-permission 标签按本视图首个 pending 的 toolName 分流(.includes)
+  const firstPendingToolName = pendingToolPerms[0]?.toolName
+  const toolPermStatusLabel = (): string => {
+    if (firstPendingToolName?.includes('AskUserQuestion')) return '需要回答'
+    if (firstPendingToolName?.includes('CompleteTask')) return '等待完成确认'
+    if (firstPendingToolName?.includes('ExitPlanMode')) return '计划等待确认'
+    return '请求授权'
+  }
   const { text: statusText, color: statusColor } = match<
     AgentPhase,
     { text: string; color: 'processing' | 'warning' | 'default' | 'success' | 'error' }
@@ -234,9 +280,7 @@ export const ChatPanel: FC<Props> = ({
     .with('running', () => ({ text: '生成中', color: 'processing' }))
     .with('result', () => ({ text: '生成完毕', color: 'success' }))
     .with('interrupted', () => ({ text: '已中断', color: 'warning' }))
-    .with('awaiting-question', () => ({ text: '需要回答', color: 'warning' }))
-    .with('awaiting-tool-permission', () => ({ text: '请求授权', color: 'warning' }))
-    .with('awaiting-complete-confirm', () => ({ text: '等待完成确认', color: 'warning' }))
+    .with('awaiting-tool-permission', () => ({ text: toolPermStatusLabel(), color: 'warning' }))
     .with('completed', () => ({ text: '已完成', color: 'success' }))
     .with('stopped', () => ({ text: '已停止', color: 'default' }))
     .with('error', () => ({ text: '出错', color: 'error' }))
@@ -321,7 +365,10 @@ export const ChatPanel: FC<Props> = ({
             agentId={agentId}
             runId={runId}
             loading={
-              phase === 'running' || phase === 'starting' || phase === 'awaiting-complete-confirm'
+              phase === 'running' ||
+              phase === 'starting' ||
+              (phase === 'awaiting-tool-permission' &&
+                !!firstPendingToolName?.includes('CompleteTask'))
             }
           />
         ))}
@@ -367,6 +414,55 @@ export const ChatPanel: FC<Props> = ({
             </div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* 工具权限卡片 — 固定在底部；ExitPlanMode / must_confirm 类挂起时展示 */}
+      <AnimatePresence>
+        {pendingPermCards.length > 0 && (() => {
+          const perm = pendingPermCards[0]
+          const isExitPlan = perm.toolName.includes('ExitPlanMode')
+          const planFilePath = isExitPlan ? ((perm.input as { planFilePath?: string })?.planFilePath ?? '') : ''
+          return (
+            <motion.div
+              key={`perm-card-${perm.toolUseId}`}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: permCardHeight, opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={
+                permDragging ? { duration: 0 } : { type: 'spring', damping: 24, stiffness: 240 }
+              }
+              className='flex shrink-0 flex-col overflow-hidden border-t border-[#45475a]'
+            >
+              <motion.div
+                drag='y'
+                dragMomentum={false}
+                dragElastic={0}
+                dragConstraints={{ top: 0, bottom: 0 }}
+                onDragStart={() => setPermDragging(true)}
+                onDrag={(_, info) => {
+                  setPermCardHeight((h) => Math.max(80, Math.min(600, h - info.delta.y)))
+                }}
+                onDragEnd={() => setPermDragging(false)}
+                whileHover={{ backgroundColor: '#585b70' }}
+                whileDrag={{ backgroundColor: '#74758a' }}
+                className='flex h-2 shrink-0 cursor-row-resize items-center justify-center bg-[#313244]'
+              >
+                <div className='h-0.5 w-8 rounded-full bg-[#6c7086]' />
+              </motion.div>
+              <div className='relative flex-1 overflow-auto px-3 py-2'>
+                <ToolPermissionCard
+                  toolName={perm.toolName}
+                  input={perm.input}
+                  mode='active'
+                  onAllow={() => onPermAllow(perm)}
+                  onDeny={(reason) => onPermDeny(perm, reason)}
+                  exitPlan={isExitPlan ? { planFilePath, onViewPlan: () => onViewPlan(planFilePath) } : undefined}
+                  onChangeHeight={(h) => setPermCardHeight(Math.max(80, Math.min(600, h)))}
+                />
+              </div>
+            </motion.div>
+          )
+        })()}
       </AnimatePresence>
     </div>
   )

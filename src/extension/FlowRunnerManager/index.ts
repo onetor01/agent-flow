@@ -71,20 +71,10 @@ export class FlowRunnerManager {
         const { flowId, ...rest } = data as ExtensionFlowCommandEvents['flow.command.interrupt']
         this.runners.get(flowId)?.emit('flow.command.interrupt', rest)
       })
-      .with('flow.command.answerQuestion', () => {
-        const { flowId, ...rest } =
-          data as ExtensionFlowCommandEvents['flow.command.answerQuestion']
-        this.runners.get(flowId)?.emit('flow.command.answerQuestion', rest)
-      })
       .with('flow.command.toolPermissionResult', () => {
         const { flowId, ...rest } =
           data as ExtensionFlowCommandEvents['flow.command.toolPermissionResult']
         this.runners.get(flowId)?.emit('flow.command.toolPermissionResult', rest)
-      })
-      .with('flow.command.answerCompleteTaskConfirm', () => {
-        const { flowId, ...rest } =
-          data as ExtensionFlowCommandEvents['flow.command.answerCompleteTaskConfirm']
-        this.runners.get(flowId)?.emit('flow.command.answerCompleteTaskConfirm', rest)
       })
       .with('flow.command.setShareValues', () => {
         const { flowId, ...rest } =
@@ -119,7 +109,7 @@ export class FlowRunnerManager {
   /**
    * fork 路径专用：spawn FlowRunner 并启动 ClaudeExecutor（lazy 模式）。
    * - 调用方需提前生成 runId,以便 webview 收到 signal.fork 后用 runId 派发
-   *   sendUserMessage / answerQuestion / interrupt
+   *   sendUserMessage / answerToolPermission / interrupt
    * - 不发 flow.signal.flowStart;runId 由 extension 端通过 signal.fork 同步
    * - 调用前必须先把 newFlow 写入 currentFlows,FlowRunner 通过 getLatestFlow(flowId)
    *   实时取最新引用(lazy 闭包内读到的是用户改 agent 后的最新值)

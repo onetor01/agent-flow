@@ -13,15 +13,11 @@ import type { BubbleItemType } from '@ant-design/x/es/bubble/interface'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemoizedFn } from 'ahooks'
 import { match } from 'ts-pattern'
-import type { AskUserQuestionOutput, PendingQuestion, PendingToolPermission } from '@/common'
-import {
-  getAnsweredToolPermissions,
-  getPendingCompleteConfirmsFor,
-  getPendingQuestionsFor,
-  getPendingToolPermissionsFor,
-} from '@/common'
-import type { AgentRun, PendingCompleteConfirm } from '@/webview/store/flow'
+import type { PendingToolPermission } from '@/common'
+import { getAnsweredToolPermissions, getPendingToolPermissionsFor } from '@/common'
+import type { AgentRun } from '@/webview/store/flow'
 import { useFlowStore } from '@/webview/store/flow'
+import { postMessageToExtension } from '@/webview/utils'
 import { toBubbleItems, type AnsweredInfo, type BubbleCtx } from './MessageBubble'
 
 type Item = BubbleItemType
@@ -29,9 +25,7 @@ type Item = BubbleItemType
 // 模块级常量 —— useMemo / selector 在「无内容」时返回稳定空引用,
 // 避免 useSyncExternalStore 因为新 [] / new Set() 误判快照变化触发死循环重渲染。
 const EMPTY_RUNS: AgentRun[] = []
-const EMPTY_PENDING_QUESTIONS: PendingQuestion[] = []
 const EMPTY_PENDING_TOOL_PERMS: PendingToolPermission[] = []
-const EMPTY_PENDING_COMPLETE_CONFIRMS: PendingCompleteConfirm[] = []
 
 /**
  * 暴露给 ChatPanel 的命令式 API。
@@ -62,14 +56,20 @@ const roleStyles = {
   system: { placement: 'start' as const, variant: 'borderless' as const },
 }
 
-/** 把 answeredQuestions 里 '\x1F' 分隔的多选 join 反向解析成 string[] */
+/**
+ * 从 answeredToolPermissions 的 updatedInput 解析出 AskUserQuestion 历史答案。
+ * 仅 AskUserQuestion 的 updatedInput 带 answers({question -> '\x1F' 分隔的多选 join});
+ * 其它工具(CompleteTask / ExitPlanMode / must_confirm)无 answers,跳过。
+ */
 function buildAnsweredMap(
-  answeredQuestions: Record<string, AskUserQuestionOutput>,
+  answeredToolPermissions: Record<string, { allow: boolean; updatedInput?: unknown; message?: string }>,
 ): Map<string, AnsweredInfo> {
   const answeredMap = new Map<string, AnsweredInfo>()
-  for (const [toolUseId, output] of Object.entries(answeredQuestions)) {
+  for (const [toolUseId, ans] of Object.entries(answeredToolPermissions)) {
+    const answers = (ans.updatedInput as { answers?: Record<string, string> } | undefined)?.answers
+    if (!answers) continue
     const values: Record<string, string[]> = {}
-    for (const [q, a] of Object.entries(output.answers ?? {})) {
+    for (const [q, a] of Object.entries(answers)) {
       values[q] = (a ?? '')
         .split('\x1F')
         .map((s) => s.trim())
@@ -84,7 +84,6 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   // ── 数据订阅 —— 全部用稳定原始引用,过滤 / 转换在 useMemo 中完成 ──────────────
   const fs = useFlowStore((s) => s.flowRunStates[flowId])
   const allRuns = fs?.runs
-  const answeredQuestions = fs?.answeredQuestions
   const answeredToolPermissions = useMemo(() => getAnsweredToolPermissions(fs), [fs])
 
   const runs = useMemo<AgentRun[]>(() => {
@@ -96,18 +95,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     return allRuns.filter((r) => r.agentId === agentId)
   }, [allRuns, agentId, runId])
 
-  const pendingQuestions = useMemo(() => {
-    if (!fs) return EMPTY_PENDING_QUESTIONS
-    if (runId) {
-      const list = fs.pendingQuestions
-      const filtered = list.filter((q) => q.runId === runId)
-      if (filtered.length === list.length) return list
-      if (filtered.length === 0) return EMPTY_PENDING_QUESTIONS
-      return filtered
-    }
-    return getPendingQuestionsFor(fs, agentId)
-  }, [fs, runId, agentId])
-
+  // 四类挂起统一订阅 pendingToolPermissions(AskUserQuestion / CompleteTask / ExitPlanMode / must_confirm)
   const pendingToolPerms = useMemo(() => {
     if (!fs) return EMPTY_PENDING_TOOL_PERMS
     if (runId) {
@@ -120,42 +108,20 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     return getPendingToolPermissionsFor(fs, agentId)
   }, [fs, runId, agentId])
 
-  const pendingCompleteConfirms = useMemo(() => {
-    if (!fs) return EMPTY_PENDING_COMPLETE_CONFIRMS
-    if (runId) {
-      const list = fs.pendingCompleteConfirms
-      const filtered = list.filter((c) => c.runId === runId)
-      if (filtered.length === list.length) return list
-      if (filtered.length === 0) return EMPTY_PENDING_COMPLETE_CONFIRMS
-      return filtered
-    }
-    return getPendingCompleteConfirmsFor(fs, agentId)
-  }, [fs, runId, agentId])
-
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
-  const answerCompleteConfirm = useFlowStore((s) => s.answerCompleteConfirm)
   const forkFlow = useFlowStore((s) => s.forkFlow)
   const { modal } = App.useApp()
 
   // ── ctx 构建 —— 历史 ask_user_question 卡片 / fork icon / tool 权限卡片用 ──
-  const answeredMap = useMemo(() => buildAnsweredMap(answeredQuestions ?? {}), [answeredQuestions])
-
-  const pendingToolUseIds = useMemo(() => {
-    if (pendingQuestions.length === 0) return undefined
-    const ids = new Set<string>()
-    for (const pq of pendingQuestions) ids.add(pq.toolUseId)
-    return ids
-  }, [pendingQuestions])
+  const answeredMap = useMemo(
+    () => buildAnsweredMap(answeredToolPermissions ?? {}),
+    [answeredToolPermissions],
+  )
 
   const pendingToolPermissionToolUseIds = useMemo(() => {
     if (pendingToolPerms.length === 0) return undefined
     return new Set(pendingToolPerms.map((p) => p.toolUseId))
   }, [pendingToolPerms])
-
-  const pendingCompleteConfirmToolUseIds = useMemo(() => {
-    if (pendingCompleteConfirms.length === 0) return undefined
-    return new Set(pendingCompleteConfirms.map((c) => c.toolUseId))
-  }, [pendingCompleteConfirms])
 
   const onToolPermissionAllow = useCallback(
     (toolUseId: string) => {
@@ -165,32 +131,22 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     },
     [answerToolPermission, flowId, pendingToolPerms],
   )
+  // deny:message 供 CompleteTask 拒绝原因(回喂模型);其余工具不传 → executor 用 'user denied'
   const onToolPermissionDeny = useCallback(
-    (toolUseId: string) => {
+    (toolUseId: string, message?: string) => {
       const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
       if (!p) return
-      answerToolPermission(flowId, p.runId, toolUseId, false)
+      answerToolPermission(flowId, p.runId, toolUseId, false, message ? { message } : undefined)
     },
     [answerToolPermission, flowId, pendingToolPerms],
   )
 
-  const onCompleteConfirmAccept = useCallback(
-    (toolUseId: string) => {
-      const c = pendingCompleteConfirms.find((c) => c.toolUseId === toolUseId)
-      if (!c) return
-      answerCompleteConfirm(flowId, c.runId, toolUseId, true)
-    },
-    [answerCompleteConfirm, flowId, pendingCompleteConfirms],
-  )
-
-  const onCompleteConfirmDeny = useCallback(
-    (toolUseId: string, reason: string) => {
-      const c = pendingCompleteConfirms.find((c) => c.toolUseId === toolUseId)
-      if (!c) return
-      answerCompleteConfirm(flowId, c.runId, toolUseId, false, reason)
-    },
-    [answerCompleteConfirm, flowId, pendingCompleteConfirms],
-  )
+  const onViewPlan = useCallback((planFilePath: string) => {
+    postMessageToExtension({
+      type: 'openFile',
+      data: { filename: planFilePath, placement: 'active' },
+    })
+  }, [])
 
   /**
    * fork 触发入口：sessionCompleted=true（历史 session）时弹 modal 提示
@@ -219,27 +175,21 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
 
   const ctx = useMemo<BubbleCtx>(
     () => ({
-      pendingToolUseIds,
-      answeredMap,
       pendingToolPermissionToolUseIds,
       answeredToolPermissions,
+      answeredMap,
       onToolPermissionAllow,
       onToolPermissionDeny,
-      pendingCompleteConfirmToolUseIds,
-      onCompleteConfirmAccept,
-      onCompleteConfirmDeny,
+      onViewPlan,
       onFork: onForkRequest,
     }),
     [
-      pendingToolUseIds,
-      answeredMap,
       pendingToolPermissionToolUseIds,
       answeredToolPermissions,
+      answeredMap,
       onToolPermissionAllow,
       onToolPermissionDeny,
-      pendingCompleteConfirmToolUseIds,
-      onCompleteConfirmAccept,
-      onCompleteConfirmDeny,
+      onViewPlan,
       onForkRequest,
     ],
   )

@@ -11,7 +11,6 @@ import {
   Agent,
   AIMessageType,
   AskUserQuestionInput,
-  AskUserQuestionOutput,
   buildAgentSystemPrompt,
   matchTool,
   matchToolAnySubCommand,
@@ -64,19 +63,22 @@ export type ExecutorEvents = {
   onMessage: (message: AIMessageType) => void
   /** Agent 完成，选择了输出分支 */
   onComplete: (result: ExecutorResult) => void
-  /** 工具调用命中 must_confirm 或兜底，等待用户确认 */
+  /**
+   * 工具调用挂起,等待用户确认 —— 统一通道:AskUserQuestion / CompleteTask(require_confirm) /
+   * ExitPlanMode / must_confirm 工具都走这一个请求。上层据此 fire `flow.signal.toolPermissionRequest`。
+   */
   onToolPermissionRequest: (req: { toolUseId: string; toolName: string; input: unknown }) => void
   /**
-   * require_confirm=true 时 CompleteTask 被调用，等待用户确认是否放行。
-   * 上层据此 fire `flow.signal.agentCompleteConfirmRequest`。粒度按所选 output 判定。
+   * silent_task 模式下工具权限被自动应答时触发(如 AskUserQuestion 自动填答),
+   * 上层据此 fire `flow.signal.toolPermissionResult`,reducer 写入 answeredToolPermissions
+   * 并移出 pendingToolPermissions —— 让 webview 在无人值守模式下也能回显自动答案。
    */
-  onCompleteConfirmRequest: (req: { toolUseId: string; input: Record<string, unknown> }) => void
-  /**
-   * silent_task 模式下 AskUserQuestion 被自动应答时触发,
-   * 上层据此 fire `flow.signal.answerQuestion`,reducer 写入 answeredQuestions
-   * 并移出 pendingQuestions —— 让 webview 在无人值守模式下也能看到自动答案。
-   */
-  onAnswerQuestion: (toolUseId: string, output: AskUserQuestionOutput) => void
+  onToolPermissionResult: (req: {
+    toolUseId: string
+    allow: boolean
+    updatedInput?: unknown
+    message?: string
+  }) => void
   /** 错误 */
   onError: (err: Error) => void
 }
@@ -138,17 +140,12 @@ export class ClaudeExecutor {
     return this._sessionId
   }
 
-  /** 挂起中的 AskUserQuestion 权限请求：toolUseId -> resolver */
-  private pendingPermissions = new Map<string, (result: PermissionResult) => void>()
-
-  /** 挂起中的工具权限请求：toolUseId -> { resolver, input } */
+  /**
+   * 挂起中的工具权限请求：toolUseId -> { resolve, input }。
+   * 四类挂起(AskUserQuestion / CompleteTask(require_confirm) / ExitPlanMode / must_confirm)
+   * 统一入此 Map,回答统一走 answerToolPermission。
+   */
   private pendingToolPermissions = new Map<
-    string,
-    { resolve: (result: PermissionResult) => void; input: Record<string, unknown> }
-  >()
-
-  /** 挂起中的 CompleteTask 完成前确认：toolUseId -> { resolve, input } */
-  private pendingCompleteConfirms = new Map<
     string,
     { resolve: (result: PermissionResult) => void; input: Record<string, unknown> }
   >()
@@ -201,31 +198,6 @@ export class ClaudeExecutor {
       // query 已结束（中断/完成）或 lazy 模式尚未启动，创建新 query 并 resume
       this.createQuery(message)
     }
-  }
-
-  /**
-   * 回答当前挂起的 AskUserQuestion：在 canUseTool 中已挂起 resolver 时直接 resolve。
-   * 找不到 resolver 时静默忽略（无 fork 兜底路径,SDK 不支持 askUserQuestion fork）。
-   */
-  answerQuestion(toolUseId: string, output: AskUserQuestionOutput): void {
-    log('[ClaudeExecutor] answerQuestion', {
-      toolUseId,
-      hasResolver: this.pendingPermissions.has(toolUseId),
-      pendingPermissionKeys: Array.from(this.pendingPermissions.keys()),
-      hasQueryInstance: !!this.queryInstance,
-      sessionId: this._sessionId,
-    })
-    const resolver = this.pendingPermissions.get(toolUseId)
-    if (!resolver) return
-    this.pendingPermissions.delete(toolUseId)
-    resolver({
-      behavior: 'allow',
-      updatedInput: {
-        questions: output.questions,
-        answers: output.answers,
-        ...(output.annotations ? { annotations: output.annotations } : {}),
-      },
-    })
   }
 
   /**
@@ -283,56 +255,43 @@ export class ClaudeExecutor {
   }
 
   /**
-   * 回答工具权限请求：allow 则原样放行 input；deny 则返回带 message 的拒绝结果，
-   * SDK 会在本次工具调用处产生一条 is_error 的 tool_result。
+   * 回答工具权限请求（统一通道,四类挂起共用）。
+   * - allow：放行,updatedInput 覆盖入参(缺省用挂起时存的 input);
+   *   AskUserQuestion 回答 = allow + updatedInput={questions,answers,annotations?}
+   * - deny：返回带 message 的拒绝结果(缺省 'user denied'),SDK 在本次工具调用处产生
+   *   一条 is_error 的 tool_result;CompleteTask 拒绝 = deny + message=reason
    */
-  answerToolPermission(toolUseId: string, allow: boolean): void {
+  answerToolPermission(
+    toolUseId: string,
+    allow: boolean,
+    opts?: { updatedInput?: unknown; message?: string },
+  ): void {
     const pending = this.pendingToolPermissions.get(toolUseId)
     if (!pending) return
     this.pendingToolPermissions.delete(toolUseId)
     if (allow) {
-      pending.resolve({ behavior: 'allow', updatedInput: pending.input })
+      pending.resolve({
+        behavior: 'allow',
+        updatedInput: (opts?.updatedInput ?? pending.input) as Record<string, unknown>,
+      })
     } else {
-      pending.resolve({ behavior: 'deny', message: 'user denied' })
-    }
-  }
-
-  /**
-   * 回答 CompleteTask 完成前确认。
-   * - accept=true：放行原 CompleteTask 工具调用（SDK 执行 MCP 工具，onComplete 触发正常流程）
-   * - accept=false：SDK 收到 isError tool_result，Agent 在同会话继续多轮
-   */
-  answerCompleteConfirm(toolUseId: string, accept: boolean, reason?: string): void {
-    const pending = this.pendingCompleteConfirms.get(toolUseId)
-    if (!pending) return
-    this.pendingCompleteConfirms.delete(toolUseId)
-    if (accept) {
-      pending.resolve({ behavior: 'allow', updatedInput: pending.input })
-    } else {
-      pending.resolve({ behavior: 'deny', message: reason ?? '用户拒绝' })
+      pending.resolve({ behavior: 'deny', message: opts?.message ?? 'user denied' })
     }
   }
 
   private rejectAllPendingPermissions(reason: string): void {
-    for (const [, resolver] of this.pendingPermissions) {
-      resolver({ behavior: 'deny', message: reason })
-    }
-    this.pendingPermissions.clear()
     for (const [, pending] of this.pendingToolPermissions) {
       pending.resolve({ behavior: 'deny', message: reason })
     }
     this.pendingToolPermissions.clear()
-    for (const [, pending] of this.pendingCompleteConfirms) {
-      pending.resolve({ behavior: 'deny', message: reason })
-    }
-    this.pendingCompleteConfirms.clear()
   }
 
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
-    if (toolName === 'AskUserQuestion') {
+    const toolInput = input as Record<string, unknown>
+    if (toolName.includes('AskUserQuestion')) {
       // silent_task 是无人值守模式：直接以占位字符串自动应答，不挂起。
-      // 同步 fire onAnswerQuestion 让 webview 通过 flow.signal.answerQuestion 看到自动答案,
-      // 与人工回答的展示路径(answeredQuestions / 移出 pendingQuestions)保持一致。
+      // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
+      // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
       if (this.agent.work_mode === 'silent_task') {
         const askInput = input as AskUserQuestionInput
         const questions = askInput.questions ?? []
@@ -340,22 +299,16 @@ export class ClaudeExecutor {
         for (const q of questions) {
           answers[q.question] = SILENT_ASK_AUTO_ANSWER
         }
-        const output: AskUserQuestionOutput = { questions, answers }
-        this.events.onAnswerQuestion?.(toolUseID, output)
-        return Promise.resolve({
-          behavior: 'allow',
-          updatedInput: { questions, answers },
-        })
+        const updatedInput = { questions, answers }
+        this.events.onToolPermissionResult({ toolUseId: toolUseID, allow: true, updatedInput })
+        return Promise.resolve({ behavior: 'allow', updatedInput })
       }
-      log('[ClaudeExecutor] canUseTool AskUserQuestion', { toolUseID })
-      // 挂起，等待 answerQuestion() 被调用
-      return new Promise<PermissionResult>((resolve) => {
-        this.pendingPermissions.set(toolUseID, resolve)
-      })
+      // 非 silent：挂起，等待 answerToolPermission() 被调用
+      return this.requestToolPermission(toolUseID, toolName, toolInput)
     }
     // require_confirm 粒度按 output 配置：根据 CompleteTask 入参里的 output_name
-    // 找到对应 output，require_confirm===true 时拦截。无 outputs / 无 output_name 直接放行。
-    // chat 模式不挂载 CompleteTask，此分支不会进入。
+    // 找到对应 output，require_confirm===true 时拦截挂起;否则直接放行
+    // （关键：否则每个 CompleteTask 都弹卡）。chat 模式不挂载 CompleteTask，此分支不会进入。
     if (toolName.includes('CompleteTask')) {
       const completeInput = input as Record<string, unknown>
       const outputName = completeInput.output_name
@@ -365,20 +318,21 @@ export class ClaudeExecutor {
           : undefined
       if (matchedOutput?.require_confirm === true) {
         log('[ClaudeExecutor] canUseTool CompleteTask pending confirm', { toolUseID, outputName })
-        this.events.onCompleteConfirmRequest({
-          toolUseId: toolUseID,
-          input: completeInput,
-        })
-        return new Promise<PermissionResult>((resolve) => {
-          this.pendingCompleteConfirms.set(toolUseID, {
-            resolve,
-            input: completeInput,
-          })
-        })
+        return this.requestToolPermission(toolUseID, toolName, completeInput)
       }
+      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
+    }
+    // plan_mode agent 的 ExitPlanMode 工具：拦截并挂起，等待用户确认计划。
+    // 确认后 SDK 收到 allow，模型继续执行；拒绝则收到 deny（isError tool_result）。
+    // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
+    if (toolName.includes('ExitPlanMode')) {
+      if (this.agent.work_mode === 'silent_task') {
+        this.events.onToolPermissionResult({ toolUseId: toolUseID, allow: true, updatedInput: toolInput })
+        return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
+      }
+      return this.requestToolPermission(toolUseID, toolName, toolInput)
     }
     const { must_confirm_tools, deny_tools } = this.agent
-    const toolInput = input as Record<string, unknown>
     // 优先级 0：命中 deny 列表，直接禁止，不弹窗。
     // Bash 命令级：组合命令中任一子命令命中即禁止（防绕过）
     if (

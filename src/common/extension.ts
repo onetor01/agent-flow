@@ -307,6 +307,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
       }
     }),
   )
+
   tools.push(validateFlowTool, getFlowJSONSchemaTool)
 
   return createSdkMcpServer({

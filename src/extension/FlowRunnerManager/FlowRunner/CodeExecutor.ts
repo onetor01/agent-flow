@@ -1,11 +1,5 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import {
-  AIMessageType,
-  AskUserQuestionOutput,
-  Code,
-  ShareValueKey,
-  UserMessageType,
-} from '@/common'
+import { AIMessageType, Code, ShareValueKey, UserMessageType } from '@/common'
 import { logError } from '../../logger'
 import { ExecutorEvents, ExecutorMode, ExecutorResult } from './ClaudeExecutor'
 
@@ -126,7 +120,7 @@ function validateCodeOutput(
  * 第一版限制:
  * - 不支持作为 fork 起点(无 SDK session 可 fork —— spawnForFork 仅用 ClaudeExecutor)
  * - silent_task / AskUserQuestion / require_confirm 不参与
- * - 一次性执行,完成后 onComplete;sendUserMessage / interrupt / answerQuestion 等是 noop
+ * - 一次性执行,完成后 onComplete;sendUserMessage / interrupt / answerToolPermission 等是 noop
  */
 export class CodeExecutor {
   private agent!: Code
@@ -178,18 +172,12 @@ export class CodeExecutor {
     this.disposed = true
   }
 
-  /** noop —— code 节点不会触发 AskUserQuestion */
-  answerQuestion(_toolUseId: string, _output: AskUserQuestionOutput): void {
-    // noop
-  }
-
   /** noop —— code 节点不挂 MCP / 不走 SDK,无 tool permission */
-  answerToolPermission(_toolUseId: string, _allow: boolean): void {
-    // noop
-  }
-
-  /** noop —— code 节点不调 CompleteTask */
-  answerCompleteConfirm(_toolUseId: string, _accept: boolean, _reason?: string): void {
+  answerToolPermission(
+    _toolUseId: string,
+    _allow: boolean,
+    _opts?: { updatedInput?: unknown; message?: string },
+  ): void {
     // noop
   }
 

@@ -6,7 +6,7 @@ import type {
   ExtensionToWebviewMessage,
   UserMessageType,
 } from './event'
-import type { AskUserQuestionInput, AskUserQuestionOutput, Agent, Code, Flow } from './index'
+import type { Agent, Code, Flow } from './index'
 
 // ── TokenUsage ────────────────────────────────────────────────────────────
 
@@ -130,8 +130,7 @@ export const formatTokenCost = (cost: number): string => {
 
 /**
  * Flow 级 phase —— 只描述整个 flow 的生命周期。
- * `result` / `awaiting-question` / `awaiting-tool-permission` / `awaiting-complete-confirm`
- * 四态在控制语义上一致（可中断、不可改图），区别仅在等待对象。
+ * `result` / `awaiting-tool-permission` 在控制语义上一致（可中断、不可改图），区别仅在等待对象。
  */
 export type FlowPhase =
   | 'idle'
@@ -139,9 +138,7 @@ export type FlowPhase =
   | 'running'
   | 'result'
   | 'interrupted'
-  | 'awaiting-question'
   | 'awaiting-tool-permission'
-  | 'awaiting-complete-confirm'
   | 'completed'
   | 'stopped'
   | 'error'
@@ -156,9 +153,7 @@ export type AgentPhase =
   | 'running'
   | 'result'
   | 'interrupted'
-  | 'awaiting-question'
   | 'awaiting-tool-permission'
-  | 'awaiting-complete-confirm'
   | 'completed'
   | 'stopped'
   | 'error'
@@ -167,8 +162,7 @@ export type AgentPhase =
 
 /**
  * 单个 Agent 运行实例 —— phase 由 [getRunPhase](src/common/flowRunState.ts) 从
- * `messages` + `completed` + `state.killed` + `state.pendingQuestions` /
- * `state.pendingToolPermissions` 推断,不存字段。
+ * `messages` + `completed` + `state.killed` + `state.pendingToolPermissions` 推断,不存字段。
  */
 export type AgentRun = {
   /** 主键 —— flowStart 路径由 webview 生成,next_agent / fork 路径由 extension 生成 */
@@ -182,25 +176,10 @@ export type AgentRun = {
   outputName?: string
 }
 
-export type PendingQuestion = {
-  toolUseId: string
-  input: AskUserQuestionInput
-  /** 所属 run */
-  runId: string
-}
-
 export type PendingToolPermission = {
   toolUseId: string
   toolName: string
   input: unknown
-  /** 所属 run */
-  runId: string
-}
-
-export type PendingCompleteConfirm = {
-  toolUseId: string
-  /** CompleteTask MCP 工具的原始入参（content / output_name / values 等） */
-  input: Record<string, unknown>
   /** 所属 run */
   runId: string
 }
@@ -217,16 +196,13 @@ export type FlowRunState = {
   killed: boolean
   /** 按追加顺序排列的 AgentRun;首项是 flowStart 创建,后续由 next_agent */
   runs: AgentRun[]
-  /** 已回答的 AskUserQuestion：toolUseId -> 用户提交的答案，用于 UI 回显历史态 */
-  answeredQuestions: Record<string, AskUserQuestionOutput>
-  /** 当前未回答的 AskUserQuestion 队列(按 runId 区分归属) */
-  pendingQuestions: PendingQuestion[]
-  /** 已回答的工具权限请求：toolUseId -> allow，用于 UI 回显历史态 */
-  answeredToolPermissions: Record<string, { allow: boolean }>
-  /** 当前未回答的工具权限请求队列(按 runId 区分归属) */
+  /**
+   * 已回答的工具权限请求:toolUseId -> { allow, updatedInput },用于 UI 回显历史态。
+   * updatedInput 供 AskUserQuestion 历史卡片回显用户(或 silent 自动)填写的答案。
+   */
+  answeredToolPermissions: Record<string, { allow: boolean; updatedInput?: unknown; message?: string }>
+  /** 当前未回答的工具权限请求队列(按 runId 区分归属) —— 四类挂起统一入此队列 */
   pendingToolPermissions: PendingToolPermission[]
-  /** 当前挂起的 CompleteTask 完成前确认队列(按 runId 区分归属) */
-  pendingCompleteConfirms: PendingCompleteConfirm[]
   /** Flow 运行时的共享数据 */
   shareValues: Record<string, string>
 }
@@ -240,13 +216,9 @@ export type MessageEffect = {
   runId: string
   agentId: string
   agentName: string
-  reason:
-    | 'result'
-    | 'awaiting-question'
-    | 'awaiting-tool-permission'
-    | 'awaiting-complete-confirm'
-    | 'flow-completed'
-    | 'agent-error'
+  reason: 'result' | 'awaiting-tool-permission' | 'flow-completed' | 'agent-error'
+  /** awaiting-tool-permission 时携带,供通知 / 状态标签按工具类型(.includes)出文案 */
+  toolName?: string
 }
 
 /**
@@ -288,11 +260,8 @@ export function updateFlowRunState(
     const fresh: FlowRunState = {
       killed: false,
       runs: [firstRun],
-      answeredQuestions: {},
       answeredToolPermissions: {},
-      pendingQuestions: [],
       pendingToolPermissions: [],
-      pendingCompleteConfirms: [],
       shareValues: state?.shareValues ?? {},
     }
     return {
@@ -305,11 +274,8 @@ export function updateFlowRunState(
     const base: FlowRunState = {
       killed: false,
       runs: [],
-      answeredQuestions: {},
       answeredToolPermissions: {},
-      pendingQuestions: [],
       pendingToolPermissions: [],
-      pendingCompleteConfirms: [],
       ...state,
       shareValues: msg.data.values,
     }
@@ -328,15 +294,17 @@ export function updateFlowRunState(
   const pushEffect = (opts: Omit<MessageEffect, 'flowName' | 'agentName'>) => {
     const flow = findFlow(opts.flowId)
     const agent = findAgent(flow, opts.agentId)
-    // 静默模式的agent减少通知 代码节点也通知
-    if (
-      agent &&
-      (agent.node_type === 'code' || agent.work_mode === 'silent_task') &&
-      opts.reason !== 'agent-error' &&
-      opts.reason !== 'flow-completed' &&
-      opts.reason !== 'awaiting-complete-confirm'
-    )
-      return
+    // silent_task / code 节点减少通知:只放行 agent-error / flow-completed /
+    // CompleteTask|ExitPlanMode 的确认(awaiting-tool-permission 且 toolName 命中);
+    // result、AskUserQuestion 自动应答、普通工具授权一律静默。
+    if (agent && (agent.node_type === 'code' || agent.work_mode === 'silent_task')) {
+      const isConfirmPermission =
+        opts.reason === 'awaiting-tool-permission' &&
+        (!!opts.toolName?.includes('CompleteTask') || !!opts.toolName?.includes('ExitPlanMode'))
+      const allowed =
+        opts.reason === 'agent-error' || opts.reason === 'flow-completed' || isConfirmPermission
+      if (!allowed) return
+    }
     effects.push({
       ...opts,
       flowName: flow?.name ?? '',
@@ -347,9 +315,7 @@ export function updateFlowRunState(
   const next = produce(state, (draft) => {
     const flowId = msg.data.flowId
     const clearPendings = () => {
-      draft.pendingQuestions = []
       draft.pendingToolPermissions = []
-      draft.pendingCompleteConfirms = []
     }
 
     // ── command.killFlow:任何状态下强制终止(包括终态,幂等) ──────────
@@ -383,37 +349,17 @@ export function updateFlowRunState(
       if (sid) run.sessionId = sid
     }
 
-    const prevPendingToolUseId = draft.pendingQuestions[0]?.toolUseId
-
     match(msg)
       // ── signals ──────────────────────────────────────────────
       .with({ type: 'flow.signal.flowStart' }, () => {})
       .with({ type: 'flow.signal.aiMessage' }, (m) => {
         const { message } = m.data
         if (message.type === 'result') {
-          if (draft.pendingQuestions.length === 0) {
+          // 本 run 仍有未回答的工具权限请求时,不触发"生成完毕"——等用户处理。
+          // AskUserQuestion 不再从 assistant 消息抽取入队,而是由 canUseTool 挂起时
+          // 经 toolPermissionRequest 入队(与 CompleteTask / ExitPlanMode / must_confirm 统一)。
+          if (draft.pendingToolPermissions.every((p) => p.runId !== run.runId)) {
             pushEffect({ flowId, runId: run.runId, agentId: run.agentId, reason: 'result' })
-          }
-          return
-        }
-        const found = extractPendingQuestions(m, draft.answeredQuestions, run.runId)
-        if (found.length > 0) {
-          // 追加到队列尾部（去重：已存在的 toolUseId 不重复加入）
-          const existingIds = new Set(draft.pendingQuestions.map((q) => q.toolUseId))
-          for (const q of found) {
-            if (!existingIds.has(q.toolUseId)) {
-              draft.pendingQuestions.push(q)
-              existingIds.add(q.toolUseId)
-            }
-          }
-          // 只在从无 pending 或换到新 toolUseId 时才通知
-          if (found[0].toolUseId !== prevPendingToolUseId) {
-            pushEffect({
-              flowId,
-              runId: run.runId,
-              agentId: run.agentId,
-              reason: 'awaiting-question',
-            })
           }
         }
       })
@@ -480,33 +426,23 @@ export function updateFlowRunState(
           runId: run.runId,
           agentId: run.agentId,
           reason: 'awaiting-tool-permission',
+          toolName: data.toolName,
         })
       })
       .with({ type: 'flow.signal.agentInterrupted' }, () => {
         clearPendings()
       })
-      .with({ type: 'flow.signal.answerQuestion' }, ({ data }) => {
-        // silent_task 自动应答路径：与 command.answerQuestion 同语义
-        draft.answeredQuestions[data.toolUseId] = data.output
-        draft.pendingQuestions = draft.pendingQuestions.filter(
-          (q) => q.toolUseId !== data.toolUseId,
-        )
-      })
-      .with({ type: 'flow.signal.agentCompleteConfirmRequest' }, ({ data }) => {
-        // 队列追加（toolUseId 去重）
-        if (!draft.pendingCompleteConfirms.some((c) => c.toolUseId === data.toolUseId)) {
-          draft.pendingCompleteConfirms.push({
-            toolUseId: data.toolUseId,
-            input: data.input,
-            runId: run.runId,
-          })
+      .with({ type: 'flow.signal.toolPermissionResult' }, ({ data }) => {
+        // silent_task 自动应答路径:与 command.toolPermissionResult 同语义,仅入口为 signal,
+        // 且不 pushEffect(自动应答无需通知用户)。
+        draft.answeredToolPermissions[data.toolUseId] = {
+          allow: data.allow,
+          updatedInput: data.updatedInput,
+          message: data.message,
         }
-        pushEffect({
-          flowId,
-          runId: run.runId,
-          agentId: run.agentId,
-          reason: 'awaiting-complete-confirm',
-        })
+        draft.pendingToolPermissions = draft.pendingToolPermissions.filter(
+          (p) => p.toolUseId !== data.toolUseId,
+        )
       })
       .with({ type: 'flow.signal.agentError' }, () => {
         clearPendings()
@@ -530,22 +466,14 @@ export function updateFlowRunState(
       .with({ type: 'flow.command.interrupt' }, () => {
         // 等待 flow.signal.agentInterrupted 实际处理
       })
-      .with({ type: 'flow.command.answerQuestion' }, ({ data }) => {
-        draft.answeredQuestions[data.toolUseId] = data.output
-        // 从队列中移除已回答的问题
-        draft.pendingQuestions = draft.pendingQuestions.filter(
-          (q) => q.toolUseId !== data.toolUseId,
-        )
-      })
       .with({ type: 'flow.command.toolPermissionResult' }, ({ data }) => {
-        draft.answeredToolPermissions[data.toolUseId] = { allow: data.allow }
+        draft.answeredToolPermissions[data.toolUseId] = {
+          allow: data.allow,
+          updatedInput: data.updatedInput,
+          message: data.message,
+        }
         draft.pendingToolPermissions = draft.pendingToolPermissions.filter(
           (p) => p.toolUseId !== data.toolUseId,
-        )
-      })
-      .with({ type: 'flow.command.answerCompleteTaskConfirm' }, ({ data }) => {
-        draft.pendingCompleteConfirms = draft.pendingCompleteConfirms.filter(
-          (c) => c.toolUseId !== data.toolUseId,
         )
       })
       // ── fork：源 Flow 状态完全不变,新 Flow 的 RunState 由调用方在 store 外侧写入 ──
@@ -565,14 +493,13 @@ const isTerminalPhase = (p: AgentPhase): boolean =>
 
 /**
  * 按 run 自身的数据推断 phase —— SSOT 是 `run.messages` + `run.completed` +
- * `state.killed` + `state.pendingQuestions` / `state.pendingToolPermissions`。
+ * `state.killed` + `state.pendingToolPermissions`。
  *
  * 单个 run 的优先级:
  * - error                       消息流中出现过 agentError / error signal
  * - completed                   run.completed === true
  * - stopped                     state.killed (未已终态时投影为 stopped)
  * - awaiting-tool-permission    state.pendingToolPermissions 中有属于本 run 的项
- * - awaiting-question           state.pendingQuestions 中有属于本 run 的项
  * - interrupted                 末条 aiMessage 之后出现过 agentInterrupted
  * - result / running            末条 aiMessage 是 result type / 其它
  * - starting                    无任何消息(刚 push 进 runs 还没收到 signal)
@@ -587,9 +514,6 @@ export function getRunPhase(run: AgentRun, state: FlowRunState): AgentPhase {
   if (state.killed) return 'stopped'
   if (state.pendingToolPermissions.some((p) => p.runId === run.runId))
     return 'awaiting-tool-permission'
-  if (state.pendingCompleteConfirms.some((c) => c.runId === run.runId))
-    return 'awaiting-complete-confirm'
-  if (state.pendingQuestions.some((q) => q.runId === run.runId)) return 'awaiting-question'
   // 倒序找:agentInterrupted 在末条 aiMessage 之后出现 → interrupted;反之视为已恢复
   for (let i = run.messages.length - 1; i >= 0; i--) {
     const m = run.messages[i]
@@ -613,7 +537,6 @@ export function getRunPhase(run: AgentRun, state: FlowRunState): AgentPhase {
  * 优先级(从高到低):
  * - error                       任一 run 出错即整体 error(跨越终态边界)
  * - awaiting-tool-permission    需用户立即处理
- * - awaiting-question           需用户回答
  * - result                      有结果待消费
  * - running / starting          运行中
  * - interrupted                 中断后未推进
@@ -624,8 +547,6 @@ function aggregatePhase(phases: AgentPhase[]): FlowPhase {
   if (phases.includes('error')) return 'error'
   const order: AgentPhase[] = [
     'awaiting-tool-permission',
-    'awaiting-complete-confirm',
-    'awaiting-question',
     'result',
     'running',
     'starting',
@@ -639,30 +560,7 @@ function aggregatePhase(phases: AgentPhase[]): FlowPhase {
   return 'idle'
 }
 
-/** 从 assistant 消息中抽取所有未回答的 AskUserQuestion */
-function extractPendingQuestions(
-  msg: Extract<ExtensionToWebviewMessage, { type: 'flow.signal.aiMessage' }>,
-  answered: Record<string, AskUserQuestionOutput>,
-  runId: string,
-): PendingQuestion[] {
-  const m = msg.data.message
-  if (m.type !== 'assistant') return []
-  const blocks = m.message.content
-  if (!Array.isArray(blocks)) return []
-  const result: PendingQuestion[] = []
-  for (const block of blocks) {
-    if (block.type !== 'tool_use' || block.name !== 'AskUserQuestion') continue
-    if (answered[block.id]) continue
-    const input = block.input as AskUserQuestionInput | undefined
-    if (!input || !Array.isArray(input.questions)) continue
-    result.push({ toolUseId: block.id, input, runId })
-  }
-  return result
-}
-
 // ── Selector ────────────────────────────────────────────────────────────────
-
-const EMPTY_PENDING_QUESTIONS: PendingQuestion[] = []
 
 export function getFlowPhase(state: FlowRunState | undefined): FlowPhase {
   if (!state) return 'idle'
@@ -677,36 +575,10 @@ export function getAgentPhase(state: FlowRunState | undefined, agentId: string):
   )
 }
 
-/**
- * 取属于该 agent 的 pendingQuestions —— 引用稳定:
- * - 所有 q 都属于该 agent → 直接返回 state.pendingQuestions(原引用)
- * - 全部不属于 → 返回常量 EMPTY_PENDING_QUESTIONS
- * - 混合(理论上单 executor 不会出现) → 返回新数组(消费端按需 useMemo 兜底)
- */
-export function getPendingQuestionsFor(
-  state: FlowRunState | undefined,
-  agentId: string,
-): PendingQuestion[] {
-  if (!state) return EMPTY_PENDING_QUESTIONS
-  const list = state.pendingQuestions
-  if (list.length === 0) return EMPTY_PENDING_QUESTIONS
-  const runIdToAgent = new Map(state.runs.map((r) => [r.runId, r.agentId]))
-  let allBelong = true
-  let anyBelong = false
-  for (const q of list) {
-    const a = runIdToAgent.get(q.runId)
-    if (a === agentId) anyBelong = true
-    else allBelong = false
-  }
-  if (allBelong) return list
-  if (!anyBelong) return EMPTY_PENDING_QUESTIONS
-  return list.filter((q) => runIdToAgent.get(q.runId) === agentId)
-}
-
 const EMPTY_PENDING_TOOL_PERMISSIONS: PendingToolPermission[] = []
 
 /**
- * 取属于该 agent 的 pendingToolPermissions —— 引用稳定策略与 getPendingQuestionsFor 一致。
+ * 取属于该 agent 的 pendingToolPermissions —— 引用稳定:全属于→原引用;全不属于→空常量;混合→filter 新数组。
  */
 export function getPendingToolPermissionsFor(
   state: FlowRunState | undefined,
@@ -730,33 +602,8 @@ export function getPendingToolPermissionsFor(
 
 export function getAnsweredToolPermissions(
   state: FlowRunState | undefined,
-): Record<string, { allow: boolean }> | undefined {
+): Record<string, { allow: boolean; updatedInput?: unknown; message?: string }> | undefined {
   return state?.answeredToolPermissions
-}
-
-const EMPTY_PENDING_COMPLETE_CONFIRMS: PendingCompleteConfirm[] = []
-
-/**
- * 取属于该 agent 的 pendingCompleteConfirms —— 引用稳定策略与 getPendingQuestionsFor 一致。
- */
-export function getPendingCompleteConfirmsFor(
-  state: FlowRunState | undefined,
-  agentId: string,
-): PendingCompleteConfirm[] {
-  if (!state) return EMPTY_PENDING_COMPLETE_CONFIRMS
-  const list = state.pendingCompleteConfirms
-  if (list.length === 0) return EMPTY_PENDING_COMPLETE_CONFIRMS
-  const runIdToAgent = new Map(state.runs.map((r) => [r.runId, r.agentId]))
-  let allBelong = true
-  let anyBelong = false
-  for (const c of list) {
-    const a = runIdToAgent.get(c.runId)
-    if (a === agentId) anyBelong = true
-    else allBelong = false
-  }
-  if (allBelong) return list
-  if (!anyBelong) return EMPTY_PENDING_COMPLETE_CONFIRMS
-  return list.filter((c) => runIdToAgent.get(c.runId) === agentId)
 }
 
 // ── UI helper ────────────────────────────────────────────────────────────────
@@ -765,7 +612,7 @@ export function getPendingCompleteConfirmsFor(
  * ChatInput 的状态语义 —— 由 AgentPhase 投影。
  * - `ready`：可直接发送（idle / result：result 走 sendUserMessage 同会话追问）
  * - `disabled`：按钮灰，既不能发也不能中断（starting：握手中无 runId/sessionId，interrupt 是 no-op）
- * - `loading`：按钮变停止键，可中断不可发（running / awaiting-question / awaiting-tool-permission）
+ * - `loading`：按钮变停止键，可中断不可发（running / awaiting-tool-permission）
  * - `confirm-required`：可发但要弹窗确认覆盖运行（completed / stopped / error；弹窗在 useSendUserMessage 里）
  */
 export type AgentChatInputState = 'ready' | 'disabled' | 'loading' | 'confirm-required'
@@ -773,16 +620,7 @@ export type AgentChatInputState = 'ready' | 'disabled' | 'loading' | 'confirm-re
 export const agentChatInputState = (p: AgentPhase): AgentChatInputState =>
   match(p)
     .with(P.union('idle', 'result', 'interrupted'), () => 'ready' as const)
-    .with(
-      P.union(
-        'starting',
-        'running',
-        'awaiting-question',
-        'awaiting-tool-permission',
-        'awaiting-complete-confirm',
-      ),
-      () => 'loading' as const,
-    )
+    .with(P.union('starting', 'running', 'awaiting-tool-permission'), () => 'loading' as const)
     .with(P.union('completed', 'stopped', 'error'), () => 'confirm-required' as const)
     .exhaustive()
 // 取消flow readonly的设计 任意时候允许用户更改
@@ -792,15 +630,7 @@ export const flowIsDestructiveReadOnly = (p: FlowPhase) =>
 export const flowCanBeKilled = (p: FlowPhase) =>
   match(p)
     .with(
-      P.union(
-        'interrupted',
-        'starting',
-        'running',
-        'result',
-        'awaiting-question',
-        'awaiting-tool-permission',
-        'awaiting-complete-confirm',
-      ),
+      P.union('interrupted', 'starting', 'running', 'result', 'awaiting-tool-permission'),
       () => true,
     )
     .with(P.union('idle', 'completed', 'stopped', 'error'), () => false)

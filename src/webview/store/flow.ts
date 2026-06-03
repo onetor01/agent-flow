@@ -2,21 +2,18 @@ import type { NotificationInstance } from 'antd/es/notification/interface'
 import { produce } from 'immer'
 import { match } from 'ts-pattern'
 import { create } from 'zustand'
-import type { Flow } from '@/common'
 import {
-  type AgentPhase,
-  type AgentChatInputState,
-  type AgentRun,
-  type ExtensionFlowCommandMessage,
-  type FlowPhase,
-  type FlowRunState,
-  type PendingQuestion,
-  type PendingToolPermission,
-  type PendingCompleteConfirm,
-  type MessageEffect,
-  type UserMessageType,
-  type AskUserQuestionOutput,
-  type ExtensionToWebviewMessage,
+  AgentPhase,
+  AgentChatInputState,
+  AgentRun,
+  ExtensionFlowCommandMessage,
+  Flow,
+  FlowPhase,
+  FlowRunState,
+  PendingToolPermission,
+  MessageEffect,
+  UserMessageType,
+  ExtensionToWebviewMessage,
   updateFlowRunState,
   agentChatInputState,
   flowCanBeKilled,
@@ -73,22 +70,17 @@ type FlowStoreType = StoreState & {
     runId: string,
     content: UserMessageType['message']['content'],
   ) => void
-  /** 回答 AskUserQuestion —— 调用方持有 pendingQuestion.runId 直接传入 */
-  answerQuestion: (
+  /**
+   * 回答工具权限请求(统一通道) —— 调用方持有 pendingToolPermission.runId 直接传入。
+   * AskUserQuestion 回答 = allow + opts.updatedInput={questions,answers};
+   * CompleteTask 拒绝 = deny + opts.message=reason;ExitPlanMode / must_confirm = allow/deny。
+   */
+  answerToolPermission: (
     flowId: string,
     runId: string,
     toolUseId: string,
-    output: AskUserQuestionOutput,
-  ) => void
-  /** 回答工具权限请求 —— 调用方持有 pendingToolPermission.runId 直接传入 */
-  answerToolPermission: (flowId: string, runId: string, toolUseId: string, allow: boolean) => void
-  /** 回答 CompleteTask 完成前确认 */
-  answerCompleteConfirm: (
-    flowId: string,
-    runId: string,
-    toolUseId: string,
-    accept: boolean,
-    reason?: string,
+    allow: boolean,
+    opts?: { updatedInput?: unknown; message?: string },
   ) => void
   /** 中断当前 run —— 调用方决定要中断哪个 run */
   interruptAgent: (flowId: string, runId: string) => void
@@ -118,9 +110,7 @@ export type {
   AgentRun,
   FlowPhase,
   FlowRunState,
-  PendingQuestion,
   PendingToolPermission,
-  PendingCompleteConfirm,
 }
 export { agentChatInputState, flowCanBeKilled, flowIsDestructiveReadOnly }
 
@@ -177,12 +167,10 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
   /** 把 updateFlowRunState 返回的 notifications 翻译成 antd notification.info 调用 */
   const fireNotifications = (effects: MessageEffect[]) => {
     for (const n of effects) {
-      // 自动打开 ChatPanel（result / awaiting-question / awaiting-tool-permission / awaiting-complete-confirm / flow-completed）
+      // 自动打开 ChatPanel（result / awaiting-tool-permission / flow-completed）
       if (
         n.reason === 'result' ||
-        n.reason === 'awaiting-question' ||
         n.reason === 'awaiting-tool-permission' ||
-        n.reason === 'awaiting-complete-confirm' ||
         n.reason === 'flow-completed'
       ) {
         autoOpenChatDrawer(n)
@@ -191,14 +179,19 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       if (!shouldNotify(n)) continue
       const key = `flow-notify-${n.flowId}-${n.runId}-${n.reason}`
       activeNotificationKeys.add(key)
+      // awaiting-tool-permission 按 toolName 分流文案(.includes 对 mcp__ 与 :: 两种格式都成立)
+      const toolPermLabel = (): string => {
+        if (n.toolName?.includes('AskUserQuestion')) return `Agent「${n.agentName}」需要回答`
+        if (n.toolName?.includes('CompleteTask')) return `Agent「${n.agentName}」等待完成确认`
+        if (n.toolName?.includes('ExitPlanMode')) return `Agent「${n.agentName}」计划已生成`
+        return `Agent「${n.agentName}」请求授权`
+      }
       notificationApi?.info({
         key,
         duration: 0,
         message: match(n.reason)
           .with('result', () => `Agent「${n.agentName}」生成完毕`)
-          .with('awaiting-question', () => `Agent「${n.agentName}」需要回答`)
-          .with('awaiting-tool-permission', () => `Agent「${n.agentName}」请求授权`)
-          .with('awaiting-complete-confirm', () => `Agent「${n.agentName}」等待完成确认`)
+          .with('awaiting-tool-permission', () => toolPermLabel())
           .with('flow-completed', () => `工作流「${n.flowName}」已完成`)
           .with('agent-error', () => `Agent「${n.agentName}」运行出错`)
           .exhaustive(),
@@ -433,22 +426,17 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         },
       })
     },
-    answerQuestion: (flowId, runId, toolUseId, output) => {
-      dispatchCommand({
-        type: 'flow.command.answerQuestion',
-        data: { flowId, runId, toolUseId, output },
-      })
-    },
-    answerToolPermission: (flowId, runId, toolUseId, allow) => {
+    answerToolPermission: (flowId, runId, toolUseId, allow, opts) => {
       dispatchCommand({
         type: 'flow.command.toolPermissionResult',
-        data: { flowId, runId, toolUseId, allow },
-      })
-    },
-    answerCompleteConfirm: (flowId, runId, toolUseId, accept, reason) => {
-      dispatchCommand({
-        type: 'flow.command.answerCompleteTaskConfirm',
-        data: { flowId, runId, toolUseId, accept, reason },
+        data: {
+          flowId,
+          runId,
+          toolUseId,
+          allow,
+          updatedInput: opts?.updatedInput,
+          message: opts?.message,
+        },
       })
     },
     interruptAgent: (flowId, runId) => {
