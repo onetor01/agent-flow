@@ -110,21 +110,21 @@ export const AgentEditor: FC = () => {
         agent_name: src.agent_name,
         agent_desc: src.agent_desc,
         node_type: src.node_type ?? 'agent',
-        code: src.code ?? '',
+        code: src.code,
         model: src.model,
         effort: src.effort,
         agent_prompt: src.agent_prompt,
         must_confirm_tools: src.must_confirm_tools,
         deny_tools: src.deny_tools,
         work_mode: src.work_mode ?? 'task',
-        no_input: src.no_input ?? false,
-        plan_mode: src.plan_mode ?? false,
-        isolation_mode: src.isolation_mode ?? false,
-        allowed_read_values_keys: src.allowed_read_values_keys ?? [],
-        allowed_write_values_keys: src.allowed_write_values_keys ?? [],
-        base_url: src.base_url ?? '',
-        api_key: src.api_key ?? '',
-        outputs: (src.outputs ?? []).map((o) => ({
+        no_input: src.no_input,
+        plan_mode: src.plan_mode,
+        isolation_mode: src.isolation_mode,
+        allowed_read_values_keys: src.allowed_read_values_keys,
+        allowed_write_values_keys: src.allowed_write_values_keys,
+        base_url: src.base_url,
+        api_key: src.api_key,
+        outputs: src.outputs?.map((o) => ({
           output_name: o.output_name,
           output_desc: o.output_desc,
           next_agent: o.next_agent,
@@ -183,7 +183,7 @@ export const AgentEditor: FC = () => {
         }}
         onMouseDown={(e) => e.stopPropagation()}
         onPaste={(e) => e.stopPropagation()}
-        onValuesChange={(changed: Partial<Agent>) => {
+        onValuesChange={(changed: Partial<AgentFormValue>) => {
           if (changed.work_mode === 'silent_task' && !silentWarnedRef.current) {
             silentWarnedRef.current = true
             modal.warning({
@@ -193,12 +193,12 @@ export const AgentEditor: FC = () => {
             })
           }
         }}
-        onFinish={(val: Omit<Agent, 'id'>) => {
+        onFinish={(val: AgentFormValue) => {
           save((draftFlows) => {
             const f = draftFlows.find((f) => f.id === editingAgent!.flowId)
             if (!f) return
-            f.agents = (f.agents ?? []).map((a) =>
-              a.id === editingAgent!.agentId ? { ...val, id: a.id } : a,
+            f.agents = f.agents?.map((a) =>
+              a.id === editingAgent!.agentId ? ({ ...val, id: a.id } as typeof a) : a,
             )
           })
           setEditingAgent(undefined)

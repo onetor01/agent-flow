@@ -1,5 +1,5 @@
 import { useEffect, useState, type FC } from 'react'
-import { Drawer, Form, Input, Button, Switch, Tag, Tooltip, message } from 'antd'
+import { Drawer, Form, Input, Button, Switch, Tooltip, message } from 'antd'
 import {
   CloseOutlined,
   EyeOutlined,
@@ -28,10 +28,10 @@ import { Md } from '../text-components'
 
 type FormValues = {
   name: string
-  shareValuesKeys: ShareValueKey[]
+  shareValuesKeys?: ShareValueKey[]
   shareValues: Record<string, string>
-  base_url: string
-  api_key: string
+  base_url?: string
+  api_key?: string
 }
 
 type SortableRowProps = {
@@ -135,10 +135,10 @@ export const FlowEditor: FC = () => {
       form.resetFields()
       form.setFieldsValue({
         name: flow.name,
-        shareValuesKeys: flow.shareValuesKeys ?? [],
+        shareValuesKeys: flow.shareValuesKeys,
         shareValues: runShareValues ?? {},
-        base_url: flow.base_url ?? '',
-        api_key: flow.api_key ?? '',
+        base_url: flow.base_url,
+        api_key: flow.api_key,
       })
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditingKey(null)
