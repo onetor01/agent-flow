@@ -61,7 +61,6 @@ export const PresetFlows: Flow[] = [
           },
         ],
         work_mode: 'silent_task',
-        allowed_read_values_keys: [],
         allowed_write_values_keys: ['summary', 'worktreePath', 'feishuUrls'],
         deny_tools: ['Bash(git commit)', 'Bash(git merge)', 'Bash(git push)'],
         must_confirm_tools: ['Edit'],
@@ -72,6 +71,7 @@ export const PresetFlows: Flow[] = [
         effort: 'high',
         agent_name: '修改代码',
         deny_tools: ['Bash(git merge)', 'Bash(git push)'],
+        plan_mode: true,
         agent_prompt: [
           '### 你的职责',
           '在正确的工作目录下完成代码修改。',
