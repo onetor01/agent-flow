@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import type { FC } from 'react'
+import type { CSSProperties, FC } from 'react'
 import { App, Badge, Tag, Tooltip, Typography } from 'antd'
 import {
   CodeOutlined,
@@ -17,10 +17,10 @@ import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import type { AgentNode } from '../flowUtils'
 
-const handleStyle = {
-  height: 16,
-  width: 16,
-  border: '2px solid #1e1e2e',
+const handleStyle: CSSProperties = {
+  height: 14,
+  width: 14,
+  border: '4px solid #6366f1',
   background: '#6366f1',
 }
 
@@ -30,6 +30,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))
   const agent: Agent | Code | undefined = flow?.agents?.find((a) => a.id === agentId)
+  const no_output = agent && 'no_output' in agent && agent.no_output
   const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
 
   const { message } = App.useApp()
@@ -61,7 +62,11 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           position={Position.Left}
           id='input'
           isConnectableStart={false}
-          style={{ ...handleStyle, left: -8 }}
+          style={{
+            ...handleStyle,
+            left: -8,
+            ...(agent?.no_input ? { background: 'transparent' } : {}),
+          }}
         />
 
         {/* 头部 */}
@@ -193,7 +198,8 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   style={{
                     ...handleStyle,
                     right: -8,
-                    ...(output.require_confirm ? { background: 'red' } : {}),
+                    ...(output.require_confirm ? { background: 'red', borderColor: 'red' } : {}),
+                    ...(no_output ? { background: 'transparent' } : {}),
                   }}
                 />
               </div>
