@@ -28,9 +28,11 @@ const MODEL_ROW_H = 28
 const OUTPUT_ROW_H = 24
 const OUTPUT_GAP = 4
 const OUTPUT_BLOCK_PADDING = 14 // pt-1.5 + pb-2
-// 三层（入口 / 中间 / 出口）之间的列间距（x 方向，节点宽 + 留白）
+// 相邻列之间的间距（x 方向，节点宽 + 留白）
 const COLUMN_GAP = NODE_WIDTH + 140
-// 同层节点垂直最小间距（喂给 d3-force forceCollide）
+// 同列最多节点数：入口 / 中间 / 出口三类各自按拓扑深度排序后，每 COLUMN_SIZE 个切为一列
+const COLUMN_SIZE = 3
+// 同列节点垂直最小间距（喂给 d3-force forceCollide）
 const NODE_GAP = 32
 // d3-force 静态布局迭代次数
 const SIM_TICKS = 300
@@ -44,20 +46,26 @@ function estimateNodeHeight(agent: Agent | Code): number {
   return h
 }
 
-/** d3-force 模拟节点：x 锁定为所在层的列（fx），y 由力模拟决定 */
-type LayoutDatum = SimulationNodeDatum & { id: string; height: number; layer: number }
+/** 节点分类：入口（最左、优先级最高）/ 中间 / 出口（最右、优先级最低） */
+type Category = 'entry' | 'middle' | 'exit'
+
+/** d3-force 模拟节点：x 锁定为所在列（fx），y 由力模拟决定 */
+type LayoutDatum = SimulationNodeDatum & { id: string; height: number; category: Category; col: number }
 
 /**
  * 将 Flow 中的 Agent 列表布局为 ReactFlow 节点。
  *
  * 分两步：
- *  1) 按优先级把节点划分为三层（layer 决定 x 列，从左到右）：
- *     - layer 0 入口层：is_entry=true 或没有前驱（入度为 0），优先级最高；
- *     - layer 2 出口层：没有后继（outputs 无指向存在节点的 next_agent），优先级最低；
- *     - layer 1 中间层：其余节点。
- *     层内按「前驱越少越靠上、前驱相同则后继越多越靠下」排序，作为力模拟初始 y 顺序。
- *  2) 每层用 d3-force 排列 y：fx 锁定 x 到所在层的列，forceLink 把相连节点在 y 上拉近
- *     以减少连线交叉，forceCollide 按节点半高防止同层重叠，forceY 轻微回中防整体漂移。
+ *  1) 按优先级把节点分为三类，每一类内部再切成若干列（col 决定 x，从左到右递增）：
+ *     - entry 入口：is_entry=true 或没有前驱（入度为 0），优先级最高，排最左；
+ *     - exit 出口：没有任何 output，或存在某个 output 无有效后继（任一终止分支即出口），
+ *       优先级最低，排最右；is_entry 优先于出口判定；
+ *     - middle 中间：有 output 且所有 output 都指向存在的节点。
+ *     三类各自按「拓扑深度（距入口的最短跳数）」排序，再每 COLUMN_SIZE 个节点切为一列；
+ *     列序为 entry 列组 → middle 列组 → exit 列组。
+ *     列内按「前驱越少越靠上、前驱相同则后继越多越靠下」给初始 y。
+ *  2) 用 d3-force 排列 y：fx 锁定 x 到所在列，forceLink 把相连节点在 y 上拉近以减少连线交叉，
+ *     forceCollide 按节点半高防止同列重叠，forceY 轻微回中防整体漂移。
  *
  * d3-force 力模拟天然处理分叉与环（环上节点互相吸引、collide 排斥），无需特殊去环。
  * 最后把模拟中心坐标转换为 ReactFlow 左上角坐标 (x - NODE_WIDTH/2, y - height/2)。
@@ -80,38 +88,68 @@ function agentsToNodes(flowId: string, agents: (Agent | Code)[]): AgentNode[] {
     }
   }
 
-  // 三层划分：is_entry 最高、无后继最低、其余居中（is_entry 优先于无后继判定）
-  const layerOf = (a: Agent | Code): number => {
-    if (a.is_entry || (inDeg.get(a.id) ?? 0) === 0) return 0
-    const hasSuccessor = (a.outputs ?? []).some((o) => o.next_agent && agentMap.has(o.next_agent))
-    return hasSuccessor ? 1 : 2
+  // 邻接表（仅含有效边），用于多源 BFS 求拓扑深度
+  const adj = new Map<string, string[]>(agents.map((a) => [a.id, []]))
+  for (const l of links) adj.get(l.source as string)!.push(l.target as string)
+
+  // 分类：entry 优先级最高（最左）、exit 最低（最右）、middle 居中；is_entry 优先于出口判定
+  const categoryOf = (a: Agent | Code): Category => {
+    if (a.is_entry || (inDeg.get(a.id) ?? 0) === 0) return 'entry'
+    const outs = a.outputs ?? []
+    // 有 output 且所有 output 都指向存在节点 → 中间；否则（无 output 或任一分支无后继）→ 出口
+    const allHaveSuccessor =
+      outs.length > 0 && outs.every((o) => o.next_agent && agentMap.has(o.next_agent))
+    return allHaveSuccessor ? 'middle' : 'exit'
   }
+
+  // 拓扑深度：从所有 entry 节点多源 BFS 的最短跳数；环中不可达节点取最大深度排到末尾
+  const depth = new Map<string, number>()
+  let frontier = agents.filter((a) => categoryOf(a) === 'entry').map((a) => a.id)
+  for (const id of frontier) depth.set(id, 0)
+  while (frontier.length > 0) {
+    const next: string[] = []
+    for (const u of frontier) {
+      const du = depth.get(u)!
+      for (const v of adj.get(u) ?? []) {
+        if (!depth.has(v)) {
+          depth.set(v, du + 1)
+          next.push(v)
+        }
+      }
+    }
+    frontier = next
+  }
+  const depthOf = (id: string) => depth.get(id) ?? Number.MAX_SAFE_INTEGER
 
   const data: LayoutDatum[] = agents.map((a) => ({
     id: a.id,
     height: estimateNodeHeight(a),
-    layer: layerOf(a),
+    category: categoryOf(a),
+    col: 0,
   }))
   const dataById = new Map(data.map((d) => [d.id, d]))
 
-  // 按层分组，层内按优先级排序后设初始 y、锁定 x
-  const byLayer = new Map<number, LayoutDatum[]>()
-  for (const d of data) {
-    const group = byLayer.get(d.layer) ?? []
-    group.push(d)
-    byLayer.set(d.layer, group)
-  }
-  for (const [layer, group] of byLayer) {
-    // 前驱越少越靠上；前驱相同则后继越多越靠下
+  // 三类各自按拓扑深度排序后每 COLUMN_SIZE 个切为一列；列序 entry → middle → exit（x 递增）
+  const CATEGORIES: Category[] = ['entry', 'middle', 'exit']
+  let col = 0
+  for (const cat of CATEGORIES) {
+    const group = data.filter((d) => d.category === cat)
+    // 拓扑深度越小越靠左列；同深度则前驱越少越靠上、前驱相同后继越多越靠下
     group.sort(
       (a, b) =>
+        depthOf(a.id) - depthOf(b.id) ||
         (inDeg.get(a.id) ?? 0) - (inDeg.get(b.id) ?? 0) ||
         (outDeg.get(b.id) ?? 0) - (outDeg.get(a.id) ?? 0),
     )
-    group.forEach((d, i) => {
-      d.fx = layer * COLUMN_GAP
-      d.y = (i - (group.length - 1) / 2) * (d.height + NODE_GAP)
-    })
+    for (let i = 0; i < group.length; i += COLUMN_SIZE) {
+      const colNodes = group.slice(i, i + COLUMN_SIZE)
+      colNodes.forEach((d, j) => {
+        d.col = col
+        d.fx = col * COLUMN_GAP
+        d.y = (j - (colNodes.length - 1) / 2) * (d.height + NODE_GAP)
+      })
+      col++
+    }
   }
 
   // d3-force 静态布局：x 由 fx 锁定，只优化 y
