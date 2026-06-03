@@ -61,6 +61,7 @@ export const AgentSchema = z.object({
       '工作方式：task-任务达成后调用 CompleteTask 提交结果；chat-与用户的持续长期对话；silent_task-无人值守自动循环，必须通过 CompleteTask 终止',
     ),
   no_input: z.boolean().optional().describe('是否忽略首条消息'),
+  no_output: z.boolean().optional().describe('是否阻止本节点输出消息'),
   plan_mode: z.boolean().optional().describe('以Plan 模式开启会话'),
   isolation_mode: z.boolean().optional().describe('不再注入全局/项目/local的settings和CLAUDE.md'),
   allowed_read_values_keys: z
@@ -532,6 +533,7 @@ export function buildAgentSystemPrompt(
     | 'allowed_read_values_keys'
     | 'allowed_write_values_keys'
     | 'no_input'
+    | 'no_output'
     | 'agent_name'
   >,
   shareValueKeys?: readonly ShareValueKey[],
@@ -559,7 +561,7 @@ export function buildAgentSystemPrompt(
     .with('task', () => {
       lines.push(
         '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
-        '遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户，或写入 CompleteTask 的 `content`，**禁止**静默忽略或绕开。',
+        `遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户${agent.no_output ? '' : '，或写入 CompleteTask 的 `content`'}，**禁止**静默忽略或绕开。`,
       )
     })
     .with('chat', () => {
@@ -601,13 +603,15 @@ export function buildAgentSystemPrompt(
     if (writableKeys.length > 0) {
       lines.push(
         '### 可写数据',
-        '当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 CompleteTask 工具的 `values` 参数输出，仅在 `content` 里描述不算写入。',
+        `当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 CompleteTask 工具的 \`values\` 参数输出${agent.no_output ? '' : '，仅在 `content` 里描述不算写入'}。`,
         ...writableKeys.map((k) => `  - ${k}`),
         '#### 写入说明',
         '- 仅可写入上述列出的 key',
         '- 部分写入即可：未变化的 key 省略不传；省略不等于清空（要清空请显式传空字符串）',
-        '- `content` 是本次任务的结果文本；`values` 用于按 key 记录用户要求保存的值',
       )
+      if (!agent.no_output) {
+        lines.push('- `content` 是本次任务的结果文本；`values` 用于按 key 记录用户要求保存的值')
+      }
     }
   }
 

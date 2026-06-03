@@ -130,7 +130,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     type: 'user',
                     message: {
                       role: 'user',
-                      content: '开始',
+                      content: '执行任务',
                     },
                     parent_tool_use_id: null,
                   })

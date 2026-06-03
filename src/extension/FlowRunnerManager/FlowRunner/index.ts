@@ -276,7 +276,7 @@ export class FlowRunner {
     const effectiveInitMessage = agent.no_input
       ? {
           type: 'user' as const,
-          message: { role: 'user' as const, content: '开始' },
+          message: { role: 'user' as const, content: '执行任务' },
           parent_tool_use_id: null,
         }
       : initMessage
@@ -468,7 +468,10 @@ export class FlowRunner {
       // 切换到下一个 agent
       const nextInitMessage = {
         type: 'user' as const,
-        message: { role: 'user' as const, content: nextAgent.no_input ? '开始' : content },
+        message: {
+          role: 'user' as const,
+          content: nextAgent.no_input || !content ? '执行任务' : content,
+        },
         parent_tool_use_id: null,
       }
       // 局部叠加:reducer 此刻尚未收到 agentComplete signal,getLatestShareValues 拿到

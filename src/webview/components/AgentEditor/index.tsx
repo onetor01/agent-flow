@@ -118,6 +118,7 @@ export const AgentEditor: FC = () => {
         deny_tools: src.deny_tools,
         work_mode: src.work_mode ?? 'task',
         no_input: src.no_input,
+        no_output: src.no_output,
         plan_mode: src.plan_mode,
         isolation_mode: src.isolation_mode,
         allowed_read_values_keys: src.allowed_read_values_keys,
@@ -352,7 +353,7 @@ export const AgentEditor: FC = () => {
                 <FormItem
                   name='no_input'
                   label='无输入'
-                  tooltip='开启后节点操作区显示启动按钮，点击时始终以"开始"为初始消息自动运行（忽略用户实际输入）'
+                  tooltip='开启后节点操作区显示启动按钮，点击时始终以"执行任务"为初始消息自动运行（忽略用户实际输入）'
                   valuePropName='checked'
                 >
                   <Switch />
@@ -360,9 +361,17 @@ export const AgentEditor: FC = () => {
                 {!isCodeNode && (
                   <>
                     <FormItem
+                      name='no_output'
+                      label='无输出'
+                      tooltip='此节点不能输出文本，但仍然可以正常修改共享数据'
+                      valuePropName='checked'
+                    >
+                      <Switch />
+                    </FormItem>
+                    <FormItem
                       name='plan_mode'
                       label='Plan模式'
-                      tooltip='对话开始进入Plan模式。系统提示词倾向会改变，AI会写计划并尝试执行，而不是完成任务。对Claude系列模型效果非常明显。'
+                      tooltip='对话开始时进入Plan模式。系统提示词倾向会改变，AI会写计划并尝试执行，而不是完成任务。对Claude系列模型效果非常明显。'
                       valuePropName='checked'
                     >
                       <Switch />

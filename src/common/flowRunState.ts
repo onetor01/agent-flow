@@ -200,7 +200,10 @@ export type FlowRunState = {
    * 已回答的工具权限请求:toolUseId -> { allow, updatedInput },用于 UI 回显历史态。
    * updatedInput 供 AskUserQuestion 历史卡片回显用户(或 silent 自动)填写的答案。
    */
-  answeredToolPermissions: Record<string, { allow: boolean; updatedInput?: unknown; message?: string }>
+  answeredToolPermissions: Record<
+    string,
+    { allow: boolean; updatedInput?: unknown; message?: string }
+  >
   /** 当前未回答的工具权限请求队列(按 runId 区分归属) —— 四类挂起统一入此队列 */
   pendingToolPermissions: PendingToolPermission[]
   /** Flow 运行时的共享数据 */
@@ -382,11 +385,14 @@ export function updateFlowRunState(
           // 追加新 AgentRun(由 extension 端生成的 newRunId)。
           // 把 CompleteTask 的 content 作为下一个 Agent 的首条用户消息回显 ——
           // FlowRunner.doOnCompleteTask 已经把同一份 content 喂给了 SDK prompt,
-          // 这里只是让 UI 与运行时输入对齐(no_input 的 next agent 用 '开始',与
+          // 这里只是让 UI 与运行时输入对齐(no_input 的 next agent 用 '执行任务',与
           // FlowRunner 的 nextInitMessage 同源)。
           const nextInitMessage: UserMessageType = {
             type: 'user',
-            message: { role: 'user', content: nextAgent.no_input ? '开始' : data.content },
+            message: {
+              role: 'user',
+              content: nextAgent.no_input || !data.content ? '执行任务' : data.content,
+            },
             parent_tool_use_id: null,
           }
           draft.runs.push({

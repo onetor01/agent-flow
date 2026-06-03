@@ -22,7 +22,7 @@ import { log, logError } from '../../logger'
 
 export type ExecutorResult = {
   outputName?: string
-  content: string
+  content?: string
   values?: Record<string, string>
   /**
    * 本回合 SDK 最后一条 result 消息。CompleteTask 暂存后,result 不再走 onMessage
@@ -327,7 +327,11 @@ export class ClaudeExecutor {
     // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
     if (toolName.includes('ExitPlanMode')) {
       if (this.agent.work_mode === 'silent_task') {
-        this.events.onToolPermissionResult({ toolUseId: toolUseID, allow: true, updatedInput: toolInput })
+        this.events.onToolPermissionResult({
+          toolUseId: toolUseID,
+          allow: true,
+          updatedInput: toolInput,
+        })
         return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
       }
       return this.requestToolPermission(toolUseID, toolName, toolInput)

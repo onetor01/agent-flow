@@ -355,7 +355,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       const effectiveInitMessage: UserMessageType = agent?.no_input
         ? {
             type: 'user',
-            message: { role: 'user', content: '开始' },
+            message: { role: 'user', content: '执行任务' },
             parent_tool_use_id: null,
           }
         : initMessage

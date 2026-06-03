@@ -19,7 +19,7 @@ import {
 export type AgentMcpServerOptions = {
   agent: Agent
   onComplete: (output: {
-    content: string
+    content?: string
     outputName?: string
     values?: Record<string, string>
   }) => void
@@ -114,101 +114,64 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
 
     const completeDesc = [baseDesc, callSemantics, valuesNotes].filter(Boolean).join('\n\n')
 
-    const agentCompleteTool = hasOutputs
-      ? tool(
-          'CompleteTask',
-          completeDesc,
-          {
-            output_name: z.enum(outputNames as [string, ...string[]]).describe('选择的输出分支名'),
-            content: z
-              .string()
-              .describe(
-                '本次任务的结果文本。仅文字输出，不要把需要按 key 记录的值塞这里——那是 values 的职责',
-              ),
-            ...(valuesSchema
-              ? {
-                  values: valuesSchema
-                    .optional()
-                    .describe(
-                      '按 key 记录用户要求保存的值；只能写入 allowed_write_values_keys 列出的 key。未变化的 key 省略不传',
-                    ),
-                }
-              : {}),
-          },
-          withErrorBoundary('CompleteTask', async ({ output_name, content, values }) => {
-            const filteredValues: Record<string, string> = {}
-            if (values && writeKeys.length > 0) {
-              for (const key of writeKeys) {
-                if (key in values) {
-                  filteredValues[key] = values[key]
-                }
-              }
+    const agentCompleteTool = tool(
+      'CompleteTask',
+      completeDesc,
+      {
+        ...(hasOutputs
+          ? {
+              output_name: z
+                .enum(outputNames as [string, ...string[]])
+                .describe('选择的输出分支名'),
             }
-            onComplete({
-              outputName: output_name,
-              content,
-              ...(Object.keys(filteredValues).length > 0 ? { values: filteredValues } : {}),
-            })
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text:
-                    `任务完成，输出分支：${output_name}` +
-                    (Object.keys(filteredValues).length > 0
-                      ? `，写入 values：${JSON.stringify(filteredValues)}`
-                      : ''),
-                },
-              ],
+          : {}),
+        ...(!agent.no_output
+          ? {
+              content: z
+                .string()
+                .describe(
+                  '本次任务的结果文本。仅文字输出，不要把需要按 key 记录的值塞这里——那是 values 的职责',
+                ),
             }
-          }),
-        )
-      : tool(
-          'CompleteTask',
-          completeDesc,
-          {
-            content: z
-              .string()
-              .describe(
-                '本次任务的结果文本。仅文字输出，不要把需要按 key 记录的值塞这里——那是 values 的职责',
-              ),
-            ...(valuesSchema
-              ? {
-                  values: valuesSchema
-                    .optional()
-                    .describe(
-                      '按 key 记录用户要求保存的值；只能写入 allowed_write_values_keys 列出的 key。未变化的 key 省略不传',
-                    ),
-                }
-              : {}),
-          },
-          withErrorBoundary('CompleteTask', async ({ content, values }) => {
-            const filteredValues: Record<string, string> = {}
-            if (values && writeKeys.length > 0) {
-              for (const key of writeKeys) {
-                if (key in values) {
-                  filteredValues[key] = values[key]
-                }
-              }
+          : {}),
+        ...(valuesSchema
+          ? {
+              values: valuesSchema
+                .optional()
+                .describe(
+                  '按 key 记录用户要求保存的值；只能写入 allowed_write_values_keys 列出的 key。未变化的 key 省略不传',
+                ),
             }
-            onComplete({
-              content,
-              ...(Object.keys(filteredValues).length > 0 ? { values: filteredValues } : {}),
-            })
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text:
-                    '任务完成，无后续输出。' +
-                    (Object.keys(filteredValues).length > 0
-                      ? `，写入 values：${JSON.stringify(filteredValues)}`
-                      : ''),
-                },
-              ],
+          : {}),
+      },
+      withErrorBoundary('CompleteTask', async ({ output_name, content, values }) => {
+        const filteredValues: Record<string, string> = {}
+        if (values && writeKeys.length > 0) {
+          for (const key of writeKeys) {
+            if (key in values) {
+              filteredValues[key] = values[key]
             }
-          }),
-        )
+          }
+        }
+        onComplete({
+          outputName: output_name,
+          content,
+          ...(Object.keys(filteredValues).length > 0 ? { values: filteredValues } : {}),
+        })
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `任务完成，输出分支：${output_name}` +
+                (Object.keys(filteredValues).length > 0
+                  ? `，写入 values：${JSON.stringify(filteredValues)}`
+                  : ''),
+            },
+          ],
+        }
+      }),
+    )
     tools.push(agentCompleteTool)
   }
   // task / silent_task:极端情况(确定无法完成)时中止任务,走 error 路径终止本 run。
