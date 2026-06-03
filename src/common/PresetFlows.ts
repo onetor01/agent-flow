@@ -239,7 +239,7 @@ export const PresetFlows: Flow[] = [
         code: [
           'try {',
           '  const parsed = JSON.parse(input)',
-          "  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string'){",
+          "  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){",
           "    throw new Error('')",
           '  }',
           '  return {',
