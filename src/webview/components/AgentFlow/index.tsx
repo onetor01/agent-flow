@@ -96,14 +96,10 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      // 该出口已有连线（next_agent），属于破坏性编辑
-      const sourceOccupied = edges.some(
-        (e) => e.source === connection.source && e.sourceHandle === connection.sourceHandle,
+      // 用户自由连线：同出口已有旧边则替换（用户操作优先）
+      const cleaned = edges.filter(
+        (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
       )
-      if (sourceOccupied) {
-        message.warning('该出口已有连线，当前状态不允许覆盖')
-        return
-      }
       const newEdges = addEdge(
         {
           ...connection,
@@ -112,12 +108,12 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
           style: { stroke: '#6366f1', strokeWidth: 2 },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1', width: 20, height: 20 },
         },
-        edges,
+        cleaned,
       )
       setEdges(newEdges)
       syncToFlow(nodes, newEdges)
     },
-    [edges, nodes, setEdges, syncToFlow, message],
+    [edges, nodes, setEdges, syncToFlow],
   )
 
   const onEdgesChangeHandler = useCallback(
