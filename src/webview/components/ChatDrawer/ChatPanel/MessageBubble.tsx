@@ -394,12 +394,50 @@ const CompleteTaskConfirmCard: FC<{
   )
 }
 
+/**
+ * run 级注入快照展示小节 —— 附加在首条 user 气泡底部。
+ * 默认折叠，展开后按 key → value 列表展示（value 为 null 显示灰色「(空)」）。
+ * 样式参考 CompleteTaskBody「共享数据写入」块。
+ */
+const InjectedShareValuesSection: FC<{ values: Record<string, string | null> }> = ({ values }) => {
+  const [expanded, setExpanded] = useState(false)
+  const entries = Object.entries(values)
+  if (entries.length === 0) return null
+  return (
+    <div className='mt-2 border-t border-[#45475a] pt-2'>
+      <div
+        className='mb-1 cursor-pointer select-none text-[10px] text-[#a6adc8]'
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? '▾' : '▸'} 注入数据
+      </div>
+      {expanded && (
+        <div className='flex flex-col gap-1'>
+          {entries.map(([k, v]) => (
+            <div key={k} className='flex flex-col text-[11px]'>
+              <Tag color='blue' className='m-0 mr-1 self-start text-[10px]'>
+                {k}
+              </Tag>
+              {v === null ? (
+                <span className='ml-4 text-[#6c7086]'>(空)</span>
+              ) : (
+                <Md className='ml-4' content={v} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function renderItemToBubble(
   item: RenderItem,
   ctx?: BubbleCtx,
   sessionCompleted = false,
   itemContextUsage?: { used: number; total: number },
   runId?: string,
+  injectedShareValues?: Record<string, string | null>,
 ): RenderedBubble | RenderedBubble[] | null {
   /**
    * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素,作为 Copyable.extra 注入。
@@ -424,12 +462,16 @@ function renderItemToBubble(
         runId && item.messageUuid
           ? buildForkIcon({ kind: 'message', runId, messageUuid: item.messageUuid })
           : undefined
+      // 注入快照仅附加在 run 首条 user 气泡内；空对象时不展示
+      const hasInjected =
+        injectedShareValues && Object.keys(injectedShareValues).length > 0
       return {
         key: item.key,
         role: 'user',
         content: (
           <Copyable text={copyText} extra={fork}>
             {node}
+            {hasInjected && <InjectedShareValuesSection values={injectedShareValues} />}
           </Copyable>
         ),
       }
@@ -696,14 +738,22 @@ export function toBubbleItems(
   msgs: ExtensionToWebviewMessage[],
   ctx?: BubbleCtx,
   sessionCompleted = false,
+  injectedShareValues?: Record<string, string | null>,
 ): RenderedBubble[] {
   const renderItems = buildRenderItems(sessionId, msgs)
   const out: RenderedBubble[] = []
+  let firstUserPassed = false
   for (const item of renderItems) {
     const cu = getContextUsage(sessionId, item.key)
     // sessionId 在 MessageList 调用点传的是 run.runId(buildRenderItems 的 cache key 历史命名),
     // 这里把它作为 runId 透传给 buildForkIcon 拼 fork target
-    const bubble = renderItemToBubble(item, ctx, sessionCompleted, cu, sessionId)
+    // 注入快照仅透传给首个 user 项，其余项不传
+    const injected =
+      !firstUserPassed && item.kind === 'user' && injectedShareValues
+        ? injectedShareValues
+        : undefined
+    if (item.kind === 'user') firstUserPassed = true
+    const bubble = renderItemToBubble(item, ctx, sessionCompleted, cu, sessionId, injected)
     if (!bubble) continue
     if (Array.isArray(bubble)) out.push(...bubble)
     else out.push(bubble)

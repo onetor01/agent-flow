@@ -80,6 +80,11 @@ export function activate(context: vscode.ExtensionContext) {
   let webviewReady = false
   /** webview 未就绪时排队的指令型消息（load / insertSelection / focusFlow 等需要 UI 响应的） */
   const pendingMessages: ExtensionToWebviewMessage[] = []
+  /**
+   * panel 存在但不可见时缓冲的 signal 消息（已 applySignal 过镜像）。
+   * panel 变可见时逐条 flush 到 webview；panel dispose 时清空避免脏数据进入新 panel。
+   */
+  const hiddenMessageQueue: ExtensionToWebviewMessage[] = []
 
   // 把 runner / 持久化 / 状态镜像 提到 activate 作用域：webview 关闭后这些对象继续存活，
   // 等下次开 panel 重连。
@@ -93,6 +98,11 @@ export function activate(context: vscode.ExtensionContext) {
       flowRunStateManager.applySignal(msg as ExtensionFlowSignalMessage)
     }
     log('[Extension → Webview]', msg.type, summarizeLogPayload(msg.type, msg.data))
+    // panel 存在但不可见时缓冲消息（applySignal 已在上方执行，flush 时只 postMessage 不重复 apply）
+    if (currentPanel && !currentPanel.visible) {
+      hiddenMessageQueue.push(msg)
+      return
+    }
     currentPanel?.webview.postMessage(msg)
   }
 
@@ -364,7 +374,14 @@ export function activate(context: vscode.ExtensionContext) {
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'resources', 'icon.svg')
     panel.webview.html = getWebviewContent(panel.webview, context.extensionUri)
 
-    // 初始化 panel 可见性
+    // 初始化 panel 可见性：变可见时把隐藏期间缓冲的 signal 逐条 flush 到 webview
+    panel.onDidChangeViewState(() => {
+      if (panel.visible) {
+        while (hiddenMessageQueue.length > 0) {
+          panel.webview.postMessage(hiddenMessageQueue.shift()!)
+        }
+      }
+    })
 
     panel.webview.onDidReceiveMessage(async (e: ExtensionFromWebviewMessage) => {
       log('[Webview → Extension]', e.type, summarizeLogPayload(e.type, e.data))
@@ -479,6 +496,8 @@ export function activate(context: vscode.ExtensionContext) {
     panel.onDidDispose(() => {
       currentPanel = undefined
       webviewReady = false
+      // panel 关闭后重开走 load 全量同步，缓冲作废，避免脏数据 flush 到新 webview
+      hiddenMessageQueue.length = 0
       // 故意不 disposeAll：runner 与 flowStateManager 在 webview 关闭后继续工作，
       // 下次重新打开 panel 时通过 load 把当前状态发回 webview。
     })

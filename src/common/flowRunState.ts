@@ -7,6 +7,7 @@ import type {
   UserMessageType,
 } from './event'
 import type { Agent, Code, Flow } from './index'
+import { pickInjectedShareValues } from './index'
 
 // ── TokenUsage ────────────────────────────────────────────────────────────
 
@@ -174,6 +175,12 @@ export type AgentRun = {
   messages: ExtensionToWebviewMessage[]
   completed: boolean
   outputName?: string
+  /**
+   * run 启动时点注入 system prompt 的 shareValues 快照：
+   * agent 节点按 allowed_read_values_keys 过滤(值空记 null)，code 节点为全量 shareValues。
+   * 仅展示用，不参与 phase 推断。
+   */
+  injectedShareValues?: Record<string, string | null>
 }
 
 export type PendingToolPermission = {
@@ -248,6 +255,17 @@ export function updateFlowRunState(
 
   // ── command.flowStart：覆盖式初始化（可在任何 state 下进入，包括 undefined） ──
   if (msg.type === 'flow.command.flowStart') {
+    const baseValues = state?.shareValues ?? {}
+    // findFlow / findAgent 定义在下方，此处内联查找
+    const startAgent = flows
+      .find((f) => f.id === msg.data.flowId)
+      ?.agents?.find((a) => a.id === msg.data.agentId)
+    const injectedShareValues =
+      startAgent?.node_type === 'code'
+        ? { ...baseValues }
+        : startAgent
+          ? pickInjectedShareValues(startAgent.allowed_read_values_keys ?? [], baseValues)
+          : undefined
     const firstRun: AgentRun = {
       runId: msg.data.runId,
       agentId: msg.data.agentId,
@@ -259,13 +277,14 @@ export function updateFlowRunState(
         },
       ],
       completed: false,
+      injectedShareValues,
     }
     const fresh: FlowRunState = {
       killed: false,
       runs: [firstRun],
       answeredToolPermissions: {},
       pendingToolPermissions: [],
-      shareValues: state?.shareValues ?? {},
+      shareValues: baseValues,
     }
     return {
       state: fresh,
@@ -410,6 +429,13 @@ export function updateFlowRunState(
               },
             ],
             completed: false,
+            injectedShareValues:
+              nextAgent.node_type === 'code'
+                ? { ...draft.shareValues }
+                : pickInjectedShareValues(
+                    nextAgent.allowed_read_values_keys ?? [],
+                    draft.shareValues,
+                  ),
           })
         } else {
           // Flow 走到末端:全部 run 完成,清空 shareValues 防污染下次启动

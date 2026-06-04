@@ -508,6 +508,22 @@ export function matchToolAnySubCommand(
 }
 
 /**
+ * 按 allowedReadKeys 过滤 currentValues，生成注入 prompt 的 shareValues 快照字典。
+ * 值为 undefined / 空字符串记 null（表示 key 已声明但尚未赋值）。
+ */
+export function pickInjectedShareValues(
+  allowedReadKeys: readonly string[],
+  currentValues: Record<string, string> | undefined,
+): Record<string, string | null> {
+  const result: Record<string, string | null> = {}
+  for (const key of allowedReadKeys) {
+    const v = currentValues?.[key]
+    result[key] = v !== undefined && v !== '' ? v : null
+  }
+  return result
+}
+
+/**
  * 构建 Agent 系统提示词
  *
  * 输出按「变动频率」分三层，越靠上越能跨会话/跨 Agent 命中 prompt 缓存：
@@ -655,11 +671,10 @@ export function buildAgentSystemPrompt(
   // ── 底部：运行时可变（shareValues 快照） ────────────────────────────────
   if (allowed_read_values_keys.length > 0) {
     const visibleValues: Record<string, string | null> = {}
-    for (const key of allowed_read_values_keys) {
-      if (currentValues) {
-        const value = currentValues[key]
-        visibleValues[key] = value !== undefined && value !== '' ? value : null
-      } else {
+    if (currentValues) {
+      Object.assign(visibleValues, pickInjectedShareValues(allowed_read_values_keys, currentValues))
+    } else {
+      for (const key of allowed_read_values_keys) {
         visibleValues[key] = '<运行时替换>'
       }
     }

@@ -5,9 +5,10 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type Ref,
 } from 'react'
-import { App, Divider } from 'antd'
+import { App, Button, Divider } from 'antd'
 import { Bubble } from '@ant-design/x'
 import type { BubbleItemType } from '@ant-design/x/es/bubble/interface'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -197,6 +198,12 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     ],
   )
 
+  // ── 折叠状态 ────────────────────────────────────────────────────────────────
+  // 同时只展开一个 run；expandedRunId 为空时自动跟随末位（新 run 追加时自动展开最新）
+  const [expandedRunId, setExpandedRunId] = useState<string>()
+  const lastRunId = runs.at(-1)?.runId
+  const effectiveExpanded = expandedRunId ?? lastRunId
+
   // ── 渲染项 ─────────────────────────────────────────────────────────────────
   const items = useMemo<Item[]>(() => {
     const result: Item[] = []
@@ -211,16 +218,66 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         })
       }
       // buildRenderItems 内部按 cacheKey 缓存(用 runId 作 key,与 store 端 clearBuildCacheForRuns 对齐)
-      toBubbleItems(run.runId, run.messages, ctx, run.completed).forEach((item) => {
-        result.push({
-          key: `${run.runId}-${item.key}`,
-          role: item.role,
-          content: item.content,
+      // 第 5 参传入 run 级注入快照，仅首条 user 气泡内展示，不进入 buildRenderItems 缓存
+      const bubbles = toBubbleItems(
+        run.runId,
+        run.messages,
+        ctx,
+        run.completed,
+        run.injectedShareValues,
+      )
+      const isExpanded = run.runId === effectiveExpanded
+      if (isExpanded) {
+        bubbles.forEach((item) => {
+          result.push({
+            key: `${run.runId}-${item.key}`,
+            role: item.role,
+            content: item.content,
+          })
         })
-      })
+      } else {
+        // 收起态：首条 user + 「显示消息」按钮 + agent_complete（若存在）
+        const firstUserIdx = bubbles.findIndex((b) => b.role === 'user')
+        const completeItem = bubbles.find((b) => b.key.endsWith('-complete'))
+        // 隐藏的中间项条数 = 总数 - 首条 user(1) - complete(0 或 1)
+        const hiddenCount = bubbles.length - (firstUserIdx >= 0 ? 1 : 0) - (completeItem ? 1 : 0)
+        if (firstUserIdx >= 0) {
+          const firstUser = bubbles[firstUserIdx]
+          result.push({
+            key: `${run.runId}-${firstUser.key}`,
+            role: firstUser.role,
+            content: firstUser.content,
+          })
+        }
+        if (hiddenCount > 0) {
+          result.push({
+            key: `${run.runId}-show-more`,
+            role: 'system',
+            content: (
+              <div className='flex justify-center'>
+                <Button
+                  size='small'
+                  type='text'
+                  className='text-[11px]! text-[#6c7086]!'
+                  onClick={() => setExpandedRunId(run.runId)}
+                >
+                  显示消息（{hiddenCount}）
+                </Button>
+              </div>
+            ),
+          })
+        }
+        if (completeItem) {
+          result.push({
+            key: `${run.runId}-${completeItem.key}`,
+            role: completeItem.role,
+            content: completeItem.content,
+          })
+        }
+      }
     })
     return result
-  }, [runs, ctx])
+  }, [runs, ctx, effectiveExpanded])
 
   const lastRunCompleted = runs.at(-1)?.completed
   const finalItems = useMemo<Item[]>(() => {
