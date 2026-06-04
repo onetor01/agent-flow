@@ -370,6 +370,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
                 isError: !!block.is_error,
                 text: extractToolResultText(block.content),
               },
+              messageUuid,
             }
           }
           delete pendingTooluse[block.tool_use_id]
@@ -431,7 +432,10 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       blocks.forEach((block, bIdx: number) => {
         const key = `${mIdx}-${bIdx}`
         // messageUuid 仅挂最后一个 block —— 同一条 assistant 消息只在该 block 显示 fork icon
-        const blockMessageUuid = bIdx === blocks.length - 1 ? messageUuid : undefined
+        const blockMessageUuid =
+          (block.type === 'text' || block.type === 'thinking') && bIdx === blocks.length - 1
+            ? messageUuid
+            : undefined
         if (block.type === 'text' && typeof block.text === 'string') {
           items.push({
             kind: 'text',
