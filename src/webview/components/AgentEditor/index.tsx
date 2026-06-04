@@ -74,6 +74,7 @@ export const AgentEditor: FC = () => {
 
   useEffect(() => {
     if (open && agent) {
+      form.resetFields()
       form.setFieldsValue(agent)
       silentWarnedRef.current = agent.node_type !== 'code' && agent.work_mode === 'silent_task'
     } else {
