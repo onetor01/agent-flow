@@ -17,7 +17,6 @@ import {
   updateFlowRunState,
   agentChatInputState,
   flowCanBeKilled,
-  flowIsDestructiveReadOnly,
   getFlowPhase,
 } from '@/common'
 import type { Agent, Code } from '@/common'
@@ -112,7 +111,7 @@ export type {
   FlowRunState,
   PendingToolPermission,
 }
-export { agentChatInputState, flowCanBeKilled, flowIsDestructiveReadOnly }
+export { agentChatInputState, flowCanBeKilled }
 
 export const useFlowStore = create<FlowStoreType>((set, get) => {
   const immerSet = (updateFn: (draft: FlowStoreType) => void) => {

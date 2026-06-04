@@ -11,9 +11,9 @@ import {
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
-import { getFlowPhase, type Agent, type Code } from '@/common'
+import { type Agent, type Code } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
-import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
+import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import type { AgentNode } from '../flowUtils'
 
@@ -31,12 +31,9 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))
   const agent: Agent | Code | undefined = flow?.agents?.find((a) => a.id === agentId)
   const no_output = agent && 'no_output' in agent && agent.no_output
-  const flowPhase = useFlowStore((s) => getFlowPhase(s.flowRunStates[flowId]))
 
   const { message } = App.useApp()
   const startFlow = useStartFlow()
-
-  const destructiveReadOnly = flowIsDestructiveReadOnly(flowPhase)
 
   // 用户当前关注的 agent —— runs 末位 agent。
   // completed 且已流转到下一个 agent 时,reducer 已立刻把新 run 追加到末位,
@@ -149,10 +146,6 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
             className='cursor-pointer text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
             onClick={(e) => {
               e.stopPropagation()
-              if (destructiveReadOnly) {
-                message.warning('当前状态不允许编辑 agent')
-                return
-              }
               useFlowStore.getState().setEditingAgent({ flowId, agentId })
             }}
           >

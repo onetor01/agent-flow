@@ -20,8 +20,8 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useEventListener } from 'ahooks'
 import z from 'zod'
-import { AgentSchema, CodeSchema, getFlowPhase, type Agent, type Code } from '@/common'
-import { useFlowStore, flowIsDestructiveReadOnly } from '@/webview/store/flow'
+import { AgentSchema, CodeSchema, type Agent, type Code } from '@/common'
+import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import AgentNodeComponent from './AgentNode'
 import MidArrowEdge from './MidArrowEdge'
@@ -53,10 +53,7 @@ export const AgentFlow: FC<{ flowId: string }> = ({ flowId }) => {
 
 const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId, hidden }) => {
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))!
-  const state = useFlowStore((s) => s.flowRunStates[flowId])
   const save = useFlowStore((s) => s.save)
-  /** 破坏性编辑禁止：删除 agent / 删除或破坏连线 */
-  const destructiveReadOnly = flowIsDestructiveReadOnly(getFlowPhase(state))
   const { message } = App.useApp()
   const initial = useMemo(() => flowToReactFlow(flow), [flow])
 
@@ -118,32 +115,20 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
 
   const onEdgesChangeHandler = useCallback(
     (changes: Parameters<typeof onEdgesChange>[0]) => {
-      if (destructiveReadOnly) {
-        const nonDestructive = changes.filter((c) => c.type !== 'remove')
-        if (nonDestructive.length > 0) onEdgesChange(nonDestructive)
-        if (changes.some((c) => c.type === 'remove')) {
-          message.warning('当前状态不允许删除连线')
-        }
-        return
-      }
       onEdgesChange(changes)
     },
-    [destructiveReadOnly, onEdgesChange, message],
+    [onEdgesChange],
   )
 
   const onDeleteHandler = useCallback(
     ({ nodes: deletedNodes, edges: deletedEdges }: { nodes: AgentNode[]; edges: Edge[] }) => {
-      if (destructiveReadOnly) {
-        message.warning('当前状态不允许删除')
-        return
-      }
       const nodeIds = new Set(deletedNodes.map((n) => n.id))
       const edgeIds = new Set(deletedEdges.map((e) => e.id))
       const remainingNodes = nodes.filter((n) => !nodeIds.has(n.id))
       const remainingEdges = edges.filter((e) => !edgeIds.has(e.id))
       syncToFlow(remainingNodes, remainingEdges)
     },
-    [destructiveReadOnly, nodes, edges, syncToFlow, message],
+    [nodes, edges, syncToFlow],
   )
 
   // 添加 Agent：在鼠标附近放置
@@ -334,7 +319,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         nodesDraggable
-        nodesConnectable={!destructiveReadOnly}
+        nodesConnectable
         elementsSelectable
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
@@ -342,7 +327,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
         multiSelectionKeyCode={['Meta', 'Control']}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        deleteKeyCode={destructiveReadOnly || hidden ? null : 'Delete'}
+        deleteKeyCode={hidden ? null : 'Delete'}
         proOptions={{ hideAttribution: true }}
         style={{ background: '#11111b' }}
       >
