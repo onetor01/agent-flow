@@ -370,7 +370,24 @@ export function activate(context: vscode.ExtensionContext) {
       log('[Webview → Extension]', e.type, summarizeLogPayload(e.type, e.data))
       match(e)
         .with({ type: 'load' }, async () => {
-          currentFlows = await flowStore.load()
+          const diskFlows = await flowStore.load()
+          const memoryFlows = currentFlows.flows
+          const memoryRunStates = flowRunStateManager.getFlowRunStates()
+          const hasMessages = (flowId: string) => {
+            const state = memoryRunStates[flowId]
+            return state?.runs?.some((r) => r.messages?.length > 0) ?? false
+          }
+          // 合并时磁盘 flow 为基准
+          const mergedFlows = diskFlows.flows
+          // 追加磁盘不存在且内存有消息的flow
+          const diskFlowIds = new Set(diskFlows.flows.map((f) => f.id))
+          for (const memFlow of memoryFlows) {
+            if (!diskFlowIds.has(memFlow.id) && hasMessages(memFlow.id)) {
+              mergedFlows.push(memFlow)
+            }
+          }
+
+          currentFlows = { flows: mergedFlows }
           flowRunStateManager.applyFlows(currentFlows.flows, (flowId) =>
             runnerManager.disposeRunner(flowId),
           )
