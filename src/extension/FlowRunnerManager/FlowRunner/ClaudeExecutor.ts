@@ -346,7 +346,7 @@ export class ClaudeExecutor {
     ) {
       return Promise.resolve({
         behavior: 'deny',
-        message: `禁止使用`,
+        message: toolName === 'Edit' ? '禁止编辑文件' : `禁止使用${toolName}`,
       })
     }
     // 优先级 1：命中 must_confirm 列表，始终要求确认。
