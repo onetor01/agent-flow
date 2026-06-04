@@ -1,12 +1,13 @@
 import { memo } from 'react'
 import type { CSSProperties, FC, MouseEvent } from 'react'
-import { Badge, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Checkbox, Tag, Tooltip, Typography } from 'antd'
 import {
   BellOutlined,
   CodeOutlined,
   DisconnectOutlined,
   EditOutlined,
   LoginOutlined,
+  LogoutOutlined,
   MessageOutlined,
   PlayCircleOutlined,
   RobotOutlined,
@@ -14,8 +15,8 @@ import {
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
 import { type Agent, type Code } from '@/common'
-import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useSilentTaskModeNotification } from '@/webview/hooks/useSilentTaskModeNotification'
+import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import { CopyButton } from '../../text-components'
@@ -70,7 +71,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         )}
       >
         {/* target handle：只接受连线，不允许从此拖出连线 */}
-        <Tooltip title={agent?.no_input ? '恢复输入' : '忽略输入'} mouseEnterDelay={0.5}>
+        <Tooltip title={agent?.no_input ? '无输入' : '接受输入'} mouseEnterDelay={0.5}>
           <Handle
             type='target'
             position={Position.Left}
@@ -163,7 +164,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
 
-        <div className='flex h-[26px] items-center gap-1 px-3 pt-1'>
+        <div className='flex h-6.5 items-center gap-1 px-3 pt-1'>
           {isCodeNode ? (
             <Tag color='cyan' style={{ fontSize: 10, height: 22, lineHeight: '20px' }}>
               code
@@ -225,6 +226,15 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     PLAN
                   </span>
                 </Tooltip>
+                <Tooltip title={agent?.no_output ? '无输出' : '有输出'}>
+                  <LogoutOutlined
+                    className={cn(
+                      'text-[11px] transition-colors',
+                      !agent?.no_output ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
+                    )}
+                    onClick={createToggler('no_output', true)}
+                  />
+                </Tooltip>
               </span>
             </>
           )}
@@ -244,7 +254,13 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   </span>
                 </Tooltip>
                 <Tooltip
-                  title={agent?.node_type === 'agent' && agent?.no_output ? '恢复输出' : '忽略输出'}
+                  title={match({
+                    node_type: agent?.node_type,
+                    require_confirm: output.require_confirm,
+                  })
+                    .with({ node_type: 'agent', require_confirm: true }, () => '需要确认')
+                    .with({ node_type: 'agent' }, () => '无确认')
+                    .otherwise(() => null)}
                   mouseEnterDelay={0.5}
                 >
                   <Handle
@@ -257,14 +273,23 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                       cursor: 'pointer',
                       pointerEvents: 'all',
                       borderColor: '#6366f1',
-                      ...(output.require_confirm
+                      ...(agent?.node_type === 'agent' && output.require_confirm
                         ? { background: '#d32029', borderColor: '#d32029' }
                         : {}),
                       ...(agent?.node_type === 'agent' && agent?.no_output
                         ? { background: 'transparent' }
                         : {}),
                     }}
-                    onClick={createToggler('no_output', true)}
+                    onClick={() => {
+                      if (agent?.node_type !== 'agent') return
+                      useFlowStore.getState().save((flows) => {
+                        const f = flows.find((f) => f.id === flowId)
+                        const a = f?.agents?.find((a) => a.id === agentId)
+                        const o = a?.outputs?.find((o) => o.output_name === output.output_name)
+                        if (!o) return
+                        o.require_confirm = !o.require_confirm
+                      })
+                    }}
                   />
                 </Tooltip>
               </div>
