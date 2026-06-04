@@ -173,23 +173,43 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           </span>
         </div>
 
-        {/* Agent 信息：code 节点显示标签,普通 agent 显示 model */}
-        {isCodeNode ? (
-          <div className='px-3 pt-1'>
+        {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
+
+        <div className='flex items-center gap-1 px-3 pt-1'>
+          {isCodeNode ? (
             <Tag color='cyan' style={{ fontSize: 10 }}>
               code
             </Tag>
-          </div>
-        ) : (
-          // isCodeNode 为 false 已将 agent 收窄为普通 agent,直接读 model
-          agent?.model && (
-            <div className='px-3 pt-1'>
-              <Tag color='blue' style={{ fontSize: 10 }}>
-                {agent.model}
-              </Tag>
-            </div>
-          )
-        )}
+          ) : (
+            <>
+              {agent?.model ? (
+                <Tag color='blue' style={{ fontSize: 10 }}>
+                  {agent?.model}
+                </Tag>
+              ) : null}
+              <Tooltip title={agent?.plan_mode ? '关闭 Plan 模式' : '开启 Plan 模式'}>
+                <span
+                  className={cn(
+                    'ml-auto cursor-pointer text-xs transition-colors',
+                    agent?.plan_mode ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useFlowStore.getState().save((flows) => {
+                      const f = flows.find((f) => f.id === flowId)
+                      const a = f?.agents?.find((a) => a.id === agentId)
+                      if (a && (!a?.node_type || a?.node_type === 'agent')) {
+                        a.plan_mode = !a.plan_mode
+                      }
+                    })
+                  }}
+                >
+                  PLAN
+                </span>
+              </Tooltip>
+            </>
+          )}
+        </div>
 
         {/* 输出端口列表 */}
         {outputs.length > 0 && (
