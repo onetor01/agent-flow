@@ -670,3 +670,20 @@ export function buildAgentSystemPrompt(
 
   return lines.join('\n')
 }
+
+export const MODELS = new Set([
+  'opus',
+  'sonnet[1m]',
+  'qwen3.7-max',
+  'glm-5.1',
+  'DeepSeek-V4-Pro',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6-v1',
+  'sonnet',
+  'gpt-5.5',
+  'gpt-5.4',
+  'haiku',
+  'MiniMax-M2.7',
+  'DeepSeek-V4-flash',
+])

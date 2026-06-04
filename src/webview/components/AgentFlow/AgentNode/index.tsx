@@ -1,9 +1,10 @@
-import { memo } from 'react'
-import type { CSSProperties, FC } from 'react'
-import { App, Badge, Tag, Tooltip, Typography } from 'antd'
+import { memo, useState } from 'react'
+import type { CSSProperties, FC, MouseEvent } from 'react'
+import { AutoComplete, Badge, Tag, Tooltip, Typography } from 'antd'
 import {
   BellOutlined,
   CodeOutlined,
+  DisconnectOutlined,
   EditOutlined,
   LoginOutlined,
   MessageOutlined,
@@ -12,7 +13,7 @@ import {
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
-import { type Agent, type Code } from '@/common'
+import { type Agent, type Code, MODELS } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
@@ -32,9 +33,6 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
   const flow = useFlowStore((s) => s.flows.find((f) => f.id === flowId))
   const agent: Agent | Code | undefined = flow?.agents?.find((a) => a.id === agentId)
-  const no_output = agent && 'no_output' in agent && agent.no_output
-
-  const { message } = App.useApp()
   const startFlow = useStartFlow()
 
   // 用户当前关注的 agent —— runs 末位 agent。
@@ -44,6 +42,21 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const isAgentActive = useFlowStore(
     (s) => s.flowRunStates[flowId]?.runs.at(-1)?.agentId === agentId,
   )
+  const createToggler =
+    (field: string, agentOnly = false) =>
+    (e: MouseEvent<HTMLElement>) => {
+      e.stopPropagation()
+      useFlowStore.getState().save((flows) => {
+        const f = flows.find((f) => f.id === flowId)
+        const a = f?.agents?.find((a) => a.id === agentId)
+        if (!a) return
+        if (agentOnly && a.node_type === 'code') return
+        ;(a as any)[field] = !(a as any)[field]
+      })
+    }
+
+  const [editingModel, setEditingModel] = useState(false)
+
   const isCodeNode = agent?.node_type === 'code'
   const outputs = agent?.outputs ?? []
 
@@ -56,17 +69,23 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         )}
       >
         {/* target handle：只接受连线，不允许从此拖出连线 */}
-        <Handle
-          type='target'
-          position={Position.Left}
-          id='input'
-          isConnectableStart={false}
-          style={{
-            ...handleStyle,
-            left: -8,
-            ...(agent?.no_input ? { background: 'transparent' } : {}),
-          }}
-        />
+        <Tooltip title={agent?.no_input ? '恢复输入' : '忽略输入'} mouseEnterDelay={0.5}>
+          <Handle
+            type='target'
+            position={Position.Left}
+            id='input'
+            isConnectableStart={false}
+            style={{
+              ...handleStyle,
+              left: -8,
+              cursor: 'pointer',
+              pointerEvents: 'all',
+              ...(agent?.no_input ? { background: 'transparent' } : {}),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={createToggler('no_input')}
+          />
+        </Tooltip>
 
         {/* 头部 */}
         <div
@@ -84,19 +103,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
             }
             return (
               <Tooltip title={isEntry ? '取消入口' : '设为入口'}>
-                <span
-                  className='cursor-pointer text-sm'
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useFlowStore.getState().save((flows) => {
-                      const f = flows.find((f) => f.id === flowId)
-                      const a = f?.agents?.find((a) => a.id === agentId)
-                      if (a) {
-                        a.is_entry = !a.is_entry
-                      }
-                    })
-                  }}
-                >
+                <span className='cursor-pointer text-sm' onClick={createToggler('is_entry')}>
                   {icon}
                 </span>
               </Tooltip>
@@ -155,17 +162,64 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
 
-        <div className='flex items-center justify-between gap-1 px-3 pt-1'>
+        <div className='flex h-[26px] items-center justify-between gap-1 px-3 pt-1'>
           {isCodeNode ? (
-            <Tag color='cyan' style={{ fontSize: 10 }}>
+            <Tag color='cyan' style={{ fontSize: 10, height: 22, lineHeight: '20px' }}>
               code
             </Tag>
           ) : (
             <>
               {agent?.model ? (
-                <Tag color='blue' style={{ fontSize: 10 }}>
-                  {agent?.model}
-                </Tag>
+                editingModel ? (
+                  <AutoComplete
+                    autoFocus
+                    defaultOpen
+                    defaultValue={agent.model}
+                    size='small'
+                    style={{ fontSize: 10, width: 100, minWidth: 80 }}
+                    className='!h-[22px] [&_.ant-select-selector]:!h-[22px] [&_.ant-select-selector]:!min-h-[22px] [&_.ant-select-selection-search-input]:!h-[22px]'
+                    options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
+                    filterOption={(input, option) =>
+                      (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ??
+                      false
+                    }
+                    onSelect={(val) => {
+                      useFlowStore.getState().save((flows) => {
+                        const f = flows.find((f) => f.id === flowId)
+                        const a = f?.agents?.find((a) => a.id === agentId)
+                        if (a && a.node_type !== 'code') a.model = val
+                      })
+                      setEditingModel(false)
+                    }}
+                    onBlur={(e) => {
+                      const val = (e.target as HTMLInputElement).value
+                      if (val) {
+                        useFlowStore.getState().save((flows) => {
+                          const f = flows.find((f) => f.id === flowId)
+                          const a = f?.agents?.find((a) => a.id === agentId)
+                          if (a && a.node_type !== 'code') a.model = val
+                        })
+                      }
+                      setEditingModel(false)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setEditingModel(false)
+                      e.stopPropagation()
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <Tag
+                    color='blue'
+                    style={{ fontSize: 10, height: 22, lineHeight: '20px', cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEditingModel(true)
+                    }}
+                  >
+                    {agent?.model}
+                  </Tag>
+                )
               ) : null}
               {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
                 <Tooltip title={agent?.work_mode === 'task' ? '任务模式' : '静默模式'}>
@@ -192,22 +246,24 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   />
                 </Tooltip>
               ) : null}
+              <Tooltip title={agent?.isolation_mode ? '隔离模式' : '开启隔离模式'}>
+                <DisconnectOutlined
+                  className={cn(
+                    'cursor-pointer text-xs transition-colors',
+                    agent?.isolation_mode
+                      ? 'text-[#f38ba8]'
+                      : 'text-[#6c7086] hover:text-[#f38ba8]',
+                  )}
+                  onClick={createToggler('isolation_mode', true)}
+                />
+              </Tooltip>
               <Tooltip title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}>
                 <span
                   className={cn(
                     'cursor-pointer text-xs transition-colors',
                     agent?.plan_mode ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
                   )}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    useFlowStore.getState().save((flows) => {
-                      const f = flows.find((f) => f.id === flowId)
-                      const a = f?.agents?.find((a) => a.id === agentId)
-                      if (a && (!a?.node_type || a?.node_type === 'agent')) {
-                        a.plan_mode = !a.plan_mode
-                      }
-                    })
-                  }}
+                  onClick={createToggler('plan_mode', true)}
                 >
                   PLAN
                 </span>
@@ -229,17 +285,31 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     {output.output_name}
                   </span>
                 </Tooltip>
-                <Handle
-                  type='source'
-                  position={Position.Right}
-                  id={`output-${output.output_name}`}
-                  style={{
-                    ...handleStyle,
-                    right: -8,
-                    ...(output.require_confirm ? { background: 'red', borderColor: 'red' } : {}),
-                    ...(no_output ? { background: 'transparent' } : {}),
-                  }}
-                />
+                <Tooltip
+                  title={
+                    agent?.node_type === 'agent' && agent?.no_output ? '恢复输出' : '忽略输出'
+                  }
+                  mouseEnterDelay={0.5}
+                >
+                  <Handle
+                    type='source'
+                    position={Position.Right}
+                    id={`output-${output.output_name}`}
+                    style={{
+                      ...handleStyle,
+                      right: -8,
+                      cursor: 'pointer',
+                      pointerEvents: 'all',
+                      ...(output.require_confirm
+                        ? { background: 'red', borderColor: 'red' }
+                        : {}),
+                      ...(agent?.node_type === 'agent' && agent?.no_output
+                        ? { background: 'transparent' }
+                        : {}),
+                    }}
+                    onClick={createToggler('no_output', true)}
+                  />
+                </Tooltip>
               </div>
             ))}
           </div>

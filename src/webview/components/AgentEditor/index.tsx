@@ -9,7 +9,6 @@ import {
   AutoComplete,
   Button,
   Flex,
-  Modal,
   App,
   Checkbox,
   Tooltip,
@@ -21,9 +20,8 @@ import {
   EyeOutlined,
   CloseOutlined,
 } from '@ant-design/icons'
-import { match } from 'ts-pattern'
 import type { Agent, Code } from '@/common'
-import { BUILTIN_TOOL_NAMES, MCP_WILDCARD, buildAgentSystemPrompt } from '@/common'
+import { BUILTIN_TOOL_NAMES, MCP_WILDCARD, MODELS, buildAgentSystemPrompt } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import { CodeEditor } from '../CodeEditor'
@@ -189,22 +187,7 @@ export const AgentEditor: FC = () => {
                     <AutoComplete
                       placeholder='选择或输入模型名称'
                       allowClear
-                      options={[
-                        { value: 'opus', label: 'opus' },
-                        { value: 'sonnet[1m]', label: 'sonnet[1m]' },
-                        { value: 'qwen3.7-max', label: 'qwen3.7-max' },
-                        { value: 'glm-5.1', label: 'glm-5.1' },
-                        { value: 'DeepSeek-V4-Pro', label: 'DeepSeek-V4-Pro' },
-                        { value: 'claude-opus-4-8', label: 'claude-opus-4-8' },
-                        { value: 'claude-opus-4-7', label: 'claude-opus-4-7' },
-                        { value: 'claude-opus-4-6-v1', label: 'claude-opus-4-6-v1' },
-                        { value: 'sonnet', label: 'sonnet' },
-                        { value: 'gpt-5.5', label: 'gpt-5.5' },
-                        { value: 'gpt-5.4', label: 'gpt-5.4' },
-                        { value: 'haiku', label: 'haiku' },
-                        { value: 'MiniMax-M2.7', label: 'MiniMax-M2.7' },
-                        { value: 'DeepSeek-V4-flash', label: 'DeepSeek-V4-flash' },
-                      ]}
+                      options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
                       filterOption={(inputValue, option) =>
                         (option?.label as string)
                           ?.toLowerCase()
