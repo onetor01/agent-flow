@@ -740,8 +740,9 @@ export function toBubbleItems(
   ctx?: BubbleCtx,
   sessionCompleted = false,
   injectedShareValues?: Record<string, string | null>,
+  mode?: import('./buildRenderItems').BuildMode,
 ): RenderedBubble[] {
-  const renderItems = buildRenderItems(sessionId, msgs)
+  const renderItems = buildRenderItems(sessionId, msgs, mode)
   const out: RenderedBubble[] = []
   let firstUserPassed = false
   for (const item of renderItems) {

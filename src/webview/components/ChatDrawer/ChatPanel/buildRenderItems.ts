@@ -247,6 +247,15 @@ function applyResultToCache(
   return { modelUsages, turnContextUsage }
 }
 
+// ── 构建模式 ─────────────────────────────────────────────────────────────
+
+/**
+ * `'full'`（默认）：完整扫描，结果写入缓存，增量更新。
+ * `'light'`：仅提取首条 user 与 agent_complete / error，不写缓存、不增量。
+ *             用于折叠态 run —— 中间消息无需计算也不占用缓存。
+ */
+export type BuildMode = 'full' | 'light'
+
 // ── 核心构建 ─────────────────────────────────────────────────────────────
 
 function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry): void {
@@ -517,15 +526,71 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
 }
 
 /**
+ * 轻量扫描：不写缓存，折叠态 run 专用。
+ * 直接取 msgs[0]（用户初始消息）与 msgs.at(-1)（agentComplete）；
+ * 最后一条非 agentComplete 则 run 未正常完成，返回 []。
+ */
+function scanLight(msgs: ExtensionToWebviewMessage[]): RenderItem[] {
+  // msgs[0] 始终是预填充的用户 aiMessage（flowStart 命令与 agentComplete 新 run 均如此）
+  // 最后一条不是 agentComplete 则 run 尚未正常完成，折叠态不展示
+  const lastMsg = msgs.at(-1)
+  if (!lastMsg || lastMsg.type !== 'flow.signal.agentComplete') return []
+
+  const items: RenderItem[] = []
+
+  const firstMsg = msgs[0]
+  if (firstMsg?.type === 'flow.signal.aiMessage') {
+    const { message } = firstMsg.data
+    if (message.type === 'user' && !message.isSynthetic && !message.parent_tool_use_id) {
+      items.push({
+        kind: 'user',
+        key: '0-user',
+        rawContent: message.message.content,
+      })
+    }
+  }
+
+  const tmpCached: CacheEntry = {
+    nextScanStart: 0,
+    items: [],
+    pendingTooluse: {},
+    prevModelUsage: {},
+    lastTotalCost: 0,
+    contextUsageByItemKey: new Map(),
+  }
+  const data = lastMsg.data
+  if (data.result) applyResultToCache(data.result, tmpCached)
+  const modelBreakdown = Object.entries(tmpCached.prevModelUsage)
+    .map(([model, usage]) => ({ model, usage }))
+    .filter((b) => isModelTokenUsageNonZero(b.usage) || b.usage.costUSD > 0)
+  items.push({
+    kind: 'agent_complete',
+    key: `${msgs.length - 1}-complete`,
+    outputName: data.output?.name,
+    displayContent: data.content,
+    values: data.values && Object.keys(data.values).length > 0 ? data.values : undefined,
+    modelBreakdown: modelBreakdown.length > 0 ? modelBreakdown : undefined,
+    totalCost: tmpCached.lastTotalCost > 0 ? tmpCached.lastTotalCost : undefined,
+  })
+
+  return items
+}
+
+/**
  * 按 sessionId 缓存的渲染项构建器。
  *
- * - 首次调用：扫描全部消息，将扫描中间态与最终产物缓存。
- * - 后续调用：消息未增长则直接返回缓存；消息增长则从断点继续增量扫描。
+ * - `'full'` 模式（默认）：首次全量扫描 + 缓存，后续增量扫描。
+ * - `'light'` 模式：直接取首尾两条消息，不写缓存、不增量。
+ *    最后一条非 agentComplete 则返回 []（run 未正常完成不展示折叠摘要）。
  */
 export function buildRenderItems(
   sessionId: string,
   msgs: ExtensionToWebviewMessage[],
+  mode: BuildMode = 'full',
 ): RenderItem[] {
+  // light 模式:无缓存一次性扫描,折叠态 run 专用
+  if (mode === 'light') return scanLight(msgs)
+
   const cached = match(cache.has(sessionId))
     .with(true, () => cache.get(sessionId)!)
     .with(false, () => {

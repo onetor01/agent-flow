@@ -218,15 +218,16 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         })
       }
       // buildRenderItems 内部按 cacheKey 缓存(用 runId 作 key,与 store 端 clearBuildCacheForRuns 对齐)
-      // 第 5 参传入 run 级注入快照，仅首条 user 气泡内展示，不进入 buildRenderItems 缓存
+      // 折叠 run 传 'light':取首尾两条消息(用户初始 + agentComplete),不写缓存
+      const isExpanded = run.runId === effectiveExpanded
       const bubbles = toBubbleItems(
         run.runId,
         run.messages,
         ctx,
         run.completed,
         run.injectedShareValues,
+        isExpanded ? undefined : 'light',
       )
-      const isExpanded = run.runId === effectiveExpanded
       if (isExpanded) {
         bubbles.forEach((item) => {
           result.push({
@@ -239,8 +240,9 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         // 收起态：首条 user + 「显示消息」按钮 + agent_complete（若存在）
         const firstUserIdx = bubbles.findIndex((b) => b.role === 'user')
         const completeItem = bubbles.find((b) => b.key.endsWith('-complete'))
-        // 隐藏的中间项条数 = 总数 - 首条 user(1) - complete(0 或 1)
-        const hiddenCount = bubbles.length - (firstUserIdx >= 0 ? 1 : 0) - (completeItem ? 1 : 0)
+        // light 模式只返回 user + agentComplete 两条，用原始消息数推算中间信号数
+        const hiddenCount =
+          run.messages.length - (firstUserIdx >= 0 ? 1 : 0) - (completeItem ? 1 : 0)
         if (firstUserIdx >= 0) {
           const firstUser = bubbles[firstUserIdx]
           result.push({
@@ -261,7 +263,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
                   className='text-[11px]! text-[#6c7086]!'
                   onClick={() => setExpandedRunId(run.runId)}
                 >
-                  显示消息（{hiddenCount}）
+                  显示折叠消息
                 </Button>
               </div>
             ),
