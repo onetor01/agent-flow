@@ -1,6 +1,6 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import type { CSSProperties, FC, MouseEvent } from 'react'
-import { AutoComplete, Badge, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Tag, Tooltip, Typography } from 'antd'
 import {
   BellOutlined,
   CodeOutlined,
@@ -13,13 +13,14 @@ import {
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
-import { type Agent, type Code, MODELS } from '@/common'
+import { type Agent, type Code } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useSilentTaskModeNotification } from '@/webview/hooks/useSilentTaskModeNotification'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import { CopyButton } from '../../text-components'
 import type { AgentNode } from '../flowUtils'
+import { ModelEditor } from './ModelEditor'
 
 const handleStyle: CSSProperties = {
   height: 14,
@@ -56,8 +57,6 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         ;(a as any)[field] = !(a as any)[field]
       })
     }
-
-  const [editingModel, setEditingModel] = useState(false)
 
   const isCodeNode = agent?.node_type === 'code'
   const outputs = agent?.outputs ?? []
@@ -172,56 +171,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           ) : (
             <>
               {agent?.model ? (
-                editingModel ? (
-                  <AutoComplete
-                    autoFocus
-                    defaultOpen
-                    defaultValue={agent.model}
-                    size='small'
-                    style={{ fontSize: 10, width: 100, minWidth: 80 }}
-                    className='nodrag nopan !h-[22px] [&_.ant-select-selection-search-input]:!h-[22px] [&_.ant-select-selector]:!h-[22px] [&_.ant-select-selector]:!min-h-[22px]'
-                    options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
-                    filterOption={(input, option) =>
-                      (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ??
-                      false
-                    }
-                    onSelect={(val) => {
-                      useFlowStore.getState().save((flows) => {
-                        const f = flows.find((f) => f.id === flowId)
-                        const a = f?.agents?.find((a) => a.id === agentId)
-                        if (a && a.node_type !== 'code') a.model = val
-                      })
-                      setEditingModel(false)
-                    }}
-                    onBlur={(e) => {
-                      const val = (e.target as HTMLInputElement).value
-                      if (val) {
-                        useFlowStore.getState().save((flows) => {
-                          const f = flows.find((f) => f.id === flowId)
-                          const a = f?.agents?.find((a) => a.id === agentId)
-                          if (a && a.node_type !== 'code') a.model = val
-                        })
-                      }
-                      setEditingModel(false)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') setEditingModel(false)
-                      e.stopPropagation()
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <Tag
-                    color='blue'
-                    style={{ fontSize: 10, height: 22, lineHeight: '20px', cursor: 'pointer' }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setEditingModel(true)
-                    }}
-                  >
-                    {agent?.model}
-                  </Tag>
-                )
+                <ModelEditor model={agent.model} flowId={flowId} agentId={agentId} />
               ) : null}
               <span className='ml-auto flex items-center gap-1'>
                 {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
