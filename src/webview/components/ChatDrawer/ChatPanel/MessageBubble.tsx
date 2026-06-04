@@ -404,9 +404,9 @@ const InjectedShareValuesSection: FC<{ values: Record<string, string | null> }> 
   const entries = Object.entries(values)
   if (entries.length === 0) return null
   return (
-    <div className='mt-2 border-t border-[#45475a] pt-2'>
+    <div className='flex flex-col'>
       <div
-        className='mb-1 cursor-pointer select-none text-[10px] text-[#a6adc8]'
+        className='mb-1 cursor-pointer text-xs text-[#a6adc8] select-none'
         onClick={() => setExpanded((v) => !v)}
       >
         {expanded ? '▾' : '▸'} 注入数据
@@ -463,15 +463,16 @@ function renderItemToBubble(
           ? buildForkIcon({ kind: 'message', runId, messageUuid: item.messageUuid })
           : undefined
       // 注入快照仅附加在 run 首条 user 气泡内；空对象时不展示
-      const hasInjected =
-        injectedShareValues && Object.keys(injectedShareValues).length > 0
+      const hasInjected = injectedShareValues && Object.keys(injectedShareValues).length > 0
       return {
         key: item.key,
         role: 'user',
         content: (
           <Copyable text={copyText} extra={fork}>
-            {node}
-            {hasInjected && <InjectedShareValuesSection values={injectedShareValues} />}
+            <div className='flex flex-col gap-1'>
+              {node}
+              {hasInjected && <InjectedShareValuesSection values={injectedShareValues} />}
+            </div>
           </Copyable>
         ),
       }
