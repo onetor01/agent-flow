@@ -218,12 +218,12 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                 <Tooltip title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}>
                   <span
                     className={cn(
-                      'cursor-pointer text-xs transition-colors',
+                      'text-1 mb-0.5 cursor-pointer text-xs transition-colors',
                       agent?.plan_mode ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
                     )}
                     onClick={createToggler('plan_mode', true)}
                   >
-                    PLAN
+                    Plan
                   </span>
                 </Tooltip>
                 {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
