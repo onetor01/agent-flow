@@ -7,8 +7,8 @@ export const PresetFlows: Flow[] = [
     agents: [
       {
         id: '1',
-        model: 'opus',
-        effort: 'xhigh',
+        model: 'sonnet[1m]',
+        effort: 'high',
         agent_name: '需求分析',
         node_type: 'agent',
         is_entry: true,
@@ -68,7 +68,7 @@ export const PresetFlows: Flow[] = [
       },
       {
         id: '2',
-        model: 'opus',
+        model: 'qwen3.7-max',
         node_type: 'agent',
         effort: 'high',
         agent_name: '修改代码',
@@ -102,7 +102,7 @@ export const PresetFlows: Flow[] = [
       },
       {
         agent_name: '审查代码',
-        model: 'opus',
+        model: 'glm-5.1',
         node_type: 'agent',
         effort: 'high',
         deny_tools: ['Bash(git merge)', 'Bash(git push)'],
@@ -171,7 +171,7 @@ export const PresetFlows: Flow[] = [
         node_type: 'agent',
         agent_name: '需求分析',
         agent_desc: '分析用户需求，拆分为有序子任务列表',
-        model: 'sonnet[1m]',
+        model: 'opus',
         deny_tools: ['Bash(git commit)', 'Bash(git merge)', 'Bash(git push)', 'Edit'],
         work_mode: 'silent_task',
         allowed_read_values_keys: ['requirement', 'remark'],
@@ -321,7 +321,7 @@ export const PresetFlows: Flow[] = [
         node_type: 'agent',
         agent_name: '结果验证',
         agent_desc: '验证执行结果是否满足任务要求',
-        model: 'qwen3.7-max',
+        model: 'glm-5.1',
         effort: 'high',
         work_mode: 'silent_task',
         deny_tools: ['Bash(git merge)', 'Bash(git commit)', 'Bash(git push)', 'Edit'],
