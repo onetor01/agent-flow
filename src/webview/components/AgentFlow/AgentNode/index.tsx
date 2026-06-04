@@ -15,6 +15,7 @@ import { type Agent, type Code } from '@/common'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
+import { CopyButton } from '../../text-components'
 import type { AgentNode } from '../flowUtils'
 
 const handleStyle: CSSProperties = {
@@ -100,28 +101,18 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               </Tooltip>
             )
           })()}
-          <div
-            className='flex-1 overflow-hidden'
+          <Typography.Text
+            ellipsis
+            className='m-0 mr-auto overflow-hidden p-0 text-xs font-semibold text-[#cdd6f4]'
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <Typography.Text ellipsis className='mb-0! text-[13px]! font-semibold text-[#cdd6f4]!'>
-              {agentName}
-            </Typography.Text>
-          </div>
-
-          <Typography.Text
-            copyable={{
-              onCopy: async () => {
-                await navigator.clipboard.writeText(JSON.stringify(agent, null, 2))
-                message.success('复制成功')
-              },
-              tooltips: false,
-            }}
-          />
+            {agentName}
+          </Typography.Text>
+          <CopyButton text={() => JSON.stringify(agent, null, 2)} />
           <Badge dot={isAgentActive} offset={[-2, 2]}>
             <MessageOutlined
-              className='text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
+              className='mb-0.5 text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
               onClick={() => {
                 const { chatDrawer, openChatDrawer, closeChatDrawer } = useFlowStore.getState()
                 if (chatDrawer?.flowId === flowId && chatDrawer?.agentId === agentId) {
@@ -153,7 +144,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
             </Tooltip>
           )}
           <EditOutlined
-            className='ext-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
+            className='text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
             onClick={(e) => {
               e.stopPropagation()
               useFlowStore.getState().setEditingAgent({ flowId, agentId })

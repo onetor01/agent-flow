@@ -10,8 +10,16 @@ mermaid.initialize({
   securityLevel: 'loose',
 })
 
-const CopyButton: FC<{ text: string }> = ({ text }) => {
-  return <Typography.Text copyable={{ tooltips: false, text }} />
+export const CopyButton: FC<
+  Style & { text: string | (() => string) | (() => Promise<string>) }
+> = ({ text, className, style }) => {
+  return (
+    <Typography.Text
+      className={cn('m-0 p-0', className)}
+      style={style}
+      copyable={{ tooltips: false, text }}
+    />
+  )
 }
 const getTextContent = (node: ReactNode): string => {
   if (node == null || typeof node === 'boolean') return ''
