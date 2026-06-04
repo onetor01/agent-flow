@@ -161,7 +161,7 @@
             "next_agent": "2"
           }
         ],
-        "agent_prompt": "### 你的职责\n分析用户需求，生成子任务列表。\n仅做规划，**禁止修改文件**\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求，思考如何实现，生成一系列串行的子任务列表。\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中。\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息，涉及文件应当引用到行和具体文本。\n在变更较少时，允许只有一个子任务。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将你分析得到的用户需求写入requirement，将子任务列表写入tasks。\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体。",
+        "agent_prompt": "### 你的职责\n分析用户需求，生成子任务列表。\n仅做**只读**规划，**禁止修改文件**。\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求，思考如何实现，生成一系列串行的子任务列表。\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中。\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息，涉及文件应当引用到行和具体文本。\n在变更较少时，允许只有一个子任务。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将你分析得到的用户需求写入requirement，将子任务列表写入tasks。\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体。",
         "id": "1"
       },
       {
@@ -186,7 +186,7 @@
             "next_agent": "3"
           }
         ],
-        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串。\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组。数组中的每一项与子任务一一对应。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content为子任务列表JSON。注意，content必须是**合法的JSON字符串**，必须是**字符串数组**。",
+        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串。\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组。数组中的每一项与子任务一一对应。\n**保留task的完整内容，禁止修改，禁止执行，只读。**\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content为子任务列表JSON。注意，content必须是**合法的JSON字符串**，必须是**字符串数组**。",
         "id": "2"
       },
       {
@@ -202,7 +202,7 @@
             "next_agent": "2"
           }
         ],
-        "code": "try {\n  const parsed = JSON.parse(input)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: input, next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
+        "code": "try {\n  const parsed = JSON.parse(input)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
         "id": "3"
       },
       {
@@ -244,7 +244,7 @@
             "next_agent": "6"
           }
         ],
-        "agent_prompt": "### 你的职责\n根据current_task和remark，完成任务。\n### 执行步骤\n#### 1. 执行任务\n参考输入，遵守remark，执行current_task。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告。",
+        "agent_prompt": "### 你的职责\n完成**current_task**描述的任务。\n### 执行步骤\n#### 1. 执行任务\n参考输入，遵守remark，执行current_task。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告。",
         "id": "5"
       },
       {
@@ -274,7 +274,7 @@
             "next_agent": "5"
           }
         ],
-        "agent_prompt": "### 你的职责\n根据current_task和remark，验证执行结果。\n仅做验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告。",
+        "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果。\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告。",
         "id": "6"
       },
       {
@@ -303,7 +303,7 @@
             "next_agent": "1"
           }
         ],
-        "agent_prompt": "### 你的职责\n验证当前代码是否符合用户需求\n仅做验证，**禁止修改文件**\n### 执行步骤\n如果验证不通过，调用mcp__AgentControllerMcp__CompleteTask，分支\"验证不通过\"，输出你的分析结果。\n否则，调用 mcp__AgentControllerMcp__CompleteTask，分支\"验证通过\"。\n本次调用可能被用户拒绝，后续应当和用户讨论需求。\n按照用户意见确定本次验证是否通过，再次调用mcp__AgentControllerMcp__CompleteTask。\n如果用户希望更新需求，视作验证不通过，将用户意见一并输出。",
+        "agent_prompt": "### 你的职责\n验证当前代码是否符合用户需求\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n如果验证不通过，调用mcp__AgentControllerMcp__CompleteTask，分支\"验证不通过\"，输出你的分析结果。\n否则，调用 mcp__AgentControllerMcp__CompleteTask，分支\"验证通过\"。\n本次调用可能被用户拒绝，后续应当和用户讨论需求。\n按照用户意见确定本次验证是否通过，再次调用mcp__AgentControllerMcp__CompleteTask。\n如果用户希望更新需求，视作验证不通过，将用户意见一并输出。",
         "id": "7"
       }
     ],
