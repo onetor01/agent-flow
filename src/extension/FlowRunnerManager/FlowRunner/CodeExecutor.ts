@@ -120,7 +120,8 @@ function validateCodeOutput(
  * 第一版限制:
  * - 不支持作为 fork 起点(无 SDK session 可 fork —— spawnForFork 仅用 ClaudeExecutor)
  * - silent_task / AskUserQuestion / require_confirm 不参与
- * - 一次性执行,完成后 onComplete;sendUserMessage / interrupt / answerToolPermission 等是 noop
+ * - 一次性执行,完成后 onComplete;sendUserMessage / answerToolPermission 是 noop;
+ *   interrupt 标记 disposed 并 fire onError 切 error 终态(见 interrupt 注释)
  */
 export class CodeExecutor {
   private agent!: Code
@@ -162,10 +163,15 @@ export class CodeExecutor {
   }
 
   /** 用户主动中断 —— code 函数无可中断 promise,只能标记 disposed 让后续 onComplete 被吞掉。
-   * AsyncFunction 仍会跑完,但本回合 onComplete / onMessage 不再透传到上层,
-   * reducer 走 agentInterrupted 分支推到 interrupted phase。 */
+   * AsyncFunction 仍会跑完,但本回合 onComplete / onMessage 不再透传到上层。
+   * 与 ClaudeExecutor 不同:code 节点 sendUserMessage 是 noop 无法续轮,若停在 interrupted
+   * (非终态)会卡死,故 interrupt 直接 fire onError 让 reducer 切 error 终态;
+   * FlowRunner.handleInterrupt 对 code 节点不再 fire agentInterrupted。
+   * disposed 标记前的极小竞态(函数恰好已 onComplete)无法避免。 */
   async interrupt(): Promise<void> {
+    if (this.disposed || this.completed) return
     this.disposed = true
+    this.events.onError(new Error('代码节点执行被中断'))
   }
 
   kill(): void {

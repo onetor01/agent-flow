@@ -296,6 +296,9 @@ export class FlowRunner {
     const executor = this.executors.get(runId)
     if (!executor) return
     await executor.interrupt()
+    // code 节点:interrupt 已在 CodeExecutor 内 fire onError 切 error 终态,不再 fire
+    // agentInterrupted —— interrupted 是非终态,code 节点 sendUserMessage 是 noop 无法续轮会卡死。
+    if (executor instanceof CodeExecutor) return
     this.fire('flow.signal.agentInterrupted', { runId })
   }
 

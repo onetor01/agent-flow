@@ -90,6 +90,15 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   const allRuns = fs?.runs
   const answeredToolPermissions = useMemo(() => getAnsweredToolPermissions(fs), [fs])
 
+  // 注入快照小节标题按 node_type 区分:code 节点展示全量 shareValues(「共享数据」),
+  // agent 节点展示按 allowed_read 过滤的注入值(「注入数据」)。MessageList 按 agentId 聚合,
+  // 故整列 node_type 一致。
+  const flows = useFlowStore((s) => s.flows)
+  const injectedTitle = useMemo(() => {
+    const agent = flows.find((f) => f.id === flowId)?.agents?.find((a) => a.id === agentId)
+    return agent?.node_type === 'code' ? '共享数据' : '注入数据'
+  }, [flows, flowId, agentId])
+
   const runs = useMemo<AgentRun[]>(() => {
     if (!allRuns) return EMPTY_RUNS
     if (runId) {
@@ -226,7 +235,8 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         ctx,
         run.completed,
         run.injectedShareValues,
-        isExpanded ? undefined : 'light',
+        isExpanded ? 'full' : 'light',
+        injectedTitle,
       )
       if (isExpanded) {
         bubbles.forEach((item) => {
@@ -279,7 +289,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       }
     })
     return result
-  }, [runs, ctx, effectiveExpanded])
+  }, [runs, ctx, effectiveExpanded, injectedTitle])
 
   const lastRunCompleted = runs.at(-1)?.completed
   const finalItems = useMemo<Item[]>(() => {

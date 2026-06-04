@@ -398,8 +398,13 @@ const CompleteTaskConfirmCard: FC<{
  * run 级注入快照展示小节 —— 附加在首条 user 气泡底部。
  * 默认折叠，展开后按 key → value 列表展示（value 为 null 显示灰色「(空)」）。
  * 样式参考 CompleteTaskBody「共享数据写入」块。
+ * title 由调用方按 node_type 区分:agent 节点「注入数据」(按 allowed_read 过滤、值空记 null),
+ * code 节点「共享数据」(全量 shareValues)。
  */
-const InjectedShareValuesSection: FC<{ values: Record<string, string | null> }> = ({ values }) => {
+const InjectedShareValuesSection: FC<{ values: Record<string, string | null>; title: string }> = ({
+  values,
+  title,
+}) => {
   const [expanded, setExpanded] = useState(false)
   const entries = Object.entries(values)
   if (entries.length === 0) return null
@@ -409,7 +414,7 @@ const InjectedShareValuesSection: FC<{ values: Record<string, string | null> }> 
         className='mb-1 cursor-pointer text-xs text-[#a6adc8] select-none'
         onClick={() => setExpanded((v) => !v)}
       >
-        {expanded ? '▾' : '▸'} 注入数据
+        {expanded ? '▾' : '▸'} {title}
       </div>
       {expanded && (
         <div className='flex flex-col gap-1'>
@@ -438,6 +443,7 @@ function renderItemToBubble(
   itemContextUsage?: { used: number; total: number },
   runId?: string,
   injectedShareValues?: Record<string, string | null>,
+  injectedTitle = '注入数据',
 ): RenderedBubble | RenderedBubble[] | null {
   /**
    * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素,作为 Copyable.extra 注入。
@@ -471,7 +477,9 @@ function renderItemToBubble(
           <Copyable text={copyText} extra={fork}>
             <div className='flex flex-col gap-1'>
               {node}
-              {hasInjected && <InjectedShareValuesSection values={injectedShareValues} />}
+              {hasInjected && (
+                <InjectedShareValuesSection values={injectedShareValues} title={injectedTitle} />
+              )}
             </div>
           </Copyable>
         ),
@@ -741,6 +749,7 @@ export function toBubbleItems(
   sessionCompleted = false,
   injectedShareValues?: Record<string, string | null>,
   mode?: import('./buildRenderItems').BuildMode,
+  injectedTitle?: string,
 ): RenderedBubble[] {
   const renderItems = buildRenderItems(sessionId, msgs, mode)
   const out: RenderedBubble[] = []
@@ -755,7 +764,15 @@ export function toBubbleItems(
         ? injectedShareValues
         : undefined
     if (item.kind === 'user') firstUserPassed = true
-    const bubble = renderItemToBubble(item, ctx, sessionCompleted, cu, sessionId, injected)
+    const bubble = renderItemToBubble(
+      item,
+      ctx,
+      sessionCompleted,
+      cu,
+      sessionId,
+      injected,
+      injectedTitle,
+    )
     if (!bubble) continue
     if (Array.isArray(bubble)) out.push(...bubble)
     else out.push(bubble)
