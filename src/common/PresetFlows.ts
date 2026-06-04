@@ -249,7 +249,7 @@ export const PresetFlows: Flow[] = [
           '  }',
           '  return {',
           "    output_name:'初始化完成',",
-          "    values: { tasks: input, next: '0'}",
+          "    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}",
           '  }',
           '} catch{',
           '  return {',
