@@ -112,6 +112,8 @@ export class ClaudeExecutor {
   private queryInstance: Query | null = null
   private completed = false
   private disposed = false
+  /** silent_task 自动回复 per-instance 计数 = per-run(executor 与 run 一一对应) */
+  private autoReplyCount = 0
   /**
    * 首条 SDK 消息是否已处理。
    * - eager 模式:首条 SDK 消息抵达时触发 onStarted + 透传 initMessage,然后置 true
@@ -286,6 +288,30 @@ export class ClaudeExecutor {
     this.pendingToolPermissions.clear()
   }
 
+  /**
+   * silent_task 自动回复(自动续轮 + AskUserQuestion/ExitPlanMode 自动应答)统一计数。
+   * 每次自动回复前调用:自增计数,超过 SILENT_MAX_AUTO_REPLIES 时标记 disposed +
+   * fire onError 把 run 推到 agent-error 终态并 interrupt SDK 让流尽快收尾
+   * (与 onTerminate 错误路径同构),返回 false 让调用方放弃本次自动回复。
+   * per-instance 计数 = per-run(executor 与 run 一一对应)。
+   */
+  private tryAutoReply(): boolean {
+    this.autoReplyCount += 1
+    if (this.autoReplyCount > SILENT_MAX_AUTO_REPLIES) {
+      this.disposed = true
+      this.pendingCompleteResult = null
+      this.rejectAllPendingPermissions('silent auto-reply limit exceeded')
+      this.events.onError(
+        new Error(`silent_task 自动回复次数超过上限 ${SILENT_MAX_AUTO_REPLIES}`),
+      )
+      this.queryInstance?.interrupt().catch((err) => {
+        logError('[ClaudeExecutor] interrupt after auto-reply limit exceeded failed:', err)
+      })
+      return false
+    }
+    return true
+  }
+
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
     const toolInput = input as Record<string, unknown>
     if (toolName.includes('AskUserQuestion')) {
@@ -293,6 +319,7 @@ export class ClaudeExecutor {
       // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
       // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
       if (this.agent.work_mode === 'silent_task') {
+        if (!this.tryAutoReply()) return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         const askInput = input as AskUserQuestionInput
         const questions = askInput.questions ?? []
         const answers: Record<string, string> = {}
@@ -327,6 +354,7 @@ export class ClaudeExecutor {
     // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
     if (toolName.includes('ExitPlanMode')) {
       if (this.agent.work_mode === 'silent_task') {
+        if (!this.tryAutoReply()) return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         this.events.onToolPermissionResult({
           toolUseId: toolUseID,
           allow: true,
@@ -503,11 +531,15 @@ export class ClaudeExecutor {
             !this.disposed &&
             msg.subtype === 'success'
           ) {
-            const continueMsg = buildSilentContinueMessage(this._sessionId)
-            // 同步透传给上层,让 webview 通过 flow.signal.aiMessage 看到自动「继续」消息
-            // (SDK 不会 mirror 通过 input stream push 的 user message,这里手动 echo)。
-            this.events.onMessage(continueMsg)
-            this.userInputStream.push(continueMsg)
+            if (!this.tryAutoReply()) {
+              // 超限:已 fire onError + interrupt + disposed,不再 push 续轮
+            } else {
+              const continueMsg = buildSilentContinueMessage(this._sessionId)
+              // 同步透传给上层,让 webview 通过 flow.signal.aiMessage 看到自动「继续」消息
+              // (SDK 不会 mirror 通过 input stream push 的 user message,这里手动 echo)。
+              this.events.onMessage(continueMsg)
+              this.userInputStream.push(continueMsg)
+            }
           }
         }
       }
@@ -566,6 +598,8 @@ function createMessageChannel<T>() {
 const SILENT_ASK_AUTO_ANSWER =
   '自行处理，继续**执行任务**，任务完成调用mcp__AgentControllerMcp__CompleteTask，无法完成则调用mcp__AgentControllerMcp__TerminateTask'
 const SILENT_CONTINUE_TEXT = SILENT_ASK_AUTO_ANSWER
+/** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答)次数上限,超过抛异常;如需调整改此值 */
+const SILENT_MAX_AUTO_REPLIES = 30
 
 /** silent_task 自动续轮用的 user 消息。session_id 在 result 之后已确定。 */
 function buildSilentContinueMessage(sessionId: string | null): SDKUserMessage {
