@@ -178,6 +178,7 @@ export const ChatDrawer: FC<Props> = ({
             agentId={effectiveAgentId}
             runId={runId}
             onClose={onClose}
+            onSend={onSend}
           />
         ) : null}
         {/* 保留草稿 此组件必须始终挂载 */}

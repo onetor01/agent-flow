@@ -1,6 +1,6 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, useState, type FC } from 'react'
 import { Button, Skeleton, Tag, Tooltip } from 'antd'
-import { CloseOutlined, RobotOutlined, StopOutlined } from '@ant-design/icons'
+import { CloseOutlined, RobotOutlined, SendOutlined, StopOutlined } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import { AnimatePresence, motion } from 'motion/react'
 import { match, P } from 'ts-pattern'
@@ -41,6 +41,8 @@ type Props = {
    */
   tokenMode?: 'flow' | 'view'
   onClose?: () => void
+  /** 快捷按钮点击时调用,参数与 ChatDrawer.onSend 同签名 */
+  onSend?: (content: string) => Promise<boolean>
   ref?: React.Ref<ChatPanelRef>
 }
 
@@ -50,6 +52,7 @@ export const ChatPanel: FC<Props> = ({
   runId,
   tokenMode = 'flow',
   onClose,
+  onSend,
   ref,
 }) => {
   const killFlow = useFlowStore((s) => s.killFlow)
@@ -298,7 +301,7 @@ export const ChatPanel: FC<Props> = ({
 
   return (
     <div
-      className='flex h-full flex-col overflow-hidden'
+      className='relative flex h-full flex-col overflow-hidden'
       tabIndex={-1}
       onWheel={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -480,6 +483,23 @@ export const ChatPanel: FC<Props> = ({
             )
           })()}
       </AnimatePresence>
+
+      {/* 快捷确认/继续悬浮按钮 —— phase=result 时显示"确认",interrupted 时显示"继续" */}
+      {(phase === 'result' || phase === 'interrupted') && onSend && (
+        <Button
+          type='primary'
+          size='small'
+          className='absolute right-3 bottom-3 z-10 shadow-lg'
+          icon={<SendOutlined rotate={-90} />}
+          iconPlacement='end'
+          onClick={() => {
+            const text = phase === 'result' ? '确认' : '继续'
+            onSend(text)
+          }}
+        >
+          快捷回复:{phase === 'result' ? '确认' : '继续'}
+        </Button>
+      )}
     </div>
   )
 }
