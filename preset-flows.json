@@ -26,7 +26,7 @@
             "require_confirm": true
           }
         ],
-        "work_mode": "silent_task",
+        "work_mode": "task",
         "allowed_write_values_keys": [
           "summary",
           "worktreePath",
@@ -60,7 +60,7 @@
             "next_agent": "3"
           }
         ],
-        "work_mode": "silent_task",
+        "work_mode": "task",
         "allowed_read_values_keys": [
           "summary",
           "worktreePath",
@@ -136,15 +136,18 @@
         "no_output": true,
         "node_type": "agent",
         "agent_name": "需求分析",
+        "effort": "xhigh",
         "agent_desc": "分析用户需求，拆分为有序子任务列表",
         "model": "opus",
+        "must_confirm_tools": [
+          "Edit"
+        ],
         "deny_tools": [
           "Bash(git commit)",
           "Bash(git merge)",
-          "Bash(git push)",
-          "Edit"
+          "Bash(git push)"
         ],
-        "work_mode": "silent_task",
+        "work_mode": "task",
         "allowed_read_values_keys": [
           "requirement",
           "remark"
@@ -157,37 +160,17 @@
         "outputs": [
           {
             "output_name": "分析完成",
-            "output_desc": "需求已拆分",
+            "output_desc": "分析用户需求，用子任务列表的方式描述实现需求的方式",
             "next_agent": "2"
-          }
-        ],
-        "agent_prompt": "### 你的职责\n分析用户需求，生成子任务列表。\n仅做**只读**规划，**禁止修改文件**。\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求，思考如何实现，生成一系列串行的子任务列表。\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中。\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息，涉及文件应当引用到行和具体文本。\n在变更较少时，允许只有一个子任务。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将你分析得到的用户需求写入requirement，将子任务列表写入tasks。\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体。",
-        "id": "1"
-      },
-      {
-        "node_type": "agent",
-        "agent_name": "规范数据格式",
-        "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
-        "model": "glm-5.1",
-        "work_mode": "silent_task",
-        "no_input": true,
-        "isolation_mode": true,
-        "allowed_read_values_keys": [
-          "tasks"
-        ],
-        "deny_tools": [
-          "Bash",
-          "Edit"
-        ],
-        "outputs": [
+          },
           {
-            "output_name": "格式已处理",
-            "output_desc": "需求已拆分，进入任务调度",
-            "next_agent": "3"
+            "output_name": "需求已实现",
+            "output_desc": "当前状况已满足用户需求，无需更改",
+            "require_confirm": true
           }
         ],
-        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串。\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组。数组中的每一项与子任务一一对应。\n**保留task的完整内容，禁止修改，禁止执行，只读。**\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content为子任务列表JSON。注意，content必须是**合法的JSON字符串**，必须是**字符串数组**。",
-        "id": "2"
+        "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况。如果没有完成，生成子任务列表。\n仅做**只读**规划，不要修改文件。\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求。\n如果需求尚未实现，思考实现方式，并生成子任务列表。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask。\n如果需求已实现，选择分支\"需求已实现\"。\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks。如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体。\n如果用户质询你的结论，与用户讨论。得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask。\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行。\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求。在变更较少时，列表中允许只有一个子任务。\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中。\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息。\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**。",
+        "id": "1"
       },
       {
         "node_type": "code",
@@ -199,10 +182,40 @@
           },
           {
             "output_name": "格式错误",
+            "next_agent": "3"
+          }
+        ],
+        "code": "try {\n  const parsed = JSON.parse(values.tasks)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
+        "id": "2"
+      },
+      {
+        "node_type": "agent",
+        "agent_name": "规范数据格式",
+        "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
+        "model": "glm-5.1",
+        "effort": "high",
+        "work_mode": "silent_task",
+        "no_input": true,
+        "isolation_mode": true,
+        "allowed_read_values_keys": [
+          "tasks"
+        ],
+        "allowed_write_values_keys": [
+          "tasks"
+        ],
+        "deny_tools": [
+          "Bash(git merge)",
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Edit"
+        ],
+        "outputs": [
+          {
+            "output_name": "格式已处理",
             "next_agent": "2"
           }
         ],
-        "code": "try {\n  const parsed = JSON.parse(input)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
+        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串。\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组。数组中的每一项与子任务一一对应。\n**保留task的完整内容，禁止修改，禁止执行，只读。**\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将子任务列表JSON写入tasks。注意，写入值必须是**合法的JSON字符串**，必须是**字符串数组**。",
         "id": "3"
       },
       {
@@ -216,7 +229,7 @@
           },
           {
             "output_name": "验证需求",
-            "next_agent": "7"
+            "next_agent": "1"
           }
         ],
         "code": "const next = parseInt(values.next)\nconst tasks = JSON.parse(values.tasks)\nif(next === tasks.length || tasks.length === 0){\n  return {\n    output_name: '验证需求',\n  }\n}\nconst current_task = tasks[next>=0 && next<tasks.length ? next: 0]\nreturn {\n  content: '执行任务',\n  output_name: '执行子任务',\n  values: { current_task, next: `${next + 1}` }\n}",
@@ -276,35 +289,6 @@
         ],
         "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果。\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark。\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告。",
         "id": "6"
-      },
-      {
-        "node_type": "agent",
-        "agent_name": "需求验证",
-        "agent_desc": "验证用户需求是否满足",
-        "model": "sonnet[1m]",
-        "effort": "high",
-        "work_mode": "task",
-        "deny_tools": [
-          "Bash(git merge)",
-          "Bash(git commit)",
-          "Bash(git push)",
-          "Edit"
-        ],
-        "allowed_read_values_keys": [
-          "requirement"
-        ],
-        "outputs": [
-          {
-            "output_name": "验证通过",
-            "require_confirm": true
-          },
-          {
-            "output_name": "验证不通过",
-            "next_agent": "1"
-          }
-        ],
-        "agent_prompt": "### 你的职责\n验证当前代码是否符合用户需求\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n如果验证不通过，调用mcp__AgentControllerMcp__CompleteTask，分支\"验证不通过\"，输出你的分析结果。\n否则，调用 mcp__AgentControllerMcp__CompleteTask，分支\"验证通过\"。\n本次调用可能被用户拒绝，后续应当和用户讨论需求。\n按照用户意见确定本次验证是否通过，再次调用mcp__AgentControllerMcp__CompleteTask。\n如果用户希望更新需求，视作验证不通过，将用户意见一并输出。",
-        "id": "7"
       }
     ],
     "shareValuesKeys": [

@@ -301,9 +301,7 @@ export class ClaudeExecutor {
       this.disposed = true
       this.pendingCompleteResult = null
       this.rejectAllPendingPermissions('silent auto-reply limit exceeded')
-      this.events.onError(
-        new Error(`silent_task 自动回复次数超过上限 ${SILENT_MAX_AUTO_REPLIES}`),
-      )
+      this.events.onError(new Error(`silent_task 自动回复次数超过上限 ${SILENT_MAX_AUTO_REPLIES}`))
       this.queryInstance?.interrupt().catch((err) => {
         logError('[ClaudeExecutor] interrupt after auto-reply limit exceeded failed:', err)
       })
@@ -319,7 +317,8 @@ export class ClaudeExecutor {
       // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
       // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
       if (this.agent.work_mode === 'silent_task') {
-        if (!this.tryAutoReply()) return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
+        if (!this.tryAutoReply())
+          return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         const askInput = input as AskUserQuestionInput
         const questions = askInput.questions ?? []
         const answers: Record<string, string> = {}
@@ -354,7 +353,8 @@ export class ClaudeExecutor {
     // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
     if (toolName.includes('ExitPlanMode')) {
       if (this.agent.work_mode === 'silent_task') {
-        if (!this.tryAutoReply()) return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
+        if (!this.tryAutoReply())
+          return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         this.events.onToolPermissionResult({
           toolUseId: toolUseID,
           allow: true,
@@ -373,7 +373,8 @@ export class ClaudeExecutor {
         matchToolAnySubCommand(toolName, deny_tools, toolInput))
     ) {
       const matchedPatterns = deny_tools.filter(
-        (p) => matchTool(toolName, [p], toolInput) || matchToolAnySubCommand(toolName, [p], toolInput),
+        (p) =>
+          matchTool(toolName, [p], toolInput) || matchToolAnySubCommand(toolName, [p], toolInput),
       )
       const denyDesc =
         matchedPatterns.length > 0
