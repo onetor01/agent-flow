@@ -119,13 +119,9 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               tooltips: false,
             }}
           />
-
-          <Tooltip>
-            <span
-              className={cn(
-                'text-xs text-[#a6adc8] transition-colors',
-                'cursor-pointer hover:text-[#6366f1]',
-              )}
+          <Badge dot={isAgentActive} offset={[-2, 2]}>
+            <MessageOutlined
+              className='text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
               onClick={() => {
                 const { chatDrawer, openChatDrawer, closeChatDrawer } = useFlowStore.getState()
                 if (chatDrawer?.flowId === flowId && chatDrawer?.agentId === agentId) {
@@ -134,16 +130,12 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   openChatDrawer({ flowId, agentId })
                 }
               }}
-            >
-              <Badge dot={isAgentActive} offset={[-2, 2]}>
-                <MessageOutlined className='text-xs text-[#a6adc8]' />
-              </Badge>
-            </span>
-          </Tooltip>
+            />
+          </Badge>
           {agent?.no_input && (
             <Tooltip title='直接启动'>
-              <span
-                className='cursor-pointer text-xs text-[#a6adc8] transition-colors hover:text-[#52c41a]'
+              <PlayCircleOutlined
+                className='text-xs text-[#a6adc8] transition-colors hover:text-[#52c41a]'
                 onClick={(e) => {
                   e.stopPropagation()
                   const { openChatDrawer } = useFlowStore.getState()
@@ -157,20 +149,16 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     parent_tool_use_id: null,
                   })
                 }}
-              >
-                <PlayCircleOutlined />
-              </span>
+              />
             </Tooltip>
           )}
-          <span
-            className='cursor-pointer text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
+          <EditOutlined
+            className='ext-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
             onClick={(e) => {
               e.stopPropagation()
               useFlowStore.getState().setEditingAgent({ flowId, agentId })
             }}
-          >
-            <EditOutlined />
-          </span>
+          />
         </div>
 
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}

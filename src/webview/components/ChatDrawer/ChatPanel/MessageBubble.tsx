@@ -275,16 +275,13 @@ function ContextUsageBar({ used, total }: { used: number; total: number }) {
 function ForkButton({ onFork }: { onFork: () => void }): ReactNode {
   return (
     <Tooltip title='从此处 fork 出新工作流'>
-      <button
-        type='button'
+      <BranchesOutlined
         onClick={(e) => {
           e.stopPropagation()
           onFork()
         }}
-        className='cursor-pointer text-[11px] text-[#6c7086] transition-colors hover:text-[#cdd6f4]'
-      >
-        <BranchesOutlined />
-      </button>
+        className='text-xs text-[#6c7086] transition-colors hover:text-[#cdd6f4]'
+      />
     </Tooltip>
   )
 }

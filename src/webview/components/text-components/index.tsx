@@ -1,6 +1,5 @@
 import { FC, isValidElement, memo, ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { Spin } from 'antd'
-import { CheckOutlined, CopyOutlined } from '@ant-design/icons'
+import { Spin, Typography } from 'antd'
 import { XMarkdown, type ComponentProps as XMarkdownComponentProps } from '@ant-design/x-markdown'
 import mermaid from 'mermaid'
 import { cn } from '@/webview/utils'
@@ -12,20 +11,7 @@ mermaid.initialize({
 })
 
 const CopyButton: FC<{ text: string }> = ({ text }) => {
-  const [copied, setCopied] = useState(false)
-  return (
-    <span
-      className='cursor-pointer text-[11px] text-[#6c7086] transition-colors hover:text-[#cdd6f4]'
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        })
-      }}
-    >
-      {copied ? <CheckOutlined /> : <CopyOutlined />}
-    </span>
-  )
+  return <Typography.Text copyable={{ tooltips: false, text }} />
 }
 const getTextContent = (node: ReactNode): string => {
   if (node == null || typeof node === 'boolean') return ''
