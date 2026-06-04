@@ -372,9 +372,16 @@ export class ClaudeExecutor {
       (matchTool(toolName, deny_tools, toolInput) ||
         matchToolAnySubCommand(toolName, deny_tools, toolInput))
     ) {
+      const matchedPatterns = deny_tools.filter(
+        (p) => matchTool(toolName, [p], toolInput) || matchToolAnySubCommand(toolName, [p], toolInput),
+      )
+      const denyDesc =
+        matchedPatterns.length > 0
+          ? matchedPatterns.reduce((a, b) => (a.length <= b.length ? a : b))
+          : toolName
       return Promise.resolve({
         behavior: 'deny',
-        message: toolName === 'Edit' ? '禁止编辑文件' : `禁止使用${toolName}`,
+        message: `禁止使用 ${denyDesc}`,
       })
     }
     // 优先级 1：命中 must_confirm 列表，始终要求确认。
