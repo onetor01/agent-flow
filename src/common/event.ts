@@ -51,7 +51,7 @@ export type ExtensionFromWebviewEvents = {
   load: undefined
   /** 全量保存 flows */
   save: Flow[]
-  /** 打开文件；line 存在时跳转并选中对应行；placement 说明打开位置 默认beside */
+  /** 打开文件；line 存在时跳转并选中对应行；placement 说明打开位置 默认active */
   openFile: { filename: string; line?: [number, number]; placement?: 'active' | 'beside' }
   /** 在 VSCode 中预览一段外部粘入的文本附件（非文件系统文件） */
   previewAttachment: { name: string; content: string }

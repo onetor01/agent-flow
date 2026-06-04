@@ -436,8 +436,8 @@ export function activate(context: vscode.ExtensionContext) {
             const editor = await vscode.window.showTextDocument(
               doc,
               match(placement)
-                .with('active', () => vscode.ViewColumn.Active)
-                .otherwise(() => vscode.ViewColumn.Beside),
+                .with('beside', () => vscode.ViewColumn.Beside)
+                .otherwise(() => vscode.ViewColumn.Active),
             )
             if (line) {
               const [startLine, endLine] = line
