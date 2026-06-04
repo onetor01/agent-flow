@@ -2,6 +2,7 @@ import { memo } from 'react'
 import type { CSSProperties, FC } from 'react'
 import { App, Badge, Tag, Tooltip, Typography } from 'antd'
 import {
+  BellOutlined,
   CodeOutlined,
   EditOutlined,
   LoginOutlined,
@@ -154,7 +155,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
 
-        <div className='flex items-center gap-1 px-3 pt-1'>
+        <div className='flex items-center justify-between gap-1 px-3 pt-1'>
           {isCodeNode ? (
             <Tag color='cyan' style={{ fontSize: 10 }}>
               code
@@ -166,10 +167,35 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   {agent?.model}
                 </Tag>
               ) : null}
-              <Tooltip title={agent?.plan_mode ? '关闭 Plan 模式' : '开启 Plan 模式'}>
+              {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
+                <Tooltip title={agent?.work_mode === 'task' ? '任务模式' : '静默模式'}>
+                  <BellOutlined
+                    className={cn(
+                      'ml-auto text-xs transition-colors',
+                      agent?.work_mode === 'task'
+                        ? 'text-[#f9e2af]'
+                        : 'text-[#6c7086] hover:text-[#f9e2af]',
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useFlowStore.getState().save((flows) => {
+                        const f = flows.find((f) => f.id === flowId)
+                        const a = f?.agents?.find((a) => a.id === agentId)
+                        if (!a || a.node_type !== 'agent') return
+                        if (a.work_mode === 'task') {
+                          a.work_mode = 'silent_task'
+                        } else if (a.work_mode === 'silent_task') {
+                          a.work_mode = 'task'
+                        }
+                      })
+                    }}
+                  />
+                </Tooltip>
+              ) : null}
+              <Tooltip title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}>
                 <span
                   className={cn(
-                    'ml-auto cursor-pointer text-xs transition-colors',
+                    'cursor-pointer text-xs transition-colors',
                     agent?.plan_mode ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
                   )}
                   onClick={(e) => {
