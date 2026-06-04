@@ -183,7 +183,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         '## 调用约束',
         '- 调用此工具会**强制终止本次会话**,不可撤销;只在已经穷尽所有可行手段、确认任务不可达成时调用',
         '- 必须在 reason 中说明无法完成的具体原因(缺失关键信息 / 工具不可用 / 环境异常等)',
-        '- 优先尝试 CompleteTask 提交部分结果;只有连部分结果都给不出时才用本工具',
+        '- 优先尝试 mcp__AgentControllerMcp__CompleteTask 提交部分结果;只有连部分结果都给不出时才用本工具',
       ].join('\n'),
       {
         reason: z.string().describe('无法完成任务的具体原因,简洁明确'),

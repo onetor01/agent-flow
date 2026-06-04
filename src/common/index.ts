@@ -70,7 +70,7 @@ export const AgentSchema = z.object({
   allowed_write_values_keys: z
     .array(z.string())
     .optional()
-    .describe('允许写入的 shareValues key，仅在 CompleteTask 时写入'),
+    .describe('允许写入的 shareValues key，仅在 mcp__AgentControllerMcp__CompleteTask 时写入'),
   base_url: z
     .string()
     .optional()
@@ -560,7 +560,7 @@ export function buildAgentSystemPrompt(
     .with('task', () => {
       lines.push(
         '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
-        `遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户${agent.no_output ? '' : '，或写入 CompleteTask 的 `content`'}，**禁止**静默忽略或绕开。`,
+        `遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户${agent.no_output ? '' : '，或写入 mcp__AgentControllerMcp__CompleteTask 的 `content`'}，**禁止**静默忽略或绕开。`,
       )
     })
     .with('chat', () => {
@@ -573,7 +573,7 @@ export function buildAgentSystemPrompt(
       lines.push(
         '**禁止**凭空推测，必须通过 Tool 获取有效信息。',
         '**自行决策**，避免使用 AskUserQuestion，不询问用户意见。',
-        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 CompleteTask 的 `content`，**禁止**静默忽略。',
+        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 mcp__AgentControllerMcp__CompleteTask 的 `content`，**禁止**静默忽略。',
       )
     })
     .exhaustive()
@@ -602,7 +602,7 @@ export function buildAgentSystemPrompt(
     if (writableKeys.length > 0) {
       lines.push(
         '### 可写数据',
-        `当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 CompleteTask 工具的 \`values\` 参数输出${agent.no_output ? '' : '，仅在 `content` 里描述不算写入'}。`,
+        `当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 mcp__AgentControllerMcp__CompleteTask 工具的 \`values\` 参数输出${agent.no_output ? '' : '，仅在 `content` 里描述不算写入'}。`,
         ...writableKeys.map((k) => `  - ${k}`),
         '#### 写入说明',
         '- 仅可写入上述列出的 key',
@@ -634,7 +634,7 @@ export function buildAgentSystemPrompt(
           '## 任务描述',
           agent_prompt,
           '## 完成任务',
-          '一旦达成「任务描述」的结束条件，**立即**调用 AgentControllerMcp 的 CompleteTask 工具提交结果并选择输出分支。',
+          '一旦达成「任务描述」的结束条件，**立即**调用 mcp__AgentControllerMcp__CompleteTask 工具提交结果并选择输出分支。',
           '## 输出分支',
           outputs.length === 0
             ? '此任务没有输出分支。'
@@ -649,7 +649,7 @@ export function buildAgentSystemPrompt(
   if (work_mode === 'task' || work_mode === 'silent_task') {
     lines.push(
       '# **停止会话**',
-      '**确定无法完成任务时**，调用 AgentControllerMcp 的 `TerminateTask` 工具中止任务。例如缺失关键信息且无工具可获取、环境异常、输出分支和任务执行情况偏差极大等极端情况。',
+      '**确定无法完成任务时**，调用 mcp__AgentControllerMcp__TerminateTask 工具中止任务。例如缺失关键信息且无工具可获取、环境异常、输出分支和任务执行情况偏差极大等极端情况。',
     )
   }
   // ── 底部：运行时可变（shareValues 快照） ────────────────────────────────
