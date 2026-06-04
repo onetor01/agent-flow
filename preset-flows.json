@@ -8,6 +8,7 @@
         "model": "opus",
         "effort": "xhigh",
         "agent_name": "需求分析",
+        "node_type": "agent",
         "is_entry": true,
         "no_output": true,
         "agent_prompt": "与用户多轮对话，执行用户简单命令，收集信息以确认用户在代码修改方面的意图。\n### 你的职责\n- 产出一份独立可执行的代码修改摘要\n- 智能挑选分支策略默认值\n- 使用AskUserQuestion由用户确认摘要和分支策略\n### 执行步骤\n#### 1. 多轮对话\n如果对话过程中，用户要求满足以下之一：\n- 包含完整的飞书文档或飞书项目url\n- 较为复杂，涉及多个文件\n- 用户强调了重要性和正确性，要求反复验证\n- 用户明确要求你*不要*直接行动，而是总结摘要\n你应当总结对话内容，得到需求摘要，了解用户希望修改代码还是审查已有代码，对当前代码的意见是什么，在业务上有什么要求。用**一个**AskUserQuestion让用户确认这些内容，将需要确认的内容放在题干里。\n#### 2. 分支策略\n根据摘要，生成一个新分支名称。\n命名规则为`<feature或bugfix>/<描述性单词>-<今日日期>`。前缀feature/bugfix由用户要求而定，后缀的格式为MMDD。\n你应当确保此分支不重复，用AskUserQuestion让用户确认分支名。确认时，提供“在当前分支修改代码”选项。\n如果用户指定了分支名称或者要求在当前分支修改代码，则无需确认，依照用户要求即可。\n#### 3.创建工作区\n如果用户选择在当前分支修改代码，跳过此步。\n如果用户指定了已存在的工作区，或者指定了工作区的创建方式，依照用户要求。\n否则，以用户指定的分支，在./claude/worktrees/创建一个worktree。\n*注意*：如果分支不存在，基于develop分支，以`--no-track`方式创建新分支。\n#### 4.完成任务\n根据用户希望修改/审查代码，选择不同的输出分支。\n如果用户提及了飞书文档/飞书项目*url*，将其写入feishuUrls。\n将摘要写入summary。\n如果你创建了worktree或者用户指定了worktree，将其路径写入worktreePath。\n### 摘要规则\n如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块。这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码。\n摘要中应当包含`代码要求`、`代码验证方式`两个模块。这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等。\n如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行。",
@@ -26,7 +27,6 @@
           }
         ],
         "work_mode": "silent_task",
-        "allowed_read_values_keys": [],
         "allowed_write_values_keys": [
           "summary",
           "worktreePath",
@@ -44,12 +44,14 @@
       {
         "id": "2",
         "model": "opus",
+        "node_type": "agent",
         "effort": "high",
         "agent_name": "修改代码",
         "deny_tools": [
           "Bash(git merge)",
           "Bash(git push)"
         ],
+        "plan_mode": true,
         "agent_prompt": "### 你的职责\n在正确的工作目录下完成代码修改。\n如果worktreePath存在，你应当将其视作工作区路径，你的所有命令都*必须*在该路径下执行。\n### 执行步骤\n#### 1.修改代码\n根据需求摘要和用户意见修改代码。注意，只检查是否符合要求，不处理边界情况，不做代码优化。\n如果需求内容较多，应当将其拆分为任务列表，并使用`Workflow`编排subAgent并行执行。\n#### 2.提交代码\n按照不同模块分别提交代码，只在完全无关时才分开提交。\ncommit message仅有`subject`和`body`两部分组成。\nsubject描述了业务上的需求，body描述代码上的改动。\n如果feishuUrls存在，将其加入`body`。\n#### 3.完成任务\n输出你的修改内容。",
         "outputs": [
           {
@@ -68,6 +70,7 @@
       {
         "agent_name": "审查代码",
         "model": "opus",
+        "node_type": "agent",
         "effort": "high",
         "deny_tools": [
           "Bash(git merge)",
@@ -199,7 +202,7 @@
             "next_agent": "2"
           }
         ],
-        "code": "try {\n  const parsed = JSON.parse(input)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string'){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: input, next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
+        "code": "try {\n  const parsed = JSON.parse(input)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: input, next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
         "id": "3"
       },
       {
@@ -332,6 +335,7 @@
     "name": "常用Agent",
     "agents": [
       {
+        "node_type": "agent",
         "agent_name": "agent-flow发版",
         "model": "sonnet[1m]",
         "effort": "high",
@@ -355,6 +359,7 @@
         "no_input": true
       },
       {
+        "node_type": "agent",
         "agent_name": "用户对话-qwen",
         "model": "qwen3.7-max",
         "effort": "high",
@@ -362,6 +367,7 @@
         "id": "1"
       },
       {
+        "node_type": "agent",
         "agent_name": "用户对话-sonnet",
         "model": "sonnet[1m]",
         "effort": "high",
@@ -369,6 +375,7 @@
         "id": "2"
       },
       {
+        "node_type": "agent",
         "agent_name": "用户对话-opus",
         "model": "opus",
         "effort": "high",
@@ -376,6 +383,7 @@
         "id": "3"
       },
       {
+        "node_type": "agent",
         "agent_name": "用户对话-opus-max",
         "model": "opus",
         "effort": "max",
@@ -383,6 +391,7 @@
         "id": "4"
       },
       {
+        "node_type": "agent",
         "agent_name": "用户对话-glm",
         "model": "glm-5.1",
         "effort": "max",
@@ -396,6 +405,7 @@
     "name": "生成工作流",
     "agents": [
       {
+        "node_type": "agent",
         "agent_name": "需求分析",
         "model": "opus",
         "effort": "max",
@@ -424,6 +434,7 @@
         "id": "1"
       },
       {
+        "node_type": "agent",
         "agent_name": "工作流设计",
         "model": "opus",
         "effort": "max",
@@ -454,6 +465,7 @@
         "id": "2"
       },
       {
+        "node_type": "agent",
         "agent_name": "审查工作流",
         "model": "glm-5.1",
         "effort": "max",
