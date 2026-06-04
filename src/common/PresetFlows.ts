@@ -400,6 +400,7 @@ export const PresetFlows: Flow[] = [
         effort: 'high',
         work_mode: 'silent_task',
         no_input: true,
+        no_output: true,
         plan_mode: true,
         agent_prompt: [
           '如果当前在main分支，stash工作区变更。',
