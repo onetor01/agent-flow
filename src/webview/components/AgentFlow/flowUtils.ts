@@ -104,7 +104,9 @@ function agentsToNodes(flowId: string, agents: (Agent | Code)[]): AgentNode[] {
     const outs = a.outputs ?? []
     const allHaveSuccessor =
       outs.length > 0 &&
-      outs.every((o) => o.next_agent && agentMap.has(o.next_agent) && !agentMap.get(o.next_agent)!.is_entry)
+      outs.every(
+        (o) => o.next_agent && agentMap.has(o.next_agent) && !agentMap.get(o.next_agent)!.is_entry,
+      )
     return allHaveSuccessor ? 'middle' : 'exit'
   }
 
@@ -244,7 +246,8 @@ export function reactFlowToFlow(flow: Flow, nodes: AgentNode[], edges: Edge[]): 
       ...(originalAgent ?? {
         id: node.id,
         agent_name: node.data.agentName,
-        model: '',
+        node_type: 'agent',
+        model: 'sonnet',
         agent_prompt: '',
         work_mode: 'task' as const,
       }),

@@ -26,8 +26,8 @@ export const AgentSchema = z.object({
    * 节点类型,省略即 'agent':走 ClaudeExecutor + AI SDK,与 work_mode/agent_prompt/model 等字段配合。
    * node_type='code' 的节点由 {@link CodeSchema}(从本 schema 派生)定义,走 CodeExecutor 不调 AI。
    */
-  node_type: z.literal('agent').optional().describe('节点类型'),
-  model: z.string().min(1).describe('模型名称').optional(),
+  node_type: z.literal('agent').describe('节点类型'),
+  model: z.string().min(1).describe('模型名称'),
   effort: z
     .enum(['low', 'medium', 'high', 'xhigh', 'max'])
     .optional()
@@ -56,7 +56,6 @@ export const AgentSchema = z.object({
     ),
   work_mode: z
     .enum(['task', 'chat', 'silent_task'])
-    .optional()
     .describe(
       '工作方式：task-任务达成后调用 CompleteTask 提交结果；chat-与用户的持续长期对话；silent_task-无人值守自动循环，必须通过 CompleteTask 终止',
     ),

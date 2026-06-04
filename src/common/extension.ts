@@ -238,6 +238,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         node_type: true,
         outputs: true,
       }).extend({
+        work_mode: z.literal('task'),
         model: z.literal('sonnet'),
         must_confirm_tools: z.tuple([z.literal('Bash(git merge)'), z.literal('Bash(git push)')]),
       }) satisfies z.ZodType<Agent>

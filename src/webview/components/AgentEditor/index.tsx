@@ -21,21 +21,22 @@ import {
   EyeOutlined,
   CloseOutlined,
 } from '@ant-design/icons'
-import type { Agent } from '@/common'
+import { match } from 'ts-pattern'
+import type { Agent, Code } from '@/common'
 import { BUILTIN_TOOL_NAMES, MCP_WILDCARD, buildAgentSystemPrompt } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import { CodeEditor } from '../CodeEditor'
 import { Md } from '../text-components'
 
+type CodeNodeFormValue = Omit<Code, 'id'>
+type AgentNodeFormValue = Omit<Agent, 'id'>
+
 /**
  * 编辑器表单值 —— agent / code 两类节点共用一张表单(node_type / code 为隐藏字段)。
- * 在 Agent 字段基础上放宽 node_type 以容纳 'code',并补 code 字段(来自 {@link Code})。
+ * 判别联合:按 node_type 分流,Agent 节点携带 model / work_mode 等字段,Code 节点携带 code。
  */
-type AgentFormValue = Omit<Agent, 'id' | 'node_type'> & {
-  node_type?: 'agent' | 'code'
-  code?: string
-}
+type AgentFormValue = CodeNodeFormValue | AgentNodeFormValue
 
 const FormItem = Form.Item<AgentFormValue>
 
@@ -43,38 +44,6 @@ const TOOL_OPTIONS = [
   { label: `${MCP_WILDCARD} — 匹配所有 mcp__* 工具`, value: MCP_WILDCARD },
   ...BUILTIN_TOOL_NAMES.map((n) => ({ label: n, value: n })),
 ]
-
-type AutoAllowedValue = true | string[] | undefined
-
-/** 受控：Switch 开 → true；关 → string[]（默认 []）。兼容 undefined 初值 */
-const AutoAllowedToolsField: FC<{
-  value?: AutoAllowedValue
-  onChange?: (v: AutoAllowedValue) => void
-}> = ({ value, onChange }) => {
-  const allowAll = value === true
-  const list = Array.isArray(value) ? value : []
-  return (
-    <div className='flex flex-col gap-2'>
-      <div className='flex items-center gap-2'>
-        <Switch
-          size='small'
-          checked={allowAll}
-          onChange={(checked) => onChange?.(checked ? true : [])}
-        />
-        <span className='text-[12px] text-[#cdd6f4]'>允许全部工具</span>
-      </div>
-      {!allowAll && (
-        <Select
-          mode='tags'
-          placeholder='选择或输入工具名（回车添加自定义）'
-          value={list}
-          onChange={(v) => onChange?.(v as string[])}
-          options={TOOL_OPTIONS}
-        />
-      )}
-    </div>
-  )
-}
 
 export const AgentEditor: FC = () => {
   const { modal } = App.useApp()
@@ -105,35 +74,8 @@ export const AgentEditor: FC = () => {
 
   useEffect(() => {
     if (open && agent) {
-      const src: AgentFormValue = agent
-      const newFormValue: AgentFormValue = {
-        agent_name: src.agent_name,
-        agent_desc: src.agent_desc,
-        node_type: src.node_type ?? 'agent',
-        code: src.code,
-        model: src.model,
-        effort: src.effort,
-        agent_prompt: src.agent_prompt,
-        must_confirm_tools: src.must_confirm_tools,
-        deny_tools: src.deny_tools,
-        work_mode: src.work_mode ?? 'task',
-        no_input: src.no_input,
-        no_output: src.no_output,
-        plan_mode: src.plan_mode,
-        isolation_mode: src.isolation_mode,
-        allowed_read_values_keys: src.allowed_read_values_keys,
-        allowed_write_values_keys: src.allowed_write_values_keys,
-        base_url: src.base_url,
-        api_key: src.api_key,
-        outputs: src.outputs?.map((o) => ({
-          output_name: o.output_name,
-          output_desc: o.output_desc,
-          next_agent: o.next_agent,
-          require_confirm: o.require_confirm,
-        })),
-      }
-      form.setFieldsValue(newFormValue)
-      silentWarnedRef.current = (src.work_mode ?? 'task') === 'silent_task'
+      form.setFieldsValue(agent)
+      silentWarnedRef.current = agent.node_type !== 'code' && agent.work_mode === 'silent_task'
     } else {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPreviewMode('preview')
@@ -185,7 +127,11 @@ export const AgentEditor: FC = () => {
         onMouseDown={(e) => e.stopPropagation()}
         onPaste={(e) => e.stopPropagation()}
         onValuesChange={(changed: Partial<AgentFormValue>) => {
-          if (changed.work_mode === 'silent_task' && !silentWarnedRef.current) {
+          if (
+            'work_mode' in changed &&
+            changed.work_mode === 'silent_task' &&
+            !silentWarnedRef.current
+          ) {
             silentWarnedRef.current = true
             modal.warning({
               title: '谨慎使用静默模式',

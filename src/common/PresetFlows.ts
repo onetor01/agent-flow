@@ -10,6 +10,7 @@ export const PresetFlows: Flow[] = [
         model: 'opus',
         effort: 'xhigh',
         agent_name: '需求分析',
+        node_type: 'agent',
         is_entry: true,
         no_output: true,
         agent_prompt: [
@@ -68,6 +69,7 @@ export const PresetFlows: Flow[] = [
       {
         id: '2',
         model: 'opus',
+        node_type: 'agent',
         effort: 'high',
         agent_name: '修改代码',
         deny_tools: ['Bash(git merge)', 'Bash(git push)'],
@@ -101,6 +103,7 @@ export const PresetFlows: Flow[] = [
       {
         agent_name: '审查代码',
         model: 'opus',
+        node_type: 'agent',
         effort: 'high',
         deny_tools: ['Bash(git merge)', 'Bash(git push)'],
         must_confirm_tools: ['Bash(git commit)', 'Edit'],
@@ -402,6 +405,7 @@ export const PresetFlows: Flow[] = [
     name: '常用Agent',
     agents: [
       {
+        node_type: 'agent',
         agent_name: 'agent-flow发版',
         model: 'sonnet[1m]',
         effort: 'high',
@@ -425,6 +429,7 @@ export const PresetFlows: Flow[] = [
         no_input: true,
       },
       {
+        node_type: 'agent',
         agent_name: '用户对话-qwen',
         model: 'qwen3.7-max',
         effort: 'high',
@@ -432,6 +437,7 @@ export const PresetFlows: Flow[] = [
         id: '1',
       },
       {
+        node_type: 'agent',
         agent_name: '用户对话-sonnet',
         model: 'sonnet[1m]',
         effort: 'high',
@@ -439,6 +445,7 @@ export const PresetFlows: Flow[] = [
         id: '2',
       },
       {
+        node_type: 'agent',
         agent_name: '用户对话-opus',
         model: 'opus',
         effort: 'high',
@@ -446,6 +453,7 @@ export const PresetFlows: Flow[] = [
         id: '3',
       },
       {
+        node_type: 'agent',
         agent_name: '用户对话-opus-max',
         model: 'opus',
         effort: 'max',
@@ -453,6 +461,7 @@ export const PresetFlows: Flow[] = [
         id: '4',
       },
       {
+        node_type: 'agent',
         agent_name: '用户对话-glm',
         model: 'glm-5.1',
         effort: 'max',
@@ -466,6 +475,7 @@ export const PresetFlows: Flow[] = [
     name: '生成工作流',
     agents: [
       {
+        node_type: 'agent',
         agent_name: '需求分析',
         model: 'opus',
         effort: 'max',
@@ -505,6 +515,7 @@ export const PresetFlows: Flow[] = [
         id: '1',
       },
       {
+        node_type: 'agent',
         agent_name: '工作流设计',
         model: 'opus',
         effort: 'max',
@@ -562,6 +573,7 @@ export const PresetFlows: Flow[] = [
         id: '2',
       },
       {
+        node_type: 'agent',
         agent_name: '审查工作流',
         model: 'glm-5.1',
         effort: 'max',
