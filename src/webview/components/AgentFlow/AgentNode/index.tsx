@@ -71,15 +71,35 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           className='flex items-center gap-1.5 rounded-t-[10px] border-b border-[#313244] px-3 py-2'
           style={{ background: 'linear-gradient(135deg, #313244, #1e1e2e)' }}
         >
-          <span className={cn('text-sm')}>
-            {/* is_entry 或无前驱（入度为 0）均显示入口图标 */}
-            {match({ isEntry: agent?.is_entry || noPredecessors, isCodeNode })
+          {(() => {
+            const isEntry = agent?.is_entry || noPredecessors
+            const icon = match({ isEntry, isCodeNode })
               .with({ isEntry: true }, () => <LoginOutlined className='text-[#a6e3a1]' />)
               .with({ isCodeNode: true }, () => <CodeOutlined className='text-[#94e2d5]' />)
-              .otherwise(() => (
-                <RobotOutlined className='text-[#cba6f7]' />
-              ))}
-          </span>
+              .otherwise(() => <RobotOutlined className='text-[#cba6f7]' />)
+            if (noPredecessors) {
+              return <span className='text-sm'>{icon}</span>
+            }
+            return (
+              <Tooltip title={isEntry ? '取消入口' : '设为入口'}>
+                <span
+                  className='cursor-pointer text-sm'
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    useFlowStore.getState().save((flows) => {
+                      const f = flows.find((f) => f.id === flowId)
+                      const a = f?.agents?.find((a) => a.id === agentId)
+                      if (a) {
+                        a.is_entry = !a.is_entry
+                      }
+                    })
+                  }}
+                >
+                  {icon}
+                </span>
+              </Tooltip>
+            )
+          })()}
           <div
             className='flex-1 overflow-hidden'
             onClick={(e) => e.stopPropagation()}
