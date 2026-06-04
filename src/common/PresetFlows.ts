@@ -186,6 +186,7 @@ export const PresetFlows: Flow[] = [
         agent_prompt: [
           '### 你的职责',
           '分析用户需求，生成子任务列表。',
+          '仅做规划，**禁止修改文件**',
           '### 执行步骤',
           '#### 1. 需求分析与拆分',
           '根据requirement和用户输入，分析用户需求，思考如何实现，生成一系列串行的子任务列表。',
@@ -337,6 +338,7 @@ export const PresetFlows: Flow[] = [
         agent_prompt: [
           '### 你的职责',
           '根据current_task和remark，验证执行结果。',
+          '仅做验证，**禁止修改文件**',
           '### 执行步骤',
           '#### 1. 验证结果',
           '参考输入，验证current_task是否被完成，且遵守remark。',
@@ -367,6 +369,7 @@ export const PresetFlows: Flow[] = [
         agent_prompt: [
           '### 你的职责',
           '验证当前代码是否符合用户需求',
+          '仅做验证，**禁止修改文件**',
           '### 执行步骤',
           '如果验证不通过，调用mcp__AgentControllerMcp__CompleteTask，分支"验证不通过"，输出你的分析结果。',
           '否则，调用 mcp__AgentControllerMcp__CompleteTask，分支"验证通过"。',
