@@ -228,15 +228,16 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                 </Tooltip>
                 {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
                   <Tooltip title={agent?.no_output ? '无输出' : '有输出'}>
-                    <LogoutOutlined
+                    <span
                       className={cn(
-                        'text-[11px] transition-colors',
-                        !agent?.no_output
-                          ? 'text-[#f9e2af]'
-                          : 'text-[#6c7086] hover:text-[#f9e2af]',
+                        'relative inline-flex cursor-pointer items-center',
+                        agent?.no_output ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
                       )}
                       onClick={createToggler('no_output', true)}
-                    />
+                    >
+                      <LogoutOutlined className={cn('text-[10px] transition-colors')} />
+                      <span className='absolute top-1/2 left-1/2 h-[0.9px] w-[1.1em] -translate-1/2 rotate-45 rounded bg-[currentColor] transition' />
+                    </span>
                   </Tooltip>
                 ) : null}
               </span>
