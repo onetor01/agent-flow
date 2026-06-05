@@ -1,5 +1,5 @@
 import { match } from 'ts-pattern'
-import type { AskUserQuestionInput, ExtensionToWebviewMessage } from '@/common'
+import type { ExtensionToWebviewMessage } from '@/common'
 import {
   extractModelTokenUsage,
   isModelTokenUsageNonZero,
@@ -49,12 +49,6 @@ export type RenderItem =
       result?: ToolResult
       /** 所属 SDKAssistantMessage 的 uuid —— tool_use 不能作 fork 终点,fork 回退到此 */
       messageUuid?: string
-    }
-  | {
-      kind: 'ask_user_question'
-      key: string
-      toolUseId: string
-      input: AskUserQuestionInput
     }
   | {
       kind: 'turn_end'
@@ -478,13 +472,6 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
               messageUuid: blockMessageUuid,
             })
             pendingTooluse[block.id] = items.length - 1
-            return
-          }
-          if (block.type === 'tool_use' && block.name === 'AskUserQuestion') {
-            const input = block.input as AskUserQuestionInput | undefined
-            if (input && Array.isArray(input.questions)) {
-              items.push({ kind: 'ask_user_question', key, toolUseId: block.id, input })
-            }
             return
           }
           items.push({

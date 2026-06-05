@@ -2,7 +2,7 @@ import { memo, useState, type FC, type ReactNode } from 'react'
 import { Button, Input, Radio, Tag, Tooltip } from 'antd'
 import { BranchesOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { Bubble, Think } from '@ant-design/x'
-import type { ExtensionToWebviewMessage, ModelTokenUsage } from '@/common'
+import type { AskUserQuestionInput, ExtensionToWebviewMessage, ModelTokenUsage } from '@/common'
 import { formatTokenCount, formatTokenCost } from '@/common'
 import { CodeRefChip } from '@/webview/components/CodeRefChip'
 import { FileRefChip } from '@/webview/components/FileRefChip'
@@ -23,14 +23,10 @@ type Props = {
   msg: ExtensionToWebviewMessage
 }
 
-export type AnsweredInfo = {
-  values: Record<string, string[]>
-}
-
 export type BubbleCtx = {
   /**
    * 当前挂起的工具权限请求 toolUseId 集合 —— 四类挂起统一(AskUserQuestion / CompleteTask /
-   * ExitPlanMode / must_confirm)。ask_user_question 卡片据此隐藏 pending(改由输入框上方固定卡片渲染);
+   * ExitPlanMode / must_confirm)。AskUserQuestion / tool_use 卡片据此隐藏 pending(改由输入框上方固定卡片渲染);
    * tool_use 卡片据此切 active / historical。
    */
   pendingToolPermissionToolUseIds?: Set<string>
@@ -39,8 +35,6 @@ export type BubbleCtx = {
     string,
     { allow: boolean; updatedInput?: unknown; message?: string }
   >
-  /** AskUserQuestion 历史卡片答案展示:toolUseId -> { values }(从 answeredToolPermissions.updatedInput 解析) */
-  answeredMap: Map<string, AnsweredInfo>
   /** allow 回调(CompleteTask 接受 / ExitPlanMode 确认 / 普通工具允许) */
   onToolPermissionAllow?: (toolUseId: string) => void
   /** deny 回调(message 供 CompleteTask 拒绝原因回喂模型) */
@@ -273,7 +267,7 @@ function ContextUsageBar({ used, total }: { used: number; total: number }) {
 }
 
 /** fork 触发按钮 */
-function ForkButton({ onFork }: { onFork: () => void }): ReactNode {
+export function ForkButton({ onFork }: { onFork: () => void }): ReactNode {
   return (
     <Tooltip title='从此处 fork 出新工作流'>
       <BranchesOutlined
@@ -606,32 +600,6 @@ function renderItemToBubble(
         content: <ThinkingContent text={item.text} itemKey={item.key} fork={fork} />,
       }
     }
-    case 'ask_user_question': {
-      if (!ctx) {
-        // 无 ctx（单气泡调试场景）：降级为静态历史卡片
-        return {
-          key: item.key,
-          role: 'system',
-          content: <AskUserQuestionCard input={item.input} mode='historical' />,
-        }
-      }
-      const isPending = ctx.pendingToolPermissionToolUseIds?.has(item.toolUseId) ?? false
-      // pending 卡片不在消息列表中渲染（改为固定在输入框上方），只渲染已回答的历史卡片
-      if (isPending) return null
-      const answered = ctx.answeredMap.get(item.toolUseId)
-      const card = (
-        <AskUserQuestionCard
-          input={item.input}
-          mode='historical'
-          answeredValues={answered?.values}
-        />
-      )
-      return {
-        key: item.key,
-        role: 'system',
-        content: card,
-      }
-    }
     case 'tool_use': {
       const isPending = ctx?.pendingToolPermissionToolUseIds?.has(item.toolUseId) ?? false
       const answered = ctx?.answeredToolPermissions?.[item.toolUseId]
@@ -642,6 +610,52 @@ function renderItemToBubble(
         runId && item.messageUuid
           ? buildForkIcon({ kind: 'message', runId, messageUuid: item.messageUuid })
           : undefined
+
+      // AskUserQuestion：pending 时由底部固定卡片渲染(active)，历史态从 answeredToolPermissions 就地解析答案
+      if (item.toolName.includes('AskUserQuestion')) {
+        if (isPending) return null
+        // 无 ctx（单气泡调试场景）：降级为静态历史卡片
+        if (!ctx) {
+          return {
+            key: item.key,
+            role: 'system',
+            content: (
+              <AskUserQuestionCard
+                input={item.input as AskUserQuestionInput}
+                mode='historical'
+                fork={fork}
+              />
+            ),
+          }
+        }
+        // 从 answeredToolPermissions.updatedInput 就地解析历史答案
+        const answersObj = (
+          answered?.updatedInput as { answers?: Record<string, string> } | undefined
+        )?.answers
+        const answeredValues: Record<string, string[]> | undefined = answersObj
+          ? Object.fromEntries(
+              Object.entries(answersObj).map(([q, a]) => [
+                q,
+                (a ?? '')
+                  .split('\x1F')
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ]),
+            )
+          : undefined
+        return {
+          key: item.key,
+          role: 'system',
+          content: (
+            <AskUserQuestionCard
+              input={item.input as AskUserQuestionInput}
+              mode='historical'
+              answeredValues={answeredValues}
+              fork={fork}
+            />
+          ),
+        }
+      }
 
       // CompleteTask：完成前确认。pending 时在工具详情下方挂确认卡片;历史只显示工具详情
       // (成功完成由 agent_complete 卡片体现,拒绝则带 isError result)。
@@ -702,6 +716,7 @@ function renderItemToBubble(
               mode='historical'
               answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
+              fork={fork}
             />
           ),
         }
@@ -720,6 +735,7 @@ function renderItemToBubble(
             input={item.input}
             mode='historical'
             answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
+            fork={fork}
           />
         ),
       }
@@ -732,7 +748,7 @@ function renderItemToBubble(
             input={item.input}
             result={item.result}
             copyText={item.result?.text ?? ''}
-            fork={fork}
+            fork={answered ? undefined : fork}
           />
         ),
       }

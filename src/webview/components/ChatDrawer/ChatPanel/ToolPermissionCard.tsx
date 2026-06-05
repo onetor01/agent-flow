@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FC } from 'react'
+import { ReactNode, useLayoutEffect, useRef, useState, type FC } from 'react'
 import { Button, Tag } from 'antd'
 import { CheckOutlined, SafetyOutlined, StopOutlined } from '@ant-design/icons'
 import { match, P } from 'ts-pattern'
@@ -28,6 +28,7 @@ type Props = {
     onViewPlan?: () => void
   }
   onChangeHeight?: (height: number) => void
+  fork?: ReactNode
 }
 
 function formatInput(input: unknown): string {
@@ -46,6 +47,7 @@ export const ToolPermissionCard: FC<Props> = ({
   onAllow,
   onDeny,
   exitPlan,
+  fork,
   onChangeHeight,
 }) => {
   const isActive = mode === 'active'
@@ -105,6 +107,7 @@ export const ToolPermissionCard: FC<Props> = ({
         <span className='font-semibold text-[#cdd6f4]'>
           {isExitPlan ? '计划已生成' : '请求使用工具'}
         </span>
+        {fork}
         {!isExitPlan && (
           <Tag color='warning' className='m-0 text-xs'>
             {toolName}

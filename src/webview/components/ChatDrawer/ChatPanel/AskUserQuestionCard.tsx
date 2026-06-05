@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type FC } from 'react'
+import { ReactNode, useLayoutEffect, useMemo, useRef, useState, type FC } from 'react'
 import { Button, Checkbox, Input, Popover, Radio, Tag } from 'antd'
 import { CheckOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useMemoizedFn } from 'ahooks'
@@ -13,6 +13,7 @@ type Props = {
   onSubmit?: (output: AskUserQuestionOutput) => void
   /** 测量到题目高度后通知父组件调整容器高度（传原始值，clamping 由父组件负责） */
   onChangeHeight?: (height: number) => void
+  fork?: ReactNode
 }
 
 type Selections = Record<number, string[]>
@@ -75,6 +76,7 @@ export const AskUserQuestionCard: FC<Props> = ({
   answeredValues,
   onSubmit,
   onChangeHeight,
+  fork,
 }) => {
   const questions = useMemo(() => input.questions ?? [], [input.questions])
   const isActive = mode === 'active'
@@ -202,6 +204,7 @@ export const AskUserQuestionCard: FC<Props> = ({
               已中断
             </Tag>
           ))}
+        {fork}
       </div>
 
       {questions.map((q, qIdx) => {

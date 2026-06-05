@@ -19,7 +19,7 @@ import { getAnsweredToolPermissions, getPendingToolPermissionsFor } from '@/comm
 import type { AgentRun } from '@/webview/store/flow'
 import { useFlowStore } from '@/webview/store/flow'
 import { postMessageToExtension } from '@/webview/utils'
-import { toBubbleItems, type AnsweredInfo, type BubbleCtx } from './MessageBubble'
+import { toBubbleItems, type BubbleCtx } from './MessageBubble'
 
 type Item = BubbleItemType
 
@@ -55,33 +55,6 @@ const roleStyles = {
   },
   ai: { placement: 'start' as const, variant: 'filled' as const },
   system: { placement: 'start' as const, variant: 'borderless' as const },
-}
-
-/**
- * 从 answeredToolPermissions 的 updatedInput 解析出 AskUserQuestion 历史答案。
- * 仅 AskUserQuestion 的 updatedInput 带 answers({question -> '\x1F' 分隔的多选 join});
- * 其它工具(CompleteTask / ExitPlanMode / must_confirm)无 answers,跳过。
- */
-function buildAnsweredMap(
-  answeredToolPermissions: Record<
-    string,
-    { allow: boolean; updatedInput?: unknown; message?: string }
-  >,
-): Map<string, AnsweredInfo> {
-  const answeredMap = new Map<string, AnsweredInfo>()
-  for (const [toolUseId, ans] of Object.entries(answeredToolPermissions)) {
-    const answers = (ans.updatedInput as { answers?: Record<string, string> } | undefined)?.answers
-    if (!answers) continue
-    const values: Record<string, string[]> = {}
-    for (const [q, a] of Object.entries(answers)) {
-      values[q] = (a ?? '')
-        .split('\x1F')
-        .map((s) => s.trim())
-        .filter(Boolean)
-    }
-    answeredMap.set(toolUseId, { values })
-  }
-  return answeredMap
 }
 
 function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
@@ -125,11 +98,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   const forkFlow = useFlowStore((s) => s.forkFlow)
   const { modal } = App.useApp()
 
-  // ── ctx 构建 —— 历史 ask_user_question 卡片 / fork icon / tool 权限卡片用 ──
-  const answeredMap = useMemo(
-    () => buildAnsweredMap(answeredToolPermissions ?? {}),
-    [answeredToolPermissions],
-  )
+  // ── ctx 构建 —— 历史 AskUserQuestion 卡片 / fork icon / tool 权限卡片用 ──
 
   const pendingToolPermissionToolUseIds = useMemo(() => {
     if (pendingToolPerms.length === 0) return undefined
@@ -190,7 +159,6 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     () => ({
       pendingToolPermissionToolUseIds,
       answeredToolPermissions,
-      answeredMap,
       onToolPermissionAllow,
       onToolPermissionDeny,
       onViewPlan,
@@ -199,7 +167,6 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     [
       pendingToolPermissionToolUseIds,
       answeredToolPermissions,
-      answeredMap,
       onToolPermissionAllow,
       onToolPermissionDeny,
       onViewPlan,
