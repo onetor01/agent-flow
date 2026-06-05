@@ -1,12 +1,12 @@
 # Changelog
 
-## v0.0.47
-
-### 修复
-
-- **fix: fork tooluse**：修复 fork 模式下的工具调用异常。
+## v0.0.48
 
 ### 优化
 
-- 优化默认工作流
-- 优化样式
+- **AskUserQuestion 渲染重构**：移除 `ask_user_question` 独立 RenderItem 类型，合并进 `tool_use` 统一渲染路径；历史卡片答案从 `answeredToolPermissions.updatedInput` 就地解析，不再维护独立的 `answeredMap`
+- **Fork 按钮扩展**：AskUserQuestion / ToolPermission / CompleteTask / ExitPlanMode 卡片头部新增 fork 按钮，支持从更多位置 fork 出新工作流
+- **Fork 规则放宽**：允许 fork 非 pending 状态的 tool_use 块（不再限于已完成结果），已回答的权限卡片隐藏 fork 按钮
+- **AgentNode「无输出」图标优化**：切换为带斜线的图标样式，视觉更直观
+- **模型编辑器**：模型名输入框新增清除按钮（`allowClear`）
+- **预设工作流**：工作流生成器的分析完成分支默认开启完成前确认（`require_confirm`）
