@@ -182,6 +182,7 @@ export const PresetFlows: Flow[] = [
           {
             output_name: '分析完成',
             output_desc: '分析用户需求，用子任务列表的方式描述实现需求的方式',
+            require_confirm: true,
             next_agent: '2',
           },
           {
