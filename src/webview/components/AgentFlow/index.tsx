@@ -26,7 +26,7 @@ import { cn } from '@/webview/utils'
 import AgentNodeComponent from './AgentNode'
 import MidArrowEdge from './MidArrowEdge'
 import './flow.css'
-import { flowToReactFlow, reactFlowToFlow, type AgentNode } from './flowUtils'
+import { flowToReactFlow, isBackEdge, reactFlowToFlow, type AgentNode } from './flowUtils'
 
 const nodeTypes = { agent: AgentNodeComponent }
 const edgeTypes = { midArrow: MidArrowEdge }
@@ -97,11 +97,17 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
       const cleaned = edges.filter(
         (e) => !(e.source === connection.source && e.sourceHandle === connection.sourceHandle),
       )
+      // 手动连出的回指边（target 不在 source 右侧）即时标记 isLoop，走上方绕行
+      const sourceNode = nodes.find((n) => n.id === connection.source)
+      const targetNode = nodes.find((n) => n.id === connection.target)
+      const isLoop =
+        !!sourceNode && !!targetNode && isBackEdge(sourceNode.position.x, targetNode.position.x)
       const newEdges = addEdge(
         {
           ...connection,
           type: 'midArrow',
           animated: false,
+          data: { isLoop, loopIndex: 0 },
           style: { stroke: '#6366f1', strokeWidth: 2 },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1', width: 20, height: 20 },
         },
@@ -267,6 +273,10 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
     )
     const hasIncoming = new Set([...existingIncoming, ...newIncoming])
 
+    // 粘贴节点的横坐标（供 setNodes 定位 + setEdges 判回环复用）
+    const pasteX = (idx: number) => pastePos.x + (idx % cols) * X_GAP - ((cols - 1) * X_GAP) / 2
+    const posXById = new Map(remapped.map((agent, idx) => [agent.id, pasteX(idx)]))
+
     isInternalChange.current = true
     setNodes((prev) => [
       ...prev,
@@ -274,7 +284,7 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
         id: agent.id,
         type: 'agent' as const,
         position: {
-          x: pastePos.x + (idx % cols) * X_GAP - ((cols - 1) * X_GAP) / 2,
+          x: pasteX(idx),
           y: pastePos.y + Math.floor(idx / cols) * Y_GAP,
         },
         data: {
@@ -297,6 +307,13 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
             sourceHandle: `output-${output.output_name}`,
             type: 'midArrow' as const,
             animated: false,
+            data: {
+              isLoop: isBackEdge(
+                posXById.get(agent.id) ?? 0,
+                posXById.get(output.next_agent!) ?? 0,
+              ),
+              loopIndex: 0,
+            },
             style: { stroke: '#6366f1', strokeWidth: 2 },
             markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1', width: 20, height: 20 },
           })),
