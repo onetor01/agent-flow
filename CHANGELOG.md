@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.0.53
+
+- 原地修改agentName
+
 ## v0.0.52
 
 - 原地修改agentName

@@ -149,7 +149,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
           ) : (
             <Typography.Text
               ellipsis
-              className='m-0 mr-auto overflow-hidden p-0 text-xs font-semibold text-[#cdd6f4]'
+              className='m-0 mr-auto cursor-pointer overflow-hidden p-0 text-xs font-semibold text-[#cdd6f4]'
               onClick={(e) => {
                 e.stopPropagation()
                 setEditValue(agentName)
