@@ -1,6 +1,6 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { CSSProperties, FC, MouseEvent } from 'react'
-import { Badge, Checkbox, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Checkbox, Input, Tag, Tooltip, Typography } from 'antd'
 import {
   BellOutlined,
   CodeOutlined,
@@ -46,6 +46,22 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
   const isAgentActive = useFlowStore(
     (s) => s.flowRunStates[flowId]?.runs.at(-1)?.agentId === agentId,
   )
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState('')
+
+  const commitEdit = () => {
+    const trimmed = editValue.trim()
+    if (trimmed && trimmed !== agentName) {
+      useFlowStore.getState().save((flows) => {
+        const f = flows.find((f) => f.id === flowId)
+        const a = f?.agents?.find((a) => a.id === agentId)
+        if (!a) return
+        a.agent_name = editValue
+      })
+    }
+    setIsEditing(false)
+  }
+
   const createToggler =
     (field: string, agentOnly = false) =>
     (e: MouseEvent<HTMLElement>) => {
@@ -111,14 +127,39 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               </Tooltip>
             )
           })()}
-          <Typography.Text
-            ellipsis
-            className='m-0 mr-auto overflow-hidden p-0 text-xs font-semibold text-[#cdd6f4]'
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            {agentName}
-          </Typography.Text>
+          {isEditing ? (
+            <Input
+              autoFocus
+              size='small'
+              value={editValue}
+              className='nodrag nopan mr-auto h-5 min-w-0 flex-1 border-[#6366f1] bg-transparent px-1 text-xs font-semibold text-[#cdd6f4]'
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitEdit()
+                }
+                if (e.key === 'Escape') setIsEditing(false)
+                e.stopPropagation()
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <Typography.Text
+              ellipsis
+              className='m-0 mr-auto overflow-hidden p-0 text-xs font-semibold text-[#cdd6f4]'
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditValue(agentName)
+                setIsEditing(true)
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {agentName}
+            </Typography.Text>
+          )}
           <CopyButton text={() => JSON.stringify(agent, null, 2)} />
           <Badge dot={isAgentActive} offset={[-2, 2]}>
             <MessageOutlined
