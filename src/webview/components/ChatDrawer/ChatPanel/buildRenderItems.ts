@@ -109,6 +109,17 @@ type CacheEntry = {
    * msgs 已扫描区的长度 → 截断恢复时用作新 nextScanStart,避免全量重扫。
    */
   lastNonStreamScanned: number
+  /**
+   * 已固化 RenderItem 的 key 序号分配器,单调自增、永不复用、永不重置。
+   *
+   * key 绝不能用消息数组下标(mIdx):reducer stripStreamEvents 在完整 assistant/result
+   * 到达时删光该 run 的 stream_event,数组变短、下标整体前移。已缓存 item 仍持有 strip 前
+   * (夹着 stream_event)的高下标 key,后续新消息扫描到同一数字下标时会再生成相同 key →
+   * 两个 RenderItem 撞 key → 喂给 react-virtual 的 getItemKey 后同一气泡被定位到多个重叠
+   * translateY,半透明气泡背景叠加变亮。改用此计数器给每个新固化项分配稳定唯一序号即可根治。
+   * (流式占位项仍用裸 mIdx —— 瞬态且不带后缀,strip 恢复时被弹出,不会与带后缀的固化 key 撞。)
+   */
+  seq: number
 }
 
 // ── 缓存 ─────────────────────────────────────────────────────────────────
@@ -264,6 +275,9 @@ export type BuildMode = 'full' | 'light'
 function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry): void {
   const { items, pendingTooluse, nextScanStart } = cached
 
+  // 已固化项 key 用此分配器,绝不用 mIdx(见 CacheEntry.seq 注释:strip 漂移会让下标复用 → 撞 key)。
+  const nextKeyId = () => cached.seq++
+
   /**
    * 寻找 idx 之前(不包含)最近一条 user/assistant 消息的 uuid。
    *
@@ -310,7 +324,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       const modelBreakdown = Object.entries(cached.prevModelUsage)
         .map(([model, usage]) => ({ model, usage }))
         .filter((b) => isModelTokenUsageNonZero(b.usage) || b.usage.costUSD > 0)
-      const completeKey = `${mIdx}-complete`
+      const completeKey = `${nextKeyId()}-complete`
       items.push({
         kind: 'agent_complete',
         key: completeKey,
@@ -331,7 +345,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
     if (msg.type === 'flow.signal.agentError') {
       items.push({
         kind: 'error',
-        key: `${mIdx}-error`,
+        key: `${nextKeyId()}-error`,
         message: msg.data.err,
       })
       continue
@@ -339,7 +353,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
     if (msg.type === 'flow.signal.error') {
       items.push({
         kind: 'error',
-        key: `${mIdx}-error`,
+        key: `${nextKeyId()}-error`,
         message: msg.data.msg,
       })
       continue
@@ -391,7 +405,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       // 经常缺失）。第一条 user 没有上一条,messageUuid undefined → UI 不显示 fork icon。
       items.push({
         kind: 'user',
-        key: `${mIdx}-user`,
+        key: `${nextKeyId()}-user`,
         rawContent,
         messageUuid: findPrevUuid(mIdx),
       })
@@ -437,7 +451,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
         }
       }
       blocks.forEach((block, bIdx: number) => {
-        const key = `${mIdx}-${bIdx}`
+        const key = `${nextKeyId()}-${bIdx}`
         // messageUuid 仅挂最后一个 block —— 同一条 assistant 消息只在该 block 显示 fork icon
         const blockMessageUuid =
           (block.type === 'text' || block.type === 'thinking') && bIdx === blocks.length - 1
@@ -522,7 +536,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       const isError = 'error' in message && !!message.error
       const { modelUsages, turnContextUsage } = applyResultToCache(message, cached)
 
-      const turnEndKey = `${mIdx}-result`
+      const turnEndKey = `${nextKeyId()}-result`
       items.push({
         kind: 'turn_end',
         key: turnEndKey,
@@ -575,6 +589,7 @@ function scanLight(msgs: ExtensionToWebviewMessage[]): RenderItem[] {
     lastTotalCost: 0,
     contextUsageByItemKey: new Map(),
     lastNonStreamScanned: 0,
+    seq: 0,
   }
   const data = lastMsg.data
   if (data.result) applyResultToCache(data.result, tmpCached)
@@ -620,6 +635,7 @@ export function buildRenderItems(
         lastTotalCost: 0,
         contextUsageByItemKey: new Map(),
         lastNonStreamScanned: 0,
+        seq: 0,
       })
       return cache.get(sessionId)!
     })
