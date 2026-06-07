@@ -559,16 +559,10 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
 /**
  * 轻量扫描：不写缓存，折叠态 run 专用。
  * 直接取 msgs[0]（用户初始消息）与 msgs.at(-1)（agentComplete）；
- * 最后一条非 agentComplete 则 run 未正常完成，返回 []。
+ * 最后一条非 agentComplete 则不展示。
  */
 function scanLight(msgs: ExtensionToWebviewMessage[]): RenderItem[] {
-  // msgs[0] 始终是预填充的用户 aiMessage（flowStart 命令与 agentComplete 新 run 均如此）
-  // 最后一条不是 agentComplete 则 run 尚未正常完成，折叠态不展示
-  const lastMsg = msgs.at(-1)
-  if (!lastMsg || lastMsg.type !== 'flow.signal.agentComplete') return []
-
   const items: RenderItem[] = []
-
   const firstMsg = msgs[0]
   if (firstMsg?.type === 'flow.signal.aiMessage') {
     const { message } = firstMsg.data
@@ -580,31 +574,34 @@ function scanLight(msgs: ExtensionToWebviewMessage[]): RenderItem[] {
       })
     }
   }
-
-  const tmpCached: CacheEntry = {
-    nextScanStart: 0,
-    items: [],
-    pendingTooluse: {},
-    prevModelUsage: {},
-    lastTotalCost: 0,
-    contextUsageByItemKey: new Map(),
-    lastNonStreamScanned: 0,
-    seq: 0,
+  // 最后一条不是 agentComplete 则不展示
+  const lastMsg = msgs.at(-1)
+  if (lastMsg && lastMsg.type === 'flow.signal.agentComplete') {
+    const data = lastMsg.data
+    const tmpCached: CacheEntry = {
+      nextScanStart: 0,
+      items: [],
+      pendingTooluse: {},
+      prevModelUsage: {},
+      lastTotalCost: 0,
+      contextUsageByItemKey: new Map(),
+      lastNonStreamScanned: 0,
+      seq: 0,
+    }
+    if (data.result) applyResultToCache(data.result, tmpCached)
+    const modelBreakdown = Object.entries(tmpCached.prevModelUsage)
+      .map(([model, usage]) => ({ model, usage }))
+      .filter((b) => isModelTokenUsageNonZero(b.usage) || b.usage.costUSD > 0)
+    items.push({
+      kind: 'agent_complete',
+      key: `${msgs.length - 1}-complete`,
+      outputName: data.output?.name,
+      displayContent: data.content,
+      values: data.values && Object.keys(data.values).length > 0 ? data.values : undefined,
+      modelBreakdown: modelBreakdown.length > 0 ? modelBreakdown : undefined,
+      totalCost: tmpCached.lastTotalCost > 0 ? tmpCached.lastTotalCost : undefined,
+    })
   }
-  const data = lastMsg.data
-  if (data.result) applyResultToCache(data.result, tmpCached)
-  const modelBreakdown = Object.entries(tmpCached.prevModelUsage)
-    .map(([model, usage]) => ({ model, usage }))
-    .filter((b) => isModelTokenUsageNonZero(b.usage) || b.usage.costUSD > 0)
-  items.push({
-    kind: 'agent_complete',
-    key: `${msgs.length - 1}-complete`,
-    outputName: data.output?.name,
-    displayContent: data.content,
-    values: data.values && Object.keys(data.values).length > 0 ? data.values : undefined,
-    modelBreakdown: modelBreakdown.length > 0 ? modelBreakdown : undefined,
-    totalCost: tmpCached.lastTotalCost > 0 ? tmpCached.lastTotalCost : undefined,
-  })
 
   return items
 }
