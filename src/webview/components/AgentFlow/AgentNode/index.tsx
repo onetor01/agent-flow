@@ -51,7 +51,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
   const commitEdit = () => {
     const trimmed = editValue.trim()
-    if (trimmed && trimmed !== agentName) {
+    if (trimmed) {
       useFlowStore.getState().save((flows) => {
         const f = flows.find((f) => f.id === flowId)
         const a = f?.agents?.find((a) => a.id === agentId)
