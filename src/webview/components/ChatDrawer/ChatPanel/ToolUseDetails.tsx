@@ -364,41 +364,39 @@ export const ToolUseDetails: FC<Props> = ({
 
   return (
     <details
-      className='text-[11px] text-[#a6adc8]'
+      className='flex flex-1 overflow-hidden text-[11px] text-[#a6adc8]'
       onToggle={(e) => onOpenChange?.((e.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className='cursor-pointer list-none [&::-webkit-details-marker]:hidden'>
-        <div className='flex items-center gap-1.5 overflow-hidden'>
-          <span className='shrink-0'>
-            <StatusIcon state={state} />
-          </span>
-          <Tag
-            color={CATEGORY_COLORS[category]}
-            className='m-0 shrink-0 px-1 py-0 text-[10px] leading-3.5'
-            variant='filled'
-          >
-            {server ?? name}
+      <summary className='flex flex-1 cursor-pointer list-none items-center gap-1.5 overflow-hidden [&::-webkit-details-marker]:hidden'>
+        <span className='shrink-0'>
+          <StatusIcon state={state} />
+        </span>
+        <Tag
+          color={CATEGORY_COLORS[category]}
+          className='m-0 shrink-0 px-1 py-0 text-[10px] leading-3.5'
+          variant='filled'
+        >
+          {server ?? name}
+        </Tag>
+        {server ? <span className='shrink-0 font-medium text-[#cdd6f4]'>{name}</span> : null}
+        {summaryArg && (
+          <span className='min-w-0 flex-1 truncate break-all text-[#7f849c]'>{summaryArg}</span>
+        )}
+        {!summaryArg && <span className='flex-1' />}
+        {state === 'pending' && (
+          <span className='shrink-0 text-[10px] text-[#6c7086]'>运行中…</span>
+        )}
+        {state === 'error' && (
+          <Tag color='error' className='m-0 shrink-0 text-[10px]' variant='filled'>
+            失败
           </Tag>
-          {server ? <span className='shrink-0 font-medium text-[#cdd6f4]'>{name}</span> : null}
-          {summaryArg && (
-            <span className='min-w-0 flex-1 truncate text-[#7f849c]'>{summaryArg}</span>
-          )}
-          {!summaryArg && <span className='flex-1' />}
-          {state === 'pending' && (
-            <span className='shrink-0 text-[10px] text-[#6c7086]'>运行中…</span>
-          )}
-          {state === 'error' && (
-            <Tag color='error' className='m-0 shrink-0 text-[10px]' variant='filled'>
-              失败
-            </Tag>
-          )}
-          {state === 'success' && meta && meta.chars > 0 && (
-            <span className='shrink-0 text-[10px] text-[#6c7086]'>
-              {meta.lines > 1 ? `${meta.lines}L · ` : ''}
-              {formatChars(meta.chars)}
-            </span>
-          )}
-        </div>
+        )}
+        {state === 'success' && meta && meta.chars > 0 && (
+          <span className='shrink-0 text-[10px] text-[#6c7086]'>
+            {meta.lines > 1 ? `${meta.lines}L · ` : ''}
+            {formatChars(meta.chars)}
+          </span>
+        )}
       </summary>
       <div className='mt-1.5 ml-1 space-y-1.5 border-l-2 border-[#313244] pl-2'>
         {inputBody}
