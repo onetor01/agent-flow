@@ -87,7 +87,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         )}
       >
         {/* target handle：只接受连线，不允许从此拖出连线 */}
-        <Tooltip title={agent?.no_input ? '无输入' : '接受输入'} mouseEnterDelay={0.5}>
+        <Tooltip title={agent?.no_input ? '无输入' : '接受输入'}>
           <Handle
             type='target'
             position={Position.Left}
@@ -217,7 +217,10 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               ) : null}
               <span className='ml-auto flex items-center gap-1'>
                 {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
-                  <Tooltip title={agent?.work_mode === 'task' ? '任务模式' : '静默模式'}>
+                  <Tooltip
+                    title={agent?.work_mode === 'task' ? '任务模式' : '静默模式'}
+                    mouseEnterDelay={0.5}
+                  >
                     <span
                       className={cn(
                         'relative inline-flex cursor-pointer items-center',
@@ -245,7 +248,10 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     </span>
                   </Tooltip>
                 ) : null}
-                <Tooltip title={agent?.isolation_mode ? '隔离模式' : '开启隔离模式'}>
+                <Tooltip
+                  title={agent?.isolation_mode ? '隔离模式' : '开启隔离模式'}
+                  mouseEnterDelay={0.5}
+                >
                   <DisconnectOutlined
                     className={cn(
                       'cursor-pointer text-xs transition-colors',
@@ -256,7 +262,10 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                     onClick={createToggler('isolation_mode', true)}
                   />
                 </Tooltip>
-                <Tooltip title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}>
+                <Tooltip
+                  title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}
+                  mouseEnterDelay={0.5}
+                >
                   <span
                     className={cn(
                       'text-1 mb-0.5 cursor-pointer text-xs transition-colors',
@@ -268,7 +277,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   </span>
                 </Tooltip>
                 {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
-                  <Tooltip title={agent?.no_output ? '无输出' : '有输出'}>
+                  <Tooltip title={agent?.no_output ? '无输出' : '有输出'} mouseEnterDelay={0.5}>
                     <span
                       className={cn(
                         'relative inline-flex cursor-pointer items-center',
@@ -294,7 +303,11 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                 key={output.output_name}
                 className='relative flex items-center justify-between rounded bg-[#313244] px-1.5 py-0.5'
               >
-                <Tooltip title={output.output_desc || output.output_name} placement='right'>
+                <Tooltip
+                  title={output.output_desc || output.output_name}
+                  placement='right'
+                  mouseEnterDelay={0.5}
+                >
                   <span className='overflow-hidden text-[11px] text-ellipsis whitespace-nowrap text-[#a5b4fc]'>
                     {output.output_name}
                   </span>
