@@ -34,11 +34,11 @@ const OUTPUT_ROW_H = 24
 const OUTPUT_GAP = 4
 const OUTPUT_BLOCK_PADDING = 14 // pt-1.5 + pb-2
 // 列中心间距：入口列之间、dagre 相邻 rank 的中心距都按此换算（ranksep = 本值 - 节点宽）
-const COLUMN_GAP = NODE_WIDTH + 140
+const COLUMN_GAP = NODE_WIDTH + 30
 // 入口节点同列最多个数：超过则向右再开一列竖排
 const COLUMN_SIZE = 3
 // 同列节点垂直最小间距（dagre nodesep / 入口列竖排间距）
-const NODE_GAP = 32
+const NODE_GAP = 10
 
 function estimateNodeHeight(agent: Agent | Code): number {
   let h = HEADER_H
