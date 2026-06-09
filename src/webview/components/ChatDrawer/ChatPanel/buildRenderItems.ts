@@ -77,7 +77,6 @@ export type RenderItem =
     }
 
 type CacheEntry = {
-  nextScanStart: number
   items: RenderItem[]
   pendingTooluse: Record<string, number>
   /** 上一条 result 的 modelUsage 累计（per model）—— 用于计算本回合增量 */
@@ -104,9 +103,10 @@ type CacheEntry = {
    */
   lastTurnContextUsage?: { used: number; total: number }
   /**
-   * 已扫描部分中"非 stream_event" 消息的累计数。
-   * reducer stripStreamEvents 删光已扫描的 stream_event 后,该值正好等于 strip 后
-   * msgs 已扫描区的长度 → 截断恢复时用作新 nextScanStart,避免全量重扫。
+   * 已扫描并固化的「非 stream_event」消息累计数 —— 增量扫描的进度锚点。
+   * 用它(而非 msgs 下标)定位下次扫描起点:reducer stripStreamEvents 只删 stream_event、
+   * 不计入此数,故该锚点对 strip 删除免疫。msgs 下标会随 strip 整体前移而错位。
+   * 每条非 stream_event 消息扫描时 +1(见 scanIncremental,判别与 reducer strip 一致)。
    */
   lastNonStreamScanned: number
   /**
@@ -117,7 +117,7 @@ type CacheEntry = {
    * (夹着 stream_event)的高下标 key,后续新消息扫描到同一数字下标时会再生成相同 key →
    * 两个 RenderItem 撞 key → 喂给 react-virtual 的 getItemKey 后同一气泡被定位到多个重叠
    * translateY,半透明气泡背景叠加变亮。改用此计数器给每个新固化项分配稳定唯一序号即可根治。
-   * (流式占位项仍用裸 mIdx —— 瞬态且不带后缀,strip 恢复时被弹出,不会与带后缀的固化 key 撞。)
+   * (流式占位项用稳定 per-kind key 'streaming-text'/'streaming-thinking' —— 瞬态、每次构建弹掉重建,不与带后缀的固化 key 撞。)
    */
   seq: number
 }
@@ -272,8 +272,12 @@ export type BuildMode = 'full' | 'light'
 
 // ── 核心构建 ─────────────────────────────────────────────────────────────
 
-function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry): void {
-  const { items, pendingTooluse, nextScanStart } = cached
+function scanIncremental(
+  msgs: ExtensionToWebviewMessage[],
+  cached: CacheEntry,
+  startIdx: number,
+): void {
+  const { items, pendingTooluse } = cached
 
   // 已固化项 key 用此分配器,绝不用 mIdx(见 CacheEntry.seq 注释:strip 漂移会让下标复用 → 撞 key)。
   const nextKeyId = () => cached.seq++
@@ -303,7 +307,7 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
     return undefined
   }
 
-  for (let i = nextScanStart; i < msgs.length; i++) {
+  for (let i = startIdx; i < msgs.length; i++) {
     const mIdx = i
     const msg = msgs[i]
     // 维护 lastNonStreamScanned:每条非 stream_event 消息都计数(覆盖所有 continue 路径 ——
@@ -430,7 +434,10 @@ function scanIncremental(msgs: ExtensionToWebviewMessage[], cached: CacheEntry):
       } else {
         items.push({
           kind: blockType,
-          key: `${mIdx}`,
+          // streaming 占位用稳定 per-kind key(每 kind 至多一个尾部占位,见上方累加逻辑):
+          // 每次构建弹掉重建,裸 mIdx 会随 strip 下标漂移导致 react-virtual 卸载重挂闪烁。
+          // 与固化项 key(均带 `-后缀`)格式不同,不会撞。
+          key: blockType === 'text' ? 'streaming-text' : 'streaming-thinking',
           text: deltaText,
           streaming: true,
         })
@@ -579,7 +586,6 @@ function scanLight(msgs: ExtensionToWebviewMessage[]): RenderItem[] {
   if (lastMsg && lastMsg.type === 'flow.signal.agentComplete') {
     const data = lastMsg.data
     const tmpCached: CacheEntry = {
-      nextScanStart: 0,
       items: [],
       pendingTooluse: {},
       prevModelUsage: {},
@@ -625,7 +631,6 @@ export function buildRenderItems(
     .with(true, () => cache.get(sessionId)!)
     .with(false, () => {
       cache.set(sessionId, {
-        nextScanStart: 0,
         items: [],
         pendingTooluse: {},
         prevModelUsage: {},
@@ -638,32 +643,43 @@ export function buildRenderItems(
     })
     .exhaustive()
 
-  // reducer 清理已固化 stream_event 后 msgs 变短,缓存的 nextScanStart > msgs.length。
-  // 已合并的 items(user / 完整 assistant blocks / tool_use / turn_end / agent_complete /
-  // error)是稳定的,无需重建;只有上一波 stream_event 累加出的尾部 streaming text/thinking
-  // 占位项随 stream_event 一起作废,弹掉即可。pendingTooluse / prevModelUsage / lastTotalCost
-  // / contextUsageByItemKey / mainModel / lastTurnContextUsage 全部保留(均基于已稳定的非
-  // stream_event 消息)。新 nextScanStart = lastNonStreamScanned —— strip 删光已扫描的
-  // stream_event 后,该值正好等于 strip 后 msgs 已扫描区的长度。
-  if (cached.nextScanStart > msgs.length) {
-    while (cached.items.length > 0) {
-      const last = cached.items[cached.items.length - 1]
-      if ((last.kind === 'text' || last.kind === 'thinking') && last.streaming) {
-        cached.items.pop()
-      } else {
-        break
-      }
+  // 增量锚点 = lastNonStreamScanned(已固化非 stream_event 消息计数),对 reducer
+  // stripStreamEvents 删除免疫(strip 只删 stream_event,不计入)。不用 msgs 下标:strip 会让
+  // 下标整体前移,旧下标在 strip 后指向错位置(漏扫中间消息 / 重复 / 残留流式占位)。
+  //
+  // 先弹掉尾部连续的 streaming text/thinking 占位 —— 上一波 stream_event 累加出的瞬态项,
+  // 本次由尾部 se 重新累加;已固化 items(user / 完整 assistant blocks / tool_use / turn_end /
+  // agent_complete / error)及 pendingTooluse / prevModelUsage / lastTotalCost /
+  // contextUsageByItemKey / mainModel / lastTurnContextUsage 全部稳定保留。
+  while (cached.items.length > 0) {
+    const last = cached.items[cached.items.length - 1]
+    if ((last.kind === 'text' || last.kind === 'thinking') && last.streaming) {
+      cached.items.pop()
+    } else {
+      break
     }
-    cached.nextScanStart = cached.lastNonStreamScanned
   }
 
-  // 消息未增长 → 直接返回缓存
-  if (cached.nextScanStart === msgs.length) {
+  // 前向计数定位扫描起点:跳过前 lastNonStreamScanned 条已固化非 se 消息。strip 后已扫描区的
+  // se 已被删,startIdx 恰好停在最后一条已计数非 se 之后(其后才是新消息 / 尾部流式 se)。
+  // 判别条件与 reducer stripStreamEvents / scanIncremental 保持一致。
+  let startIdx = 0
+  let seen = 0
+  while (startIdx < msgs.length && seen < cached.lastNonStreamScanned) {
+    const m = msgs[startIdx]
+    const isStreamEvent =
+      m.type === 'flow.signal.aiMessage' &&
+      (m.data.message as { type?: string }).type === 'stream_event'
+    if (!isStreamEvent) seen += 1
+    startIdx += 1
+  }
+
+  // 起点已达末尾 → 无新增非 se 消息且无尾部流式 se(尾部 streaming 占位上面已弹掉),直接返回
+  if (startIdx === msgs.length) {
     return cached.items
   }
 
-  scanIncremental(msgs, cached)
-  cached.nextScanStart = msgs.length
+  scanIncremental(msgs, cached, startIdx)
   return cached.items
 }
 
