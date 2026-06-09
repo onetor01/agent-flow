@@ -337,6 +337,12 @@ export function updateFlowRunState(
   const next = produce(state, (draft) => {
     const flowId = msg.data.flowId
     const clearPendings = () => {
+      // 未回答的权限请求标记为拒绝,供历史卡片回显"已拒绝"状态
+      for (const p of draft.pendingToolPermissions) {
+        if (!draft.answeredToolPermissions[p.toolUseId]) {
+          draft.answeredToolPermissions[p.toolUseId] = { allow: false, message: undefined }
+        }
+      }
       draft.pendingToolPermissions = []
     }
     // 删除该 run 已固化的流式片段:打字机用的 stream_event 被完整 assistant/result 取代后
