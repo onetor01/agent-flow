@@ -366,7 +366,7 @@ function scanIncremental(
     if (msg.type !== 'flow.signal.aiMessage') continue
     const { message } = msg.data
     const messageUuid = message.uuid
-
+    const fromSubAgent = message.type === 'assistant' && message.parent_tool_use_id
     // 新session 重置缓存信息
     if (message.type === 'system' && message.subtype === 'init') {
       cached.mainModel = message.model
@@ -395,7 +395,8 @@ function scanIncremental(
                 isError: !!block.is_error,
                 text: extractToolResultText(block.content),
               },
-              messageUuid,
+              // 来自subAgent的不能fork
+              messageUuid: message.parent_tool_use_id ? undefined : messageUuid,
             }
           }
           delete pendingTooluse[block.tool_use_id]
@@ -403,6 +404,7 @@ function scanIncremental(
         continue
       }
       if (message.isSynthetic) continue
+      // 来自subAgent的prompt不展示
       if (message.parent_tool_use_id) continue
       // user fork 语义：fork 上一条消息 = 让用户重新说一次。messageUuid 取
       // 上一条 SDK 消息的 uuid（不是 user 自己的 uuid,因为 SDKUserMessage.uuid
