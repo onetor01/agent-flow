@@ -55,33 +55,42 @@ export const App: FC = () => {
     })
   }, [globalError, notification])
   usePasteFlow()
-
+  // 确保chatInput始终渲染 避免忽略insertSeelction事件
+  const chatDrawerComp = (
+    <ChatDrawer
+      key={'drawer'}
+      flowId={chatDrawer?.flowId}
+      agentId={chatDrawer?.agentId}
+      runId={chatDrawer?.runId}
+      open={!!chatDrawer}
+      onClose={closeChatDrawer}
+    />
+  )
   if (loading) {
     return (
-      <div className='flex h-full w-full items-center justify-center bg-[#11111b]'>
-        <Spin size='large' />
-      </div>
+      <>
+        {chatDrawerComp}
+        <div className='flex h-full w-full items-center justify-center bg-[#11111b]'>
+          <Spin size='large' />
+        </div>
+      </>
     )
   }
 
   return (
-    <div className='flex h-full w-full'>
-      <div className='relative flex-1'>
-        {flows.map((flow) => (
-          <AgentFlow key={flow.id} flowId={flow.id} />
-        ))}
-        <FlowListPanel />
+    <>
+      {chatDrawerComp}
+      <div className='flex h-full w-full'>
+        <div className='relative flex-1'>
+          {flows.map((flow) => (
+            <AgentFlow key={flow.id} flowId={flow.id} />
+          ))}
+          <FlowListPanel />
+        </div>
+        <AgentEditor />
+        <FlowEditor />
       </div>
-      <ChatDrawer
-        flowId={chatDrawer?.flowId}
-        agentId={chatDrawer?.agentId}
-        runId={chatDrawer?.runId}
-        open={!!chatDrawer}
-        onClose={closeChatDrawer}
-      />
-      <AgentEditor />
-      <FlowEditor />
-    </div>
+    </>
   )
 }
 
