@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
@@ -268,6 +269,29 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       },
     ]
   }, [items, loading, lastRunCompleted])
+
+  // 诊断:气泡重叠根因排查 —— 检测喂给 virtualizer 的重复 key。
+  // 重复 key 会让 react-virtual 复用同一 measurement、React 复用同一 DOM,导致气泡重叠且持久不消失。
+  // 正常会话不触发;命中时把冲突的两个完整 item 打印出来,据此定位产源(是 streaming-* 占位还是别的)。
+  useEffect(() => {
+    const seen = new Map<string, Item>()
+    for (const item of finalItems) {
+      const key = String(item.key)
+      const existing = seen.get(key)
+      if (existing) {
+        console.warn('[MessageList] 重复 RenderItem key', {
+          key,
+          flowId,
+          agentId,
+          runId,
+          existing,
+          duplicate: item,
+        })
+      } else {
+        seen.set(key, item)
+      }
+    }
+  }, [finalItems, flowId, agentId, runId])
 
   const scrollerElRef = useRef<HTMLDivElement | null>(null)
   // 是否粘底:用户向上滚则置 false,滚回底部 32px 内置 true
