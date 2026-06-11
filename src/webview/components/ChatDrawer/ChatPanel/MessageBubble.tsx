@@ -548,7 +548,7 @@ function renderItemToBubble(
       }
     }
     case 'text': {
-      const md = <Md content={item.text} />
+      const md = <Md content={item.text} className='flex-1 overflow-hidden' />
       if (item.streaming) {
         return { key: item.key, role: 'ai', content: md }
       }
