@@ -1,8 +1,19 @@
-import { FC, isValidElement, memo, ReactNode, useEffect, useId, useRef, useState } from 'react'
+import {
+  FC,
+  isValidElement,
+  memo,
+  MouseEventHandler,
+  ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { Spin, Typography } from 'antd'
 import { XMarkdown, type ComponentProps as XMarkdownComponentProps } from '@ant-design/x-markdown'
 import mermaid from 'mermaid'
 import { cn } from '@/webview/utils'
+import { postMessageToExtension } from '@/webview/utils/ExtensionMessage'
 
 mermaid.initialize({
   startOnLoad: false,
@@ -108,7 +119,24 @@ const CodeBlock: FC<XMarkdownComponentProps> = ({ children, lang, block, streamS
   return <code>{children}</code>
 }
 
-const MD_COMPONENTS = { pre: PreBlock, code: CodeBlock }
+const LinkBlock: FC<XMarkdownComponentProps> = ({ children, ...props }) => {
+  const { href, ...htmlProps } = props as Record<string, unknown>
+  const handleClick: MouseEventHandler<HTMLAnchorElement> = () => {
+    if (!href || typeof href !== 'string' || href.startsWith('http')) return
+    const m = href.match(/^(.+):(\d+)$/)
+    postMessageToExtension({
+      type: 'openFile',
+      data: m ? { filename: m[1], line: [Number(m[2]), Number(m[2])] } : { filename: href },
+    })
+  }
+  return (
+    <a href={href as string} onClick={handleClick} {...htmlProps}>
+      {children}
+    </a>
+  )
+}
+
+const MD_COMPONENTS = { pre: PreBlock, code: CodeBlock, a: LinkBlock }
 export const Md: FC<{ content: string } & Style> = memo(({ content, className, style }) => (
   <XMarkdown
     className={cn('x-markdown-dark', className)}
@@ -117,5 +145,6 @@ export const Md: FC<{ content: string } & Style> = memo(({ content, className, s
     components={MD_COMPONENTS}
     openLinksInNewTab
     escapeRawHtml
+    dompurifyConfig={{ ALLOW_UNKNOWN_PROTOCOLS: true }}
   />
 ))
