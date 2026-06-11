@@ -486,6 +486,7 @@ export function updateFlowRunState(
         })
       })
       .with({ type: 'flow.signal.agentInterrupted' }, () => {
+        stripStreamEvents(run)
         clearPendings()
       })
       .with({ type: 'flow.signal.toolPermissionResult' }, ({ data }) => {
