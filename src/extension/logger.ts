@@ -56,7 +56,7 @@ export function summarizeLogPayload(type: string, data: unknown): unknown {
       ...d,
       initMessage: redactUserMessage(d.initMessage),
     }))
-    .with(P.union('save', 'load'), () => undefined)
+    .with(P.union('save', 'load', 'flow.signal.fork'), () => undefined)
     .otherwise(() => d)
 }
 
