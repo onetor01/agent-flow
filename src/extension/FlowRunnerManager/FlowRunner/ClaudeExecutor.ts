@@ -330,7 +330,7 @@ export class ClaudeExecutor {
       if (!Array.isArray(askInput.questions)) {
         const denyMsg =
           'AskUserQuestion 调用格式错误:`questions` 字段必须是数组(类型: AskUserQuestionItem[]),实际收到 ' +
-          (typeof askInput.questions) +
+          typeof askInput.questions +
           '。请按 schema 重新调用,questions 直接传 JSON 数组而不是字符串化的 JSON。'
         logError('[ClaudeExecutor] AskUserQuestion malformed input rejected', {
           toolUseID,

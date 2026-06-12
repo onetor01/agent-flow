@@ -605,119 +605,120 @@ export function activate(context: vscode.ExtensionContext) {
    *
    * 注意:必须先打开过 panel(load 命令拉过 disk flows)才能选到 Flow;否则 currentFlows 为空。
    */
-  const attachSession = vscode.commands.registerCommand(
-    'agent-flow.attachSession',
-    async () => {
-      // 确保 currentFlows 已加载;若空,先尝试从 disk 拉一次
-      if (currentFlows.flows.length === 0) {
-        const diskFlows = await flowStore.load()
-        currentFlows = { flows: diskFlows.flows }
-        flowRunStateManager.applyFlows(currentFlows.flows, (flowId) =>
-          runnerManager.disposeRunner(flowId),
-        )
-      }
-      if (currentFlows.flows.length === 0) {
-        vscode.window.showWarningMessage('没有可用的 Flow。请先在 Agent Flow 面板中创建或加载工作流。')
-        return
-      }
-
-      // 1. 选 Flow
-      const flowPick = await vscode.window.showQuickPick(
-        currentFlows.flows.map((f) => ({
-          label: f.name || '(未命名)',
-          description: f.id,
-          flow: f,
-        })),
-        { placeHolder: '选择要挂载 SDK session 的 Flow', ignoreFocusOut: true },
+  const attachSession = vscode.commands.registerCommand('agent-flow.attachSession', async () => {
+    // 确保 currentFlows 已加载;若空,先尝试从 disk 拉一次
+    if (currentFlows.flows.length === 0) {
+      const diskFlows = await flowStore.load()
+      currentFlows = { flows: diskFlows.flows }
+      flowRunStateManager.applyFlows(currentFlows.flows, (flowId) =>
+        runnerManager.disposeRunner(flowId),
       )
-      if (!flowPick) return
-      const flow = flowPick.flow
-
-      // 2. 选 Agent —— 仅 node_type='agent'(code 节点无 SDK session)
-      const agentCandidates = (flow.agents ?? []).filter((a) => a.node_type === 'agent')
-      if (agentCandidates.length === 0) {
-        vscode.window.showWarningMessage(`Flow "${flow.name}" 没有可用的 agent 节点(code 节点不支持 attach)。`)
-        return
-      }
-      const agentPick = await vscode.window.showQuickPick(
-        agentCandidates.map((a) => ({
-          label: a.agent_name || '(未命名)',
-          description: a.id,
-          agent: a,
-        })),
-        { placeHolder: '选择要挂载 session 的 Agent', ignoreFocusOut: true },
+    }
+    if (currentFlows.flows.length === 0) {
+      vscode.window.showWarningMessage(
+        '没有可用的 Flow。请先在 Agent Flow 面板中创建或加载工作流。',
       )
-      if (!agentPick) return
-      const agent = agentPick.agent
+      return
+    }
 
-      // 3. 输 sessionId
-      const sessionId = await vscode.window.showInputBox({
-        prompt: 'SDK Session ID(~/.claude/projects/<hash>/<sessionId>.jsonl 的文件名,去 .jsonl 后缀)',
-        placeHolder: '例如 3cb273dd-bd44-4f01-9cbb-acbde8c0cdbe',
-        ignoreFocusOut: true,
-        validateInput: (v) => {
-          const t = v.trim()
-          if (!t) return 'sessionId 不能为空'
-          if (!/^[0-9a-f-]{8,}$/i.test(t)) return 'sessionId 格式不像 UUID'
-          return undefined
+    // 1. 选 Flow
+    const flowPick = await vscode.window.showQuickPick(
+      currentFlows.flows.map((f) => ({
+        label: f.name || '(未命名)',
+        description: f.id,
+        flow: f,
+      })),
+      { placeHolder: '选择要挂载 SDK session 的 Flow', ignoreFocusOut: true },
+    )
+    if (!flowPick) return
+    const flow = flowPick.flow
+
+    // 2. 选 Agent —— 仅 node_type='agent'(code 节点无 SDK session)
+    const agentCandidates = (flow.agents ?? []).filter((a) => a.node_type === 'agent')
+    if (agentCandidates.length === 0) {
+      vscode.window.showWarningMessage(
+        `Flow "${flow.name}" 没有可用的 agent 节点(code 节点不支持 attach)。`,
+      )
+      return
+    }
+    const agentPick = await vscode.window.showQuickPick(
+      agentCandidates.map((a) => ({
+        label: a.agent_name || '(未命名)',
+        description: a.id,
+        agent: a,
+      })),
+      { placeHolder: '选择要挂载 session 的 Agent', ignoreFocusOut: true },
+    )
+    if (!agentPick) return
+    const agent = agentPick.agent
+
+    // 3. 输 sessionId
+    const sessionId = await vscode.window.showInputBox({
+      prompt: 'SDK Session ID(~/.claude/projects/<hash>/<sessionId>.jsonl 的文件名,去 .jsonl 后缀)',
+      placeHolder: '例如 3cb273dd-bd44-4f01-9cbb-acbde8c0cdbe',
+      ignoreFocusOut: true,
+      validateInput: (v) => {
+        const t = v.trim()
+        if (!t) return 'sessionId 不能为空'
+        if (!/^[0-9a-f-]{8,}$/i.test(t)) return 'sessionId 格式不像 UUID'
+        return undefined
+      },
+    })
+    if (!sessionId) return
+    const trimmedSessionId = sessionId.trim()
+
+    // 4. 构造最小 FlowRunState —— 单 run + agentInterrupted signal,使 phase=interrupted
+    //    与 fork 路径末尾追加 agentInterrupted 同构,确保 ChatInput 进入 ready 态。
+    const runId = globalThis.crypto.randomUUID()
+    const newRun: AgentRun = {
+      runId,
+      agentId: agent.id,
+      sessionId: trimmedSessionId,
+      messages: [
+        {
+          type: 'flow.signal.agentInterrupted',
+          data: { flowId: flow.id, runId },
         },
-      })
-      if (!sessionId) return
-      const trimmedSessionId = sessionId.trim()
+      ],
+      completed: false,
+    }
+    const newRunState: FlowRunState = {
+      killed: false,
+      runs: [newRun],
+      answeredToolPermissions: {},
+      pendingToolPermissions: [],
+      shareValues: flowRunStateManager.getFlowRunStates()[flow.id]?.shareValues ?? {},
+    }
 
-      // 4. 构造最小 FlowRunState —— 单 run + agentInterrupted signal,使 phase=interrupted
-      //    与 fork 路径末尾追加 agentInterrupted 同构,确保 ChatInput 进入 ready 态。
-      const runId = globalThis.crypto.randomUUID()
-      const newRun: AgentRun = {
-        runId,
-        agentId: agent.id,
-        sessionId: trimmedSessionId,
-        messages: [
-          {
-            type: 'flow.signal.agentInterrupted',
-            data: { flowId: flow.id, runId },
-          },
-        ],
-        completed: false,
-      }
-      const newRunState: FlowRunState = {
-        killed: false,
-        runs: [newRun],
-        answeredToolPermissions: {},
-        pendingToolPermissions: [],
-        shareValues: flowRunStateManager.getFlowRunStates()[flow.id]?.shareValues ?? {},
-      }
+    // 5. 写入 state + spawnForFork(lazy 模式,首次 sendUserMessage 触发 SDK resume)
+    flowRunStateManager.setRunState(flow.id, newRunState)
+    runnerManager.spawnForFork({
+      flowId: flow.id,
+      agentId: agent.id,
+      resumeSessionId: trimmedSessionId,
+      runId,
+    })
 
-      // 5. 写入 state + spawnForFork(lazy 模式,首次 sendUserMessage 触发 SDK resume)
-      flowRunStateManager.setRunState(flow.id, newRunState)
-      runnerManager.spawnForFork({
-        flowId: flow.id,
-        agentId: agent.id,
-        resumeSessionId: trimmedSessionId,
-        runId,
-      })
+    // 6. 通知 webview 刷新(若 panel 已开)
+    postMessageToWebview({
+      type: 'load',
+      data: {
+        flows: currentFlows.flows,
+        flowRunStates: flowRunStateManager.getFlowRunStates(),
+      },
+    })
+    postMessageToWebview({
+      type: 'focusFlow',
+      data: { flowId: flow.id },
+    })
+    // 自动开 panel,方便用户立即操作
+    vscode.commands.executeCommand('agent-flow.openPanel')
+    currentPanel?.reveal(undefined, true)
 
-      // 6. 通知 webview 刷新(若 panel 已开)
-      postMessageToWebview({
-        type: 'load',
-        data: {
-          flows: currentFlows.flows,
-          flowRunStates: flowRunStateManager.getFlowRunStates(),
-        },
-      })
-      postMessageToWebview({
-        type: 'focusFlow',
-        data: { flowId: flow.id },
-      })
-      // 自动开 panel,方便用户立即操作
-      vscode.commands.executeCommand('agent-flow.openPanel')
-      currentPanel?.reveal(undefined, true)
-
-      vscode.window.showInformationMessage(
-        `已挂载 session ${trimmedSessionId.slice(0, 8)}… 到 Flow "${flow.name}" / Agent "${agent.agent_name}"。在聊天框发消息即触发 SDK resume。`,
-      )
-    },
-  )
+    vscode.window.showInformationMessage(
+      `已挂载 session ${trimmedSessionId.slice(0, 8)}… 到 Flow "${flow.name}" / Agent "${agent.agent_name}"。在聊天框发消息即触发 SDK resume。`,
+    )
+  })
 
   context.subscriptions.push(openPanel, addSelectionToInput, attachSession)
 }

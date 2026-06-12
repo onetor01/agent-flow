@@ -444,8 +444,7 @@ export class FlowRunner {
         // (此时 _sessionId 已确定,initEmitted=true 保证不会拿到 null)。
         // CodeExecutor 不会触发该回调(没有 SDK session)。
         const exec = getExecutor()
-        const sessionId =
-          exec instanceof ClaudeExecutor ? (exec.sessionId ?? undefined) : undefined
+        const sessionId = exec instanceof ClaudeExecutor ? (exec.sessionId ?? undefined) : undefined
         this.fire('flow.signal.toolUseParseError', {
           runId,
           agentId: agent.id,

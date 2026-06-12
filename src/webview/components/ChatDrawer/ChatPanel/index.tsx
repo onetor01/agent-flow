@@ -1,6 +1,12 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, useState, type FC } from 'react'
 import { Alert, Button, Skeleton, Tag, Tooltip } from 'antd'
-import { CloseOutlined, RobotOutlined, SendOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
+import {
+  CloseOutlined,
+  RobotOutlined,
+  SendOutlined,
+  StopOutlined,
+  ToolOutlined,
+} from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import { AnimatePresence, motion } from 'motion/react'
 import { match, P } from 'ts-pattern'
