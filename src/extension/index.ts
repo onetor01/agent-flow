@@ -76,6 +76,8 @@ const LANG_BY_EXT: Record<string, string> = {
   makefile: 'makefile',
 }
 
+const DIFF_SCHEME = 'agent-flow-diff'
+
 export function activate(context: vscode.ExtensionContext) {
   initLogger(context)
   let currentPanel: vscode.WebviewPanel | undefined
@@ -89,6 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
   const flowStore = new PersistedDataController()
   const flowRunStateManager = new FlowRunStateManager()
   let currentFlows: PersistedData = { flows: [] }
+  const diffVirtualDocs = new Map<string, string>()
 
   const postMessageToWebview = (msg: ExtensionToWebviewMessage) => {
     if (msg.type === 'batchMessages') {
@@ -467,6 +470,31 @@ export function activate(context: vscode.ExtensionContext) {
             // 文件不存在或无法打开时静默忽略
           }
         })
+        .with({ type: 'openDiff' }, async ({ data }) => {
+          const { file_path, old_string, new_string, status } = data
+          const ext = file_path.split('.').pop()?.toLowerCase() ?? ''
+          const folders = vscode.workspace.workspaceFolders
+          const fileUri = path.isAbsolute(file_path)
+            ? vscode.Uri.file(file_path)
+            : vscode.Uri.joinPath(folders?.[0]?.uri ?? vscode.Uri.file(''), file_path)
+          const title = `Diff: ${file_path}`
+          const key = crypto.randomUUID()
+          const virtualUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${key}.${ext}`)
+          try {
+            const rawBytes = await vscode.workspace.fs.readFile(fileUri)
+            // 统一为 \n —— 磁盘文件可能带 \r\n（Windows），SDK 的 old_string/new_string 始终用 \n，不统一会导致 replace 静默失败
+            const fileText = Buffer.from(rawBytes).toString('utf-8').replace(/\r\n/g, '\n')
+            if (status === 'success') {
+              diffVirtualDocs.set(virtualUri.toString(), fileText.replace(new_string, old_string))
+              await vscode.commands.executeCommand('vscode.diff', virtualUri, fileUri, title)
+            } else {
+              diffVirtualDocs.set(virtualUri.toString(), fileText.replace(old_string, new_string))
+              await vscode.commands.executeCommand('vscode.diff', fileUri, virtualUri, title)
+            }
+          } catch {
+            // 文件不存在或 diff 编辑器打开失败时静默忽略
+          }
+        })
         .with({ type: P.string.startsWith('flow.command.') }, async (e) => {
           // fork 是特殊命令：不走 runner，由 extension 自己处理 SDK forkSession
           if (e.type === 'flow.command.fork') {
@@ -530,7 +558,15 @@ export function activate(context: vscode.ExtensionContext) {
     },
   )
 
-  context.subscriptions.push(openPanel, addSelectionToInput)
+  context.subscriptions.push(
+    openPanel,
+    addSelectionToInput,
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, {
+      provideTextDocumentContent(uri) {
+        return diffVirtualDocs.get(uri.toString()) ?? ''
+      },
+    }),
+  )
 }
 
 export function deactivate() {}

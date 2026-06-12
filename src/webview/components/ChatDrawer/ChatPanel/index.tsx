@@ -414,6 +414,7 @@ export const ChatPanel: FC<Props> = ({
           (() => {
             const perm = pendingPermCards[0]
             const isExitPlan = perm.toolName.includes('ExitPlanMode')
+            const isEditDiff = perm.toolName === 'Edit'
             const planFilePath = isExitPlan
               ? ((perm.input as { planFilePath?: string })?.planFilePath ?? '')
               : ''
@@ -454,6 +455,15 @@ export const ChatPanel: FC<Props> = ({
                     exitPlan={
                       isExitPlan
                         ? { planFilePath, onViewPlan: () => onViewPlan(planFilePath) }
+                        : undefined
+                    }
+                    editDiff={
+                      isEditDiff
+                        ? {
+                            filePath: (perm.input as { file_path?: string })?.file_path ?? '',
+                            oldString: (perm.input as { old_string?: string })?.old_string ?? '',
+                            newString: (perm.input as { new_string?: string })?.new_string ?? '',
+                          }
                         : undefined
                     }
                     onChangeHeight={(h) => setPermCardHeight(Math.max(80, Math.min(600, h)))}

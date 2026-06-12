@@ -575,6 +575,30 @@ export function chatMessageToBubble(
       const answered = ctx?.answeredToolPermissions?.[message.toolUseId]
       const fork = buildForkIcon()
 
+      // Edit 工具：走 ToolPermissionCard editDiff 变体；pending 时移至底部活动卡片，历史态内联展示
+      if (message.toolName === 'Edit') {
+        if (isPending) return null
+        const input = message.input as { file_path?: string; old_string?: string; new_string?: string }
+        return {
+          key: message.id + '-edit-diff',
+          role: 'system' as const,
+          content: (
+            <ToolPermissionCard
+              toolName='Edit'
+              input={message.input}
+              mode='historical'
+              answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
+              editDiff={{
+                filePath: input.file_path ?? '',
+                oldString: input.old_string ?? '',
+                newString: input.new_string ?? '',
+              }}
+              fork={fork}
+            />
+          ),
+        }
+      }
+
       // AskUserQuestion：pending 时由底部固定卡片渲染(active)，历史态从 answeredToolPermissions 就地解析答案
       if (message.toolName.includes('AskUserQuestion')) {
         if (!answered || isPending) return null

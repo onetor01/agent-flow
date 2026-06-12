@@ -1,7 +1,14 @@
 import { ReactNode, useLayoutEffect, useRef, useState, type FC } from 'react'
 import { Button, Tag } from 'antd'
-import { CheckOutlined, SafetyOutlined, ScheduleOutlined, StopOutlined } from '@ant-design/icons'
+import {
+  CheckOutlined,
+  EditOutlined,
+  SafetyOutlined,
+  ScheduleOutlined,
+  StopOutlined,
+} from '@ant-design/icons'
 import { match, P } from 'ts-pattern'
+import { postMessageToExtension } from '@/webview/utils/ExtensionMessage'
 import { RadioWithInput } from './RadioWithInput'
 
 const ALLOW_VALUE = 'allow'
@@ -27,6 +34,12 @@ type Props = {
     planFilePath: string
     onViewPlan?: () => void
   }
+  /** Edit 工具专属：显示"文件变更"样式 */
+  editDiff?: {
+    filePath: string
+    oldString: string
+    newString: string
+  }
   onChangeHeight?: (height: number) => void
   fork?: ReactNode
 }
@@ -47,11 +60,13 @@ export const ToolPermissionCard: FC<Props> = ({
   onAllow,
   onDeny,
   exitPlan,
+  editDiff,
   fork,
   onChangeHeight,
 }) => {
   const isActive = mode === 'active'
   const isExitPlan = !!exitPlan
+  const isEditDiff = !!editDiff
   const [selection, setSelection] = useState<string | undefined>(undefined)
   const [denyReason, setDenyReason] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -103,16 +118,18 @@ export const ToolPermissionCard: FC<Props> = ({
       className='flex flex-col gap-2 overflow-x-hidden rounded-md border border-[#45475a] bg-[#181825] px-3 py-2'
     >
       <div className='flex items-center gap-2'>
-        {isExitPlan ? (
+        {isEditDiff ? (
+          <EditOutlined className='text-[#89b4fa]' />
+        ) : isExitPlan ? (
           <ScheduleOutlined className='text-[#89b4fa]' />
         ) : (
           <SafetyOutlined className='text-[#f9e2af]' />
         )}
         <span className='font-semibold text-[#cdd6f4]'>
-          {isExitPlan ? '计划已生成' : '请求使用工具'}
+          {isEditDiff ? '文件变更' : isExitPlan ? '计划已生成' : '请求使用工具'}
         </span>
         {fork}
-        {!isExitPlan && (
+        {!isExitPlan && !isEditDiff && (
           <Tag color='warning' className='m-0 text-xs'>
             {toolName}
           </Tag>
@@ -127,14 +144,42 @@ export const ToolPermissionCard: FC<Props> = ({
               ? answered.allow
                 ? '已确认'
                 : '已拒绝'
-              : answered.allow
-                ? '已允许'
-                : '已拒绝'}
+              : isEditDiff
+                ? answered.allow
+                  ? '已应用'
+                  : '已拒绝'
+                : answered.allow
+                  ? '已允许'
+                  : '已拒绝'}
           </Tag>
         )}
       </div>
 
-      {isExitPlan ? (
+      {isEditDiff && editDiff ? (
+        <span className='text-[#cdd6f4]'>
+          {editDiff.filePath}，
+          <a
+            href='#'
+            onClick={(e) => {
+              e.preventDefault()
+              const diffStatus =
+                mode === 'active' || !answered ? 'pending' : answered.allow ? 'success' : 'error'
+              postMessageToExtension({
+                type: 'openDiff',
+                data: {
+                  file_path: editDiff.filePath,
+                  old_string: editDiff.oldString,
+                  new_string: editDiff.newString,
+                  status: diffStatus,
+                },
+              })
+            }}
+            className='text-[#89b4fa] hover:underline'
+          >
+            点击查看差异
+          </a>
+        </span>
+      ) : isExitPlan ? (
         <span className='text-[#cdd6f4]'>
           计划已生成，
           <a
@@ -153,7 +198,6 @@ export const ToolPermissionCard: FC<Props> = ({
           {formatInput(input)}
         </pre>
       )}
-
       <RadioWithInput
         options={options}
         inputTriggerValue={DENY_WITH_REASON_VALUE}

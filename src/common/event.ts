@@ -55,6 +55,8 @@ export type ExtensionFromWebviewEvents = {
   openFile: { filename: string; line?: [number, number]; placement?: 'active' | 'beside' }
   /** 在 VSCode 中预览一段外部粘入的文本附件（非文件系统文件） */
   previewAttachment: { name: string; content: string }
+  /** 打开 VSCode diff 编辑器展示文件变更 */
+  openDiff: { file_path: string; old_string: string; new_string: string; status: 'pending' | 'success' | 'error' }
 } & ExtensionFlowCommandEvents
 
 /** extension发出 webview接受的消息 */
