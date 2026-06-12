@@ -4,6 +4,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   Switch,
   Select,
   AutoComplete,
@@ -71,7 +72,16 @@ export const AgentEditor: FC = () => {
   useEffect(() => {
     if (open && agent) {
       form.resetFields()
-      form.setFieldsValue(agent)
+      // thinking_budget 显式回填默认值 8000:schema 是 .optional() 不带 .default,
+      // agent 数据里缺字段时 InputNumber 默认会渲染空白(只剩 placeholder)。直接 ??
+      // 兜底回填 8000,让用户打开编辑器就看到默认值,符合"显式优于隐式"的 UX。
+      // 仅 agent 节点才有此字段,code 节点对象没有 thinking_budget 不会被注入(spread
+      // 后只是多个 undefined→8000 的字段,反正 code 节点表单不渲染该 FormItem)。
+      form.setFieldsValue({
+        ...agent,
+        thinking_budget:
+          agent.node_type === 'agent' ? (agent.thinking_budget ?? 8000) : undefined,
+      })
     } else {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPreviewMode('preview')
@@ -186,7 +196,7 @@ export const AgentEditor: FC = () => {
                     />
                   </FormItem>
 
-                  <FormItem name='effort' label='努力程度' className='w-56'>
+                  <FormItem name='effort' label='努力程度' className='w-44'>
                     <Select
                       placeholder='默认（不指定）'
                       allowClear
@@ -197,6 +207,20 @@ export const AgentEditor: FC = () => {
                         { label: 'xhigh — 长程任务(opus4.7+)', value: 'xhigh' },
                         { label: 'max — 最大性能(opus4.6+)', value: 'max' },
                       ]}
+                    />
+                  </FormItem>
+
+                  <FormItem
+                    name='thinking_budget'
+                    label='思考预算'
+                    tooltip='Extended thinking 上限（tokens）。0 = 禁用思考；默认 8000 覆盖大多数推理场景，并对 Bedrock 1M context 网关流式 tool_use 解析失败提供兜底。'
+                    className='w-36'
+                  >
+                    <InputNumber
+                      min={0}
+                      step={1000}
+                      placeholder='8000'
+                      className='w-full'
                     />
                   </FormItem>
                 </Flex>

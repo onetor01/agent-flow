@@ -32,6 +32,27 @@ export const AgentSchema = z.object({
     .enum(['low', 'medium', 'high', 'xhigh', 'max'])
     .optional()
     .describe('AI 思考的努力程度，影响响应速度与质量的权衡'),
+  /**
+   * Extended thinking 预算 token 数 —— 给模型的思考阶段设上限,运行时透传到 SDK 的
+   * `thinking: { type: 'enabled', budgetTokens }`(0 则透传 `{ type: 'disabled' }` 完全禁用)。
+   *
+   * 字段为 optional;ClaudeExecutor 透传时用 `?? 8000` 兜底默认值,而不是在 schema 上
+   * 写 `.default(8000)` —— 后者会让 z.infer 输出类型变成 required,导致 PresetFlows 内
+   * 所有预设数据都需要显式填这个字段(17+ 处),收益不抵成本。统一在 ClaudeExecutor 一处
+   * 兜底,旧 agent / 预设数据零迁移压力。
+   *
+   * 默认 8000 的考量:
+   * - 覆盖 95%+ 推理场景(opus/sonnet 一次复杂推理常见用 2K-5K thinking tokens)
+   * - 给 Bedrock 1M context 流式 tool_use 解析失败提供兜底 —— 网关偶发空 thinking block
+   *   长 signature 的 case,设上限可降低模型在 thinking 阶段卡住的概率
+   * - 0 表示完全禁用 thinking(显著降低复杂推理质量,仅推荐给纯路由 / 工具调用类 agent)
+   */
+  thinking_budget: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Extended thinking 预算 tokens 数；0 = 禁用思考；留空 = 默认 8000'),
   agent_name: z.string().describe('节点名称'),
   agent_desc: z.string().optional().describe('节点简介'),
   agent_prompt: z.string().describe('Agent的系统提示词，详细描述Agent的任务和约束').optional(),
@@ -550,6 +571,7 @@ export function buildAgentSystemPrompt(
     | 'no_input'
     | 'no_output'
     | 'agent_name'
+    | 'model'
   >,
   shareValueKeys?: readonly ShareValueKey[],
   currentValues?: Record<string, string>,
@@ -593,6 +615,27 @@ export function buildAgentSystemPrompt(
       )
     })
     .exhaustive()
+
+  // Bedrock 1M context 网关偶发对长 tool_use input JSON 流式重组失败 ——
+  // 引导 LLM 把"长描述决策"从 AskUserQuestion 迁移到 CompleteTask,降低触发解析失败的概率。
+  // 这是基础设施层兜底,与 thinking_budget 默认 8000、显式 1M betas 路由同档位:
+  // - 不污染用户业务 prompt(不放预设 flow / agent_prompt,跨 agent 透明生效)
+  // - 用户切换 model 到非 1M 后约束自动消失,不需要手动同步
+  //
+  // 阈值用定性描述("二三选项 / 一句话")而非数字 —— 当前没有具体测量数据支撑硬阈值
+  // (Anthropic / Bedrock 文档没公开 tool_use input 长度上限,日志里又看不到失败前的
+  // tool_use input 实际 size)。后续若收集到 input size 与解析失败的相关性数据,
+  // 可在此处升级为定量约束。
+  if (agent.model?.includes('[1m]')) {
+    lines.push(
+      '# tool_use 防御规则',
+      '- AskUserQuestion 仅用于极简短的二三选项确认（如"继续/取消"、"使用 A/B/C"）。',
+      '- 凡是选项需要超过一句话描述、或涉及多个候选方案的决策，一律改用 mcp__AgentControllerMcp__CompleteTask：',
+      '  - output_name 仍按业务分支命名',
+      '  - content 里用 markdown 列出选项 + 各自后果，让用户在下轮 user message 里回复',
+      '- 这是为了规避当前 Bedrock 1M 网关在长 tool_use input 上的解析不稳定。',
+    )
+  }
 
   // 可读写数据：合并节，集中声明 key 含义，再分列读 / 写授权。chat 不能写
   const descByKey = new Map<string, string | undefined>(

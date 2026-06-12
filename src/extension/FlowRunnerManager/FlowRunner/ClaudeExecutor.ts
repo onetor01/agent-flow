@@ -499,9 +499,16 @@ export class ClaudeExecutor {
         })
       },
     })
+    // thinking_budget:见 AgentSchema 同名字段。schema 默认 8000,但 ?? 兜底防御
+     // 极端情况(直接 spawn 路径绕过 schema 时旧 agent 缺字段)。0 → 完全禁用 thinking。
+    const thinkingBudget = this.agent.thinking_budget ?? 8000
     const options: Options = {
       model: this.agent.model,
       effort: this.agent.effort,
+      thinking:
+        thinkingBudget === 0
+          ? { type: 'disabled' }
+          : { type: 'enabled', budgetTokens: thinkingBudget },
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
