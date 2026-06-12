@@ -205,14 +205,10 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
 
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
 
-        <div className='flex h-6.5 items-center gap-1 px-3 pt-1 pb-1.5'>
+        <div className='flex h-6.5 items-center gap-1 px-3 py-1.5'>
           {match(agent)
             .with(undefined, () => null)
-            .with({ node_type: 'code' }, () => (
-              <Tag color='cyan' style={{ fontSize: 10, height: 22, lineHeight: '20px' }}>
-                code
-              </Tag>
-            ))
+            .with({ node_type: 'code' }, () => <Tag color='cyan'>code</Tag>)
             .with({ node_type: 'agent' }, (agent) => {
               return (
                 <>

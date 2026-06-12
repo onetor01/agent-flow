@@ -38,7 +38,7 @@ export const ModelEditor: FC<ModelEditorProps> = ({ model, flowId, agentId }) =>
         allowClear
         defaultValue={model}
         size='small'
-        style={{ fontSize: 10, width, minWidth: 80 }}
+        style={{ width, minWidth: 80 }}
         className='nodrag nopan !h-[22px] [&_.ant-select-selection-search-input]:!h-[22px] [&_.ant-select-selector]:!h-[22px] [&_.ant-select-selector]:!min-h-[22px]'
         options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
         filterOption={(input, option) =>
@@ -62,12 +62,7 @@ export const ModelEditor: FC<ModelEditorProps> = ({ model, flowId, agentId }) =>
   }
 
   return (
-    <Tag
-      ref={tagRef}
-      color='blue'
-      style={{ fontSize: 10, height: 22, lineHeight: '20px', cursor: 'pointer' }}
-      onClick={enterEdit}
-    >
+    <Tag ref={tagRef} color='blue' className='cursor-pointer' onClick={enterEdit}>
       {model}
     </Tag>
   )
