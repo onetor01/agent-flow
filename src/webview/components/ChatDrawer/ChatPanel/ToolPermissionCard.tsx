@@ -3,6 +3,7 @@ import { Button, Tag } from 'antd'
 import {
   CheckOutlined,
   EditOutlined,
+  LoadingOutlined,
   SafetyOutlined,
   ScheduleOutlined,
   StopOutlined,
@@ -27,6 +28,8 @@ type Props = {
   mode: 'active' | 'historical'
   /** 历史态下的结果;reason 仅 deny 且用户填了理由时有值,用于历史卡片回显 */
   answered?: { allow: boolean; reason?: string }
+  /** 历史态下：用户已回答但工具执行结果尚未到达时展示 loading 按钮 */
+  loading?: boolean
   onAllow?: () => void
   onDeny?: (reason?: string) => void
   /** ExitPlanMode 专属：显示"计划已生成"样式 */
@@ -57,6 +60,7 @@ export const ToolPermissionCard: FC<Props> = ({
   input,
   mode,
   answered,
+  loading,
   onAllow,
   onDeny,
   exitPlan,
@@ -213,6 +217,14 @@ export const ToolPermissionCard: FC<Props> = ({
       {isActive && (
         <div className='flex justify-end'>
           <Button type='primary' size='small' disabled={!selection} onClick={handleSubmit}>
+            发送
+          </Button>
+        </div>
+      )}
+      {/* 历史态：用户已回答但工具执行结果尚未到达 → 展示 loading 发送按钮 */}
+      {mode === 'historical' && loading && (
+        <div className='flex justify-end'>
+          <Button type='primary' size='small' loading>
             发送
           </Button>
         </div>

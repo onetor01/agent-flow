@@ -1,6 +1,6 @@
 import { ReactNode, useLayoutEffect, useMemo, useRef, useState, type FC } from 'react'
 import { Button, Checkbox, Input, Popover, Radio, Tag } from 'antd'
-import { CheckOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { CheckOutlined, LoadingOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useMemoizedFn } from 'ahooks'
 import type { AskUserQuestionInput, AskUserQuestionItem, AskUserQuestionOutput } from '@/common'
 import { Md } from '../../text-components'
@@ -10,6 +10,8 @@ type Props = {
   mode: 'active' | 'historical'
   /** 历史态时展示用户之前选中的 label 列表（按 question 映射） */
   answeredValues?: Record<string, string[]>
+  /** 历史态下：用户已回答但工具执行结果尚未到达时展示 loading 按钮 */
+  loading?: boolean
   onSubmit?: (output: AskUserQuestionOutput) => void
   /** 测量到题目高度后通知父组件调整容器高度（传原始值，clamping 由父组件负责） */
   onChangeHeight?: (height: number) => void
@@ -74,6 +76,7 @@ export const AskUserQuestionCard: FC<Props> = ({
   input,
   mode,
   answeredValues,
+  loading,
   onSubmit,
   onChangeHeight,
   fork,
@@ -290,11 +293,18 @@ export const AskUserQuestionCard: FC<Props> = ({
           </Button>
         </div>
       )}
+      {/* 历史态：用户已回答但工具执行结果尚未到达 → 展示 loading 发送按钮 */}
+      {mode === 'historical' && loading && (
+        <div className='flex justify-end'>
+          <Button type='primary' size='small' loading>
+            发送
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
 
-const EMPTY_COMPONENTS: Record<string, never> = {}
 const OptionRow: FC<{
   option: { label: string; description: string; preview?: string }
   children: React.ReactNode

@@ -1,6 +1,11 @@
 import { useState, type FC, type ReactNode } from 'react'
 import { Button, Input, Radio, Tag, Tooltip } from 'antd'
-import { BranchesOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import {
+  BranchesOutlined,
+  CheckCircleOutlined,
+  ExclamationCircleOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons'
 import { Think } from '@ant-design/x'
 import { match, P } from 'ts-pattern'
 import type { AskUserQuestionInput, ChatMessage, ModelTokenUsage, ToolResult } from '@/common'
@@ -376,7 +381,8 @@ const CompleteTaskBody: FC<{
 }
 
 /** 完成前确认卡片 —— 作为 AI 气泡渲染（role:'ai'），样式与 agent_complete 完成气泡完全一致：
- *  左侧 filled 气泡、无自绘边框，气泡外观由 Bubble filled 提供 */
+ *  左侧 filled 气泡、无自绘边框，气泡外观由 Bubble filled 提供。
+ *  用户点击同意/拒绝后立即进入 loading 态（发送按钮 spinning），直到 SDK 处理后卡片卸载。 */
 const CompleteTaskConfirmCard: FC<{
   outputName?: string
   content?: string
@@ -386,11 +392,16 @@ const CompleteTaskConfirmCard: FC<{
 }> = ({ outputName, content, values, onAccept, onDeny }) => {
   const [choice, setChoice] = useState<'accept' | 'deny' | null>(null)
   const [reason, setReason] = useState('')
+  /** 用户已提交选择、等待 SDK 处理期间展示 loading */
+  const [submitted, setSubmitted] = useState(false)
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault()
-      if (reason.trim()) onDeny(reason.trim())
+      if (reason.trim()) {
+        setSubmitted(true)
+        onDeny(reason.trim())
+      }
     }
   }
 
@@ -403,10 +414,14 @@ const CompleteTaskConfirmCard: FC<{
       </div>
       <Radio.Group
         value={choice}
+        disabled={submitted}
         onChange={(e) => {
           const val = e.target.value as 'accept' | 'deny'
           setChoice(val)
-          if (val === 'accept') onAccept()
+          if (val === 'accept') {
+            setSubmitted(true)
+            onAccept()
+          }
         }}
         className='flex flex-col gap-1'
       >
@@ -424,6 +439,7 @@ const CompleteTaskConfirmCard: FC<{
           <Input.TextArea
             autoSize={{ minRows: 1 }}
             value={reason}
+            disabled={submitted}
             onChange={(e) => setReason(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder='请输入拒绝原因...'
@@ -434,12 +450,25 @@ const CompleteTaskConfirmCard: FC<{
               type='primary'
               danger
               size='small'
-              disabled={!reason.trim()}
-              onClick={() => onDeny(reason.trim())}
+              disabled={submitted || !reason.trim()}
+              loading={submitted}
+              icon={<LoadingOutlined />}
+              onClick={() => {
+                setSubmitted(true)
+                onDeny(reason.trim())
+              }}
             >
               发送
             </Button>
           </div>
+        </div>
+      )}
+      {/* 用户已同意但 SDK 尚未处理完毕 → 展示 loading 按钮 */}
+      {submitted && choice === 'accept' && (
+        <div className='flex justify-end'>
+          <Button type='primary' size='small' loading>
+            发送
+          </Button>
         </div>
       )}
     </div>
@@ -583,6 +612,9 @@ export function chatMessageToBubble(
             ? { allow: false }
             : undefined
 
+      // loading 判定：用户已显式回答（answeredToolPermissions 有记录）但工具执行结果尚未到达
+      const isAnsweredAwaitingResult = !!answered && !message.result
+
       // Edit 工具：走 ToolPermissionCard editDiff 变体；pending 时移至底部活动卡片，历史态内联展示
       if (message.toolName === 'Edit') {
         if (isPending) return null
@@ -600,6 +632,7 @@ export function chatMessageToBubble(
               input={message.input}
               mode='historical'
               answered={effectiveAnswered}
+              loading={isAnsweredAwaitingResult}
               editDiff={{
                 filePath: input.file_path ?? '',
                 oldString: input.old_string ?? '',
@@ -637,6 +670,7 @@ export function chatMessageToBubble(
               input={message.input as AskUserQuestionInput}
               mode='historical'
               answeredValues={answeredValues}
+              loading={isAnsweredAwaitingResult}
               fork={fork}
             />
           ),
@@ -701,6 +735,7 @@ export function chatMessageToBubble(
               input={message.input}
               mode='historical'
               answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
+              loading={isAnsweredAwaitingResult}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
               fork={fork}
             />
@@ -719,6 +754,7 @@ export function chatMessageToBubble(
             input={message.input}
             mode='historical'
             answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
+            loading={isAnsweredAwaitingResult}
             fork={fork}
           />
         ),
