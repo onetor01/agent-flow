@@ -402,16 +402,6 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
             ))}
           </div>
         )}
-
-        {/* 无输出时显示一个默认 source handle */}
-        {outputs.length === 0 && (
-          <Handle
-            type='source'
-            position={Position.Bottom}
-            id='output-default'
-            style={{ visibility: 'hidden' }}
-          />
-        )}
       </div>
     </>
   )
