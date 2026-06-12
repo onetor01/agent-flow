@@ -95,19 +95,21 @@ export type ExecutorEvents = {
  * 在 Map 中按 runId 寻址。Executor 不知道也不需要知道自己绑定的 runId。
  */
 export class ClaudeExecutor {
-  /** lazy 模式下构造时尚未赋值,首次 createQuery 调 applyOptions 后才确定。eager 模式构造时立即赋值 */
-  private agent!: Agent
-  /** 同 agent —— buildAgentSystemPrompt 结果,在 applyOptions 内一次性计算 */
+  /**
+   * System prompt 快照,ensureInit 内一次性计算并缓存。
+   * SDK 子进程启动时固定,运行中改 agent / shareValues 不会重算(切下一 agent 才生效)。
+   */
   private prompt!: string
-  /** SDK 子进程 env 注入项,applyOptions 内确定;空字符串/未提供时不覆盖 process.env */
-  private baseUrl?: string
-  private apiKey?: string
   private mcpServer: ReturnType<typeof buildAgentMcpServer> | null = null
   private readonly userInputStream: ReturnType<typeof createMessageChannel<SDKUserMessage>>
-  /** lazy 模式延迟取 options 的入口;eager 模式构造时也只调用一次后丢弃语义不变 */
+  /**
+   * 取最新 options 的回调。canUseTool / createQuery 每次调用时重新取 agent / events,
+   * 确保运行中改 agent 配置(如 work_mode / must_confirm_tools)立即生效。
+   * 仅 prompt / resumeSessionId 在 ensureInit 内一次性缓存。
+   */
   private readonly getOptions: () => ExecutorOptions
-  /** options 是否已经 applyOptions 过 —— eager 在构造时即 true,lazy 在首次 createQuery 时翻 true */
-  private optionsApplied = false
+  /** ensureInit 是否已执行 —— eager 在构造时即 true,lazy 在首次 ensureInit 时翻 true */
+  private initialized = false
 
   private queryInstance: Query | null = null
   private completed = false
@@ -117,7 +119,7 @@ export class ClaudeExecutor {
   /**
    * 首条 SDK 消息是否已处理。
    * - eager 模式:首条 SDK 消息抵达时触发 onStarted + 透传 initMessage,然后置 true
-   * - resume(fork)模式:_sessionId 已知,applyOptions 时直接置 true,不再触发 onStarted
+   * - resume(fork)模式:_sessionId 已知,ensureInit 时直接置 true,不再触发 onStarted
    */
   private initEmitted = false
   /**
@@ -134,8 +136,6 @@ export class ClaudeExecutor {
   private resolveResultArrived: (() => void) | null = null
 
   private _sessionId: string | null = null
-  /** lazy 模式构造时尚未赋值,首次 createQuery 后由 applyOptions 写入 */
-  private events!: ExecutorEvents
 
   /** SDK 在首条消息中分配的会话 ID;`null` 表示尚未建立会话。仅供日志/内部 resume 使用 */
   get sessionId(): string | null {
@@ -154,40 +154,41 @@ export class ClaudeExecutor {
 
   /**
    * @param mode - 启动模式,见 {@link ExecutorMode}
-   * @param getOptions - 返回启动所需全部数据的闭包。
-   *   - eager: 构造时立即同步调用一次,作用与原版直传参数一致
-   *   - lazy: 构造时不调用,等首次 createQuery 触发再调用 —— 调用方可在闭包内动态返回
-   *     最新的 agent / shareValues,把构造到首次启动间的外部改动应用到本次启动
+   * @param getOptions - 返回启动所需全部数据的回调。
+   *   - eager: 构造时调用一次(初始化 prompt / sessionId)+ createQuery 内部再调用取最新 agent
+   *   - lazy: 构造时不调用,首次 ensureInit / createQuery 时调用 —— 调用方可动态返回最新
+   *     agent / shareValues,把构造到首次启动间的外部改动应用到本次启动
+   *
+   *   **运行时行为**:canUseTool / createQuery 每次调用时重新取 agent,
+   *   确保运行中改 agent 配置(如 work_mode / must_confirm_tools / outputs)立即生效。
    */
   constructor(mode: ExecutorMode, getOptions: () => ExecutorOptions) {
     this.userInputStream = createMessageChannel<SDKUserMessage>()
     this.getOptions = getOptions
     if (mode === 'eager') {
-      const opts = getOptions()
-      this.applyOptions(opts)
-      this.createQuery(opts.initMessage)
+      this.init()
+      this.createQuery(getOptions().initMessage)
     }
-    // mode === 'lazy': 构造时不取 options,等首次 createQuery 时再读最新值
+    // mode === 'lazy': 构造时不取 options,等首次 ensureInit / createQuery 时再读最新值
   }
 
   /**
-   * 把 options 应用到实例字段。eager 在构造时调用一次;lazy 在首次 createQuery 调用一次。
-   * prompt 由 buildAgentSystemPrompt 一次性生成 —— values 是 prompt 时点快照,运行中改值
-   * 不会重读(参见 CLAUDE.md「shareValues 是 prompt 快照」)。
+   * 一次性初始化:计算 prompt 快照 + 设置 resumeSessionId。
+   * eager 在构造时调用;lazy 在首次 ensureInit 时调用。
+   * agent / events / baseUrl / apiKey 不在此缓存 —— 每次 canUseTool / createQuery
+   * 通过 getOptions() 实时取,确保运行中改配置立即生效。
    */
-  private applyOptions(opts: ExecutorOptions): void {
-    this.agent = opts.agent
-    this.events = opts.events
+  private init(): void {
+    if (this.initialized) return
+    const opts = this.getOptions()
     this.prompt = buildAgentSystemPrompt(opts.agent, opts.shareValueKeys, opts.currentValues)
-    this.baseUrl = opts.agent.base_url || opts.flowBaseUrl
-    this.apiKey = opts.agent.api_key || opts.flowApiKey
     if (opts.resumeSessionId) {
       // resume 模式：sessionId 已知;fork 路径(lazy)不透传 initMessage
       // —— run.messages 切片已有真实历史,initMessage 只是接口占位/dummy。
       this._sessionId = opts.resumeSessionId
       this.initEmitted = true
     }
-    this.optionsApplied = true
+    this.initialized = true
   }
 
   /** 转发用户消息 */
@@ -301,7 +302,9 @@ export class ClaudeExecutor {
       this.disposed = true
       this.pendingCompleteResult = null
       this.rejectAllPendingPermissions('silent auto-reply limit exceeded')
-      this.events.onError(new Error(`silent_task 自动回复次数超过上限 ${SILENT_MAX_AUTO_REPLIES}`))
+      this.getOptions().events.onError(
+        new Error(`silent_task 自动回复次数超过上限 ${SILENT_MAX_AUTO_REPLIES}`),
+      )
       this.queryInstance?.interrupt().catch((err) => {
         logError('[ClaudeExecutor] interrupt after auto-reply limit exceeded failed:', err)
       })
@@ -311,12 +314,15 @@ export class ClaudeExecutor {
   }
 
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
+    // 每次工具调用实时取最新 agent / events,运行中改 agent 配置(work_mode /
+    // must_confirm_tools / deny_tools / outputs)立即生效,不依赖缓存快照。
+    const { agent, events } = this.getOptions()
     const toolInput = input as Record<string, unknown>
     if (toolName.includes('AskUserQuestion')) {
       // silent_task 是无人值守模式：直接以占位字符串自动应答，不挂起。
       // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
       // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
-      if (this.agent.work_mode === 'silent_task') {
+      if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         const askInput = input as AskUserQuestionInput
@@ -326,7 +332,7 @@ export class ClaudeExecutor {
           answers[q.question] = SILENT_ASK_AUTO_ANSWER
         }
         const updatedInput = { questions, answers }
-        this.events.onToolPermissionResult({ toolUseId: toolUseID, allow: true, updatedInput })
+        events.onToolPermissionResult({ toolUseId: toolUseID, allow: true, updatedInput })
         return Promise.resolve({ behavior: 'allow', updatedInput })
       }
       // 非 silent：挂起，等待 answerToolPermission() 被调用
@@ -340,7 +346,7 @@ export class ClaudeExecutor {
       const outputName = completeInput.output_name
       const matchedOutput =
         typeof outputName === 'string'
-          ? this.agent.outputs?.find((o) => o.output_name === outputName)
+          ? agent.outputs?.find((o) => o.output_name === outputName)
           : undefined
       if (matchedOutput?.require_confirm === true) {
         log('[ClaudeExecutor] canUseTool CompleteTask pending confirm', { toolUseID, outputName })
@@ -352,10 +358,10 @@ export class ClaudeExecutor {
     // 确认后 SDK 收到 allow，模型继续执行；拒绝则收到 deny（isError tool_result）。
     // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
     if (toolName.includes('ExitPlanMode')) {
-      if (this.agent.work_mode === 'silent_task') {
+      if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
-        this.events.onToolPermissionResult({
+        events.onToolPermissionResult({
           toolUseId: toolUseID,
           allow: true,
           updatedInput: toolInput,
@@ -364,7 +370,7 @@ export class ClaudeExecutor {
       }
       return this.requestToolPermission(toolUseID, toolName, toolInput)
     }
-    const { must_confirm_tools, deny_tools } = this.agent
+    const { must_confirm_tools, deny_tools } = agent
     // 优先级 0：命中 deny 列表，直接禁止，不弹窗。
     // Bash 命令级：组合命令中任一子命令命中即禁止（防绕过）
     if (
@@ -393,7 +399,7 @@ export class ClaudeExecutor {
         matchToolAnySubCommand(toolName, must_confirm_tools, toolInput))
     ) {
       // silent_task 无人值守，must_confirm 无法获得人工确认，自动拒绝
-      if (this.agent.work_mode === 'silent_task') {
+      if (agent.work_mode === 'silent_task') {
         const matchedPatterns = must_confirm_tools.filter(
           (p) =>
             matchTool(toolName, [p], toolInput) || matchToolAnySubCommand(toolName, [p], toolInput),
@@ -419,19 +425,17 @@ export class ClaudeExecutor {
   ): Promise<PermissionResult> {
     return new Promise<PermissionResult>((resolve) => {
       this.pendingToolPermissions.set(toolUseId, { resolve, input })
-      this.events.onToolPermissionRequest({ toolUseId, toolName, input })
+      this.getOptions().events.onToolPermissionRequest({ toolUseId, toolName, input })
     })
   }
 
   // ── 内部方法 ────────────────────────────────────────────────────────────
 
   private async createQuery(message: UserMessageType, skipPushInit = false) {
-    // lazy 模式首次 createQuery:此刻才取最新 options 应用,允许构造到首次启动间外部
-    // 改动 flow/agent。eager 模式构造时已 applyOptions,这里直接跳过。
-    if (!this.optionsApplied) {
-      this.applyOptions(this.getOptions())
-    }
-    const isSilentMode = this.agent.work_mode === 'silent_task'
+    this.init()
+    // 每次 createQuery 取最新 agent —— 允许中断/追加消息时配置变更(resume 重建 query)生效
+    const { agent, events } = this.getOptions()
+    const isSilentMode = agent.work_mode === 'silent_task'
     // 同一个 MCP Server 实例不能被 connect 两次（@modelcontextprotocol/sdk
     // Protocol.connect 在 _transport 已存在时直接 throw 'Already connected
     // to a transport'，SDK 把异常吞进 .catch 后只打日志，导致 system message
@@ -445,7 +449,7 @@ export class ClaudeExecutor {
       }
     }
     this.mcpServer = buildAgentMcpServer({
-      agent: this.agent,
+      agent,
       onComplete: (result) => {
         // CompleteTask 触发后不立即通知上层。等 SDK 的 result 消息到达后再 fire，
         // 否则上层会立刻 killCurrentExecutor，把后续的 result（含 modelUsage /
@@ -468,15 +472,15 @@ export class ClaudeExecutor {
         this.disposed = true
         this.pendingCompleteResult = null
         this.rejectAllPendingPermissions('terminated')
-        this.events.onError(new Error(`TerminateTask: ${reason}`))
+        events.onError(new Error(`TerminateTask: ${reason}`))
         this.queryInstance?.interrupt().catch((err) => {
           logError('[ClaudeExecutor] interrupt after TerminateTask failed:', err)
         })
       },
     })
     const options: Options = {
-      model: this.agent.model,
-      effort: this.agent.effort,
+      model: agent.model,
+      effort: agent.effort,
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
@@ -485,9 +489,9 @@ export class ClaudeExecutor {
         // system prompt 保住纯静态、可跨会话命中 prompt 缓存。
         excludeDynamicSections: true,
       },
-      settingSources: this.agent.isolation_mode ? [] : undefined,
+      settingSources: agent.isolation_mode ? [] : undefined,
       mcpServers: { AgentControllerMcp: this.mcpServer },
-      permissionMode: this.agent.plan_mode ? 'plan' : 'default',
+      permissionMode: agent.plan_mode ? 'plan' : 'default',
       canUseTool: this.canUseTool,
       cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
       includePartialMessages: true,
@@ -495,14 +499,16 @@ export class ClaudeExecutor {
     // env 注入:SDK 文档约定 options.env 一旦设置会**替换**整个子进程 env,
     // 因此必须 spread process.env 保住 PATH/HOME 等。仅当 baseUrl / apiKey 任一非空
     // 才覆盖,否则保持默认继承 —— 避免无谓地把整个 process.env 物化到 SDK 子进程。
-    if (this.baseUrl || this.apiKey) {
+    const baseUrl = agent.base_url || this.getOptions().flowBaseUrl
+    const apiKey = agent.api_key || this.getOptions().flowApiKey
+    if (baseUrl || apiKey) {
       options.env = {
         ...process.env,
-        ...(this.baseUrl ? { ANTHROPIC_BASE_URL: this.baseUrl } : {}),
-        ...(this.apiKey ? { ANTHROPIC_AUTH_TOKEN: this.apiKey } : {}),
+        ...(baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {}),
+        ...(apiKey ? { ANTHROPIC_AUTH_TOKEN: apiKey } : {}),
       }
     }
-    if (this.agent.work_mode === 'silent_task') {
+    if (agent.work_mode === 'silent_task') {
       options.maxTurns = 60
     }
     if (this._sessionId) {
@@ -520,17 +526,17 @@ export class ClaudeExecutor {
         if (this.disposed) break
         if (!this.initEmitted) {
           if (!msg.session_id) {
-            this.events.onError(new Error(JSON.stringify(msg)))
+            events.onError(new Error(JSON.stringify(msg)))
             break
           }
           this._sessionId = msg.session_id
           this.initEmitted = true
-          this.events.onStarted()
+          events.onStarted()
         }
         // CompleteTask结果已暂存 视作会话结束 拦截所有消息
         const skipForward = this.pendingCompleteResult !== null
         if (!skipForward) {
-          this.events?.onMessage(msg)
+          events.onMessage(msg)
         }
         // result 是本回合最后一条消息（带 modelUsage / total_cost_usd）。
         if (msg.type === 'result') {
@@ -543,7 +549,7 @@ export class ClaudeExecutor {
           if (this.pendingCompleteResult && !this.completed) {
             const pending = this.pendingCompleteResult
             this.pendingCompleteResult = null
-            this.events.onComplete({ ...pending, resultMessage: msg })
+            events.onComplete({ ...pending, resultMessage: msg })
             this.completed = true
           } else if (
             // silent_task 自动续轮:本回合无 CompleteTask、未中断、未销毁、SDK 未报错,
@@ -560,7 +566,7 @@ export class ClaudeExecutor {
               const continueMsg = buildSilentContinueMessage(this._sessionId)
               // 同步透传给上层,让 webview 通过 flow.signal.aiMessage 看到自动「继续」消息
               // (SDK 不会 mirror 通过 input stream push 的 user message,这里手动 echo)。
-              this.events.onMessage(continueMsg)
+              events.onMessage(continueMsg)
               this.userInputStream.push(continueMsg)
             }
           }
@@ -568,7 +574,7 @@ export class ClaudeExecutor {
       }
     } catch (err) {
       if (!this.disposed) {
-        this.events.onError(err instanceof Error ? err : new Error(String(err)))
+        events.onError(err instanceof Error ? err : new Error(String(err)))
       }
     } finally {
       this.queryInstance = null
