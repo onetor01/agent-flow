@@ -1,6 +1,6 @@
 import { ReactNode, useLayoutEffect, useRef, useState, type FC } from 'react'
 import { Button, Tag } from 'antd'
-import { CheckOutlined, SafetyOutlined, StopOutlined } from '@ant-design/icons'
+import { CheckOutlined, SafetyOutlined, ScheduleOutlined, StopOutlined } from '@ant-design/icons'
 import { match, P } from 'ts-pattern'
 import { RadioWithInput } from './RadioWithInput'
 
@@ -103,7 +103,11 @@ export const ToolPermissionCard: FC<Props> = ({
       className='flex flex-col gap-2 overflow-x-hidden rounded-md border border-[#45475a] bg-[#181825] px-3 py-2'
     >
       <div className='flex items-center gap-2'>
-        <SafetyOutlined className='text-[#f9e2af]' />
+        {isExitPlan ? (
+          <ScheduleOutlined className='text-[#89b4fa]' />
+        ) : (
+          <SafetyOutlined className='text-[#f9e2af]' />
+        )}
         <span className='font-semibold text-[#cdd6f4]'>
           {isExitPlan ? '计划已生成' : '请求使用工具'}
         </span>

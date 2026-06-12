@@ -7,8 +7,8 @@ import {
   LoadingOutlined,
   MinusCircleOutlined,
 } from '@ant-design/icons'
+import type { ToolResult } from '@/common'
 import { CodeRefChip } from '@/webview/components/CodeRefChip'
-import type { ToolResult } from './buildRenderItems'
 
 // ── 工具元数据 ───────────────────────────────────────────────────────────
 

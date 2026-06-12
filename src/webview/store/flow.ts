@@ -19,7 +19,6 @@ import {
   getFlowPhase,
 } from '@/common'
 import type { Agent, Code, ExtensionToWebviewSingleMessage } from '@/common'
-import { clearBuildCacheForRuns } from '../components/ChatDrawer/ChatPanel/buildRenderItems'
 import { postMessageToExtension, subscribeExtensionMessage } from '../utils/ExtensionMessage'
 
 type StoreState = {
@@ -343,7 +342,7 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       return cleanup
     },
     runFlow: (flowId, agentId, initMessage) => {
-      const { flows, flowRunStates } = get()
+      const { flows } = get()
       const flow = flows.find((f) => f.id === flowId)
       if (!flow) return
       const agent = flow.agents?.find((a) => a.id === agentId)
@@ -354,10 +353,6 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
             parent_tool_use_id: null,
           }
         : initMessage
-      const existingState = flowRunStates[flowId]
-      if (existingState?.runs?.length) {
-        clearBuildCacheForRuns(existingState.runs.map((r) => r.runId))
-      }
       // webview 生成 runId 随 command 下发,作为本次 run 的唯一主键
       const runId = crypto.randomUUID()
       dispatchCommand({
@@ -402,9 +397,20 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       })
     },
     save: (updateFn) => {
+      let removedIds: string[] = []
       immerSet((draft) => {
         updateFn(draft.flows)
+        // 清理已删除 flow 的运行态，与 extension 端 applyFlows 对齐
+        const validIds = new Set(draft.flows.map((f) => f.id))
+        removedIds = Object.keys(draft.flowRunStates).filter((id) => !validIds.has(id))
+        for (const flowId of removedIds) {
+          delete draft.flowRunStates[flowId]
+        }
       })
+      // 同步销毁已删除 flow 的通知卡片
+      for (const flowId of removedIds) {
+        destroyFlowNotifications(flowId)
+      }
       postMessageToExtension({ type: 'save', data: get().flows })
     },
     sendUserMessage: (flowId, runId, content) => {

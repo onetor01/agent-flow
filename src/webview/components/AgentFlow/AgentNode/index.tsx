@@ -176,26 +176,24 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
               }}
             />
           </Badge>
-          {agent?.no_input && (
-            <Tooltip title='直接启动'>
-              <PlayCircleOutlined
-                className='text-xs text-[#a6adc8] transition-colors hover:text-[#52c41a]'
-                onClick={(e) => {
-                  e.stopPropagation()
-                  const { openChatDrawer } = useFlowStore.getState()
-                  openChatDrawer({ flowId, agentId })
-                  startFlow(flowId, agentId, {
-                    type: 'user',
-                    message: {
-                      role: 'user',
-                      content: '执行任务',
-                    },
-                    parent_tool_use_id: null,
-                  })
-                }}
-              />
-            </Tooltip>
-          )}
+          <Tooltip title='直接启动'>
+            <PlayCircleOutlined
+              className='text-xs text-[#a6adc8] transition-colors hover:text-[#52c41a]'
+              onClick={(e) => {
+                e.stopPropagation()
+                const { openChatDrawer } = useFlowStore.getState()
+                openChatDrawer({ flowId, agentId })
+                startFlow(flowId, agentId, {
+                  type: 'user',
+                  message: {
+                    role: 'user',
+                    content: '执行任务',
+                  },
+                  parent_tool_use_id: null,
+                })
+              }}
+            />
+          </Tooltip>
           <EditOutlined
             className='text-xs text-[#a6adc8] transition-colors hover:text-[#6366f1]'
             onClick={(e) => {

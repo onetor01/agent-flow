@@ -234,7 +234,7 @@ export class CodeExecutor {
     if (this.completed || this.disposed) return
     this.completed = true
     // 严格只产出 agentComplete:result success 帧不走 onMessage,只挂 onComplete.resultMessage
-    // 供 token 统计;reducer 在 agentComplete 分支调 buildRenderItems.applyResultToCache 取值。
+    // 供 token 统计;reducer 在 agentComplete 分支调 applyResultToAcc 取值。
     const resultMessage = this.buildResult({ isError: false })
     this.events.onComplete({
       outputName: normalized.outputName,

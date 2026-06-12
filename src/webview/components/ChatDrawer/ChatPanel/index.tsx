@@ -114,65 +114,22 @@ export const ChatPanel: FC<Props> = ({
   }, [allRuns, agentId, runId])
 
   // Token / cost 累计:tokenMode = 'flow' 跨 Flow 全部 runs;'view' 用当前视图选出的 runs。
-  // modelUsage 与 total_cost_usd 都是 session 累计快照,因此每个 run 都只取「最后一条 result」,
-  // 再跨 run 相加。tokens 含 4 字段 (input + output + cacheCreation + cacheRead),
-  // 与 turn_end / agent_complete 口径一致。
+  // 新累加态模型把 session 累计快照存进 run.acc:prevModelUsage(最后一条 result 的 modelUsage 累计,
+  // per model)/ lastTotalCost(最后一条 result 的 total_cost_usd),直接读取再跨 run 相加。
+  // tokens 含 4 字段 (input + output + cacheCreation + cacheRead),与 turn_end / agent_complete 口径一致。
   const tokenSourceRuns = tokenMode === 'view' ? runs : allRuns
   const { totalTokens, totalCost } = useMemo(() => {
-    if (!tokenSourceRuns)
-      return {
-        totalTokens: 0,
-        totalCost: 0,
-        modelBreakdown: [] as Array<{ model: string; tokens: number; cost: number }>,
-      }
+    if (!tokenSourceRuns) return { totalTokens: 0, totalCost: 0 }
     let totalTokens = 0
     let totalCost = 0
-    const modelMap = new Map<string, { tokens: number; cost: number }>()
     for (const run of tokenSourceRuns) {
-      let lastModelUsage: Record<string, unknown> | undefined
-      let lastResultCost: number | undefined
-      let runModel: string | undefined
-      // 从后往前找第一条 result(累计快照取最新即可,无需遍历全部)
-      for (let i = run.messages.length - 1; i >= 0; i--) {
-        const msg = run.messages[i]
-        let resultMsg: any | undefined
-        if (msg.type === 'flow.signal.aiMessage' && msg.data.message.type === 'result') {
-          resultMsg = msg.data.message
-        } else if (msg.type === 'flow.signal.agentComplete' && msg.data.result) {
-          resultMsg = msg.data.result
-        }
-        if (!resultMsg) continue
-        if (!lastModelUsage && resultMsg.modelUsage && typeof resultMsg.modelUsage === 'object') {
-          lastModelUsage = resultMsg.modelUsage
-        }
-        if (lastResultCost === undefined && typeof resultMsg.total_cost_usd === 'number') {
-          lastResultCost = resultMsg.total_cost_usd
-        }
-        if (!runModel && typeof resultMsg.model === 'string') {
-          runModel = resultMsg.model
-        }
-        if (lastModelUsage && lastResultCost !== undefined && runModel) break
+      for (const u of Object.values(run.acc.prevModelUsage)) {
+        totalTokens +=
+          u.inputTokens + u.outputTokens + u.cacheCreationInputTokens + u.cacheReadInputTokens
       }
-      let runTokens = 0
-      if (lastModelUsage) {
-        for (const mu of Object.values(lastModelUsage) as any[]) {
-          runTokens +=
-            (mu.inputTokens ?? 0) +
-            (mu.outputTokens ?? 0) +
-            (mu.cacheCreationInputTokens ?? 0) +
-            (mu.cacheReadInputTokens ?? 0)
-        }
-      }
-      totalTokens += runTokens
-      if (lastResultCost !== undefined) totalCost += lastResultCost
-      const m = runModel ?? run.agentId
-      const entry = modelMap.get(m) ?? { tokens: 0, cost: 0 }
-      entry.tokens += runTokens
-      if (lastResultCost !== undefined) entry.cost += lastResultCost
-      modelMap.set(m, entry)
+      totalCost += run.acc.lastTotalCost
     }
-    const modelBreakdown = Array.from(modelMap.entries()).map(([m, v]) => ({ model: m, ...v }))
-    return { totalTokens, totalCost, modelBreakdown }
+    return { totalTokens, totalCost }
   }, [tokenSourceRuns])
 
   const canKillFlow = flowCanBeKilled(flowPhase)

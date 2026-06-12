@@ -4,6 +4,7 @@ import * as path from 'path'
 import { match, P } from 'ts-pattern'
 import * as vscode from 'vscode'
 import type {
+  AgentRun,
   ExtensionFlowCommandEvents,
   ExtensionFlowCommandMessage,
   ExtensionFlowSignalMessage,
@@ -13,6 +14,7 @@ import type {
   FlowRunState,
   PersistedData,
 } from '@/common'
+import { markInterrupted } from '@/common'
 import { FlowRunStateManager } from './FlowRunStateManager'
 import { FlowRunnerManager } from './FlowRunnerManager'
 import { PersistedDataController } from './PersistedDataController'
@@ -166,9 +168,11 @@ export function activate(context: vscode.ExtensionContext) {
   /**
    * 在源 RunState 的指定 run 中定位 fork 切片终点。
    * target.runId 已唯一定位 AgentRun,这里只在该 run 的 messages 内寻 messageUuid。
-   * - `messageIdx` 为 target 命中的消息在 run.messages 中的索引,
+   * - `messageIdx` 为 target 命中的 ChatMessage 在 run.messages 中的索引,
    *   handleFork 据此 slice(0, messageIdx + 1) 裁剪 messages,确保 webview
-   *   端切片与 SDK transcript 一致(不含切片终点之后的 result / tool_result 等)
+   *   端切片与 SDK transcript 一致(不含切片终点之后的内容)。
+   * - 同一条 assistant 的多个 block 在累加态模型中是多条 ChatMessage 但共享同一 uuid,
+   *   取**最后一个**匹配下标以包含整条 assistant 的全部 block。
    */
   type ForkTarget = ExtensionFlowCommandEvents['flow.command.fork']['target']
   const locateFork = (
@@ -185,20 +189,29 @@ export function activate(context: vscode.ExtensionContext) {
     const runIdx = state.runs.findIndex((r) => r.runId === target.runId)
     if (runIdx < 0) return undefined
     const run = state.runs[runIdx]
+    let messageToolUseId: string | undefined
+    let messageIdx = -1
     for (let j = 0; j < run.messages.length; j++) {
-      const m = run.messages[j]
-      if (m.type !== 'flow.signal.aiMessage') continue
-      const sdkMsg = m.data.message as { uuid?: string }
-      if (sdkMsg.uuid && sdkMsg.uuid === target.messageUuid) {
-        return {
-          runIdx,
-          sessionId: run.sessionId,
-          messageIdx: j,
-          upToMessageId: target.messageUuid,
+      const curMessage = run.messages[j]
+      if (run.messages[j].uuid === target.messageUuid) {
+        messageIdx = j
+        if (curMessage.kind === 'tool_use') {
+          messageToolUseId = curMessage.toolUseId
         }
       }
+      // 需要包含所有子消息
+      if (curMessage.parentToolUseId === messageToolUseId) {
+        messageIdx = j
+      }
     }
-    return undefined
+
+    if (messageIdx < 0) return undefined
+    return {
+      runIdx,
+      sessionId: run.sessionId,
+      messageIdx,
+      upToMessageId: target.messageUuid,
+    }
   }
 
   /**
@@ -254,9 +267,8 @@ export function activate(context: vscode.ExtensionContext) {
     const slicedMessages = targetRun.messages
       .slice(0, messageIdx + 1)
       .map((m) => structuredClone(m))
-
     // 用双 transcript（源 session + 新 session）建 srcUuid→newUuid 映射，
-    // 据此替换切片中所有带 uuid 的 SDK 消息 uuid。
+    // 据此替换切片中所有带 uuid 的 ChatMessage（累加态模型 uuid 在项顶层）。
     // forkSession 的新 session transcript 是源 session 的保序前缀切片，按位置严格对应，
     // 这是唯一可靠的对齐方式（webview echo 无 uuid，顺序对齐会错位导致贴错 uuid）。
     try {
@@ -272,14 +284,12 @@ export function activate(context: vscode.ExtensionContext) {
         if (srcUuid && newUuid) uuidMap.set(srcUuid, newUuid)
       }
       for (const m of slicedMessages) {
-        if (m.type !== 'flow.signal.aiMessage') continue
-        const sdkMsg = m.data.message as { uuid?: string }
-        if (!sdkMsg.uuid) continue
-        const remapped = uuidMap.get(sdkMsg.uuid)
+        if (!m.uuid) continue
+        const remapped = uuidMap.get(m.uuid)
         if (remapped) {
-          sdkMsg.uuid = remapped
+          m.uuid = remapped
         } else {
-          logError('[fork] uuid not in srcTranscript mapping, keeping original', sdkMsg.uuid)
+          logError('[fork] uuid not in srcTranscript mapping, keeping original', m.uuid)
         }
       }
     } catch (err) {
@@ -287,21 +297,35 @@ export function activate(context: vscode.ExtensionContext) {
       logError('[fork] getSessionMessages failed, message uuid not remapped', err)
     }
 
-    newRuns.push({
-      ...structuredClone(targetRun),
+    // 累加态 acc 重建:activeBlocks 清空(流式区已截断);toolUseIndex 从 sliced tool_use 项重建;
+    // seq 取 sliced 长度(id 单调不复用);prevModelUsage/lastTotalCost/mainModel/lastTurnContextUsage
+    // 保留 clone 值(fork 是 resume 同 session,token 累计延续)。
+    const baseRun = structuredClone(targetRun)
+    const toolUseIndex: Record<string, number> = {}
+    slicedMessages.forEach((m, i) => {
+      if (m.kind === 'tool_use') toolUseIndex[m.toolUseId] = i
+    })
+    const newRun: AgentRun = {
+      ...baseRun,
       runId: newRunId,
       sessionId: newSessionId,
       messages: slicedMessages,
       completed: false,
       outputName: undefined,
-    })
-
-    // fork 切片末尾追加 agentInterrupted signal —— 让 getRunPhase 推断为
-    // 'interrupted'(ChatInput 处于 ready 状态可发消息)。
-    slicedMessages.push({
-      type: 'flow.signal.agentInterrupted',
-      data: { flowId: sourceFlowId, runId: newRunId },
-    })
+      // structuredClone 会带过旧 error → getRunPhase 返 error 而非 interrupted,显式清除
+      error: undefined,
+      // fork 后置 interrupted 让 getRunPhase 推断为 'interrupted'(ChatInput ready 可发消息)
+      interrupted: true,
+      acc: {
+        ...baseRun.acc,
+        activeBlocks: {},
+        toolUseIndex,
+        seq: slicedMessages.length,
+      },
+    }
+    // 切片末端未定稿的 streaming/pending 项标记为 interrupted(替代原追加 agentInterrupted 信号)
+    markInterrupted(newRun)
+    newRuns.push(newRun)
 
     const newRunState: FlowRunState = {
       killed: false,

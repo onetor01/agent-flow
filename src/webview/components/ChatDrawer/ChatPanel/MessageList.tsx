@@ -1,6 +1,5 @@
 import {
   memo,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -11,23 +10,27 @@ import {
 } from 'react'
 import { App, Button, Divider } from 'antd'
 import { Bubble } from '@ant-design/x'
-import type { BubbleItemType } from '@ant-design/x/es/bubble/interface'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemoizedFn } from 'ahooks'
 import { match } from 'ts-pattern'
-import type { PendingToolPermission } from '@/common'
+import type { ChatMessage } from '@/common'
 import { getAnsweredToolPermissions, getPendingToolPermissionsFor } from '@/common'
 import type { AgentRun } from '@/webview/store/flow'
 import { useFlowStore } from '@/webview/store/flow'
 import { postMessageToExtension } from '@/webview/utils'
-import { toBubbleItems, type BubbleCtx } from './MessageBubble'
+import {
+  type BubbleCtx,
+  type RenderedBubble,
+  indentBubble,
+  chatMessageToBubble,
+} from './MessageBubble'
 
-type Item = BubbleItemType
-
-// 模块级常量 —— useMemo / selector 在「无内容」时返回稳定空引用,
-// 避免 useSyncExternalStore 因为新 [] / new Set() 误判快照变化触发死循环重渲染。
-const EMPTY_RUNS: AgentRun[] = []
-const EMPTY_PENDING_TOOL_PERMS: PendingToolPermission[] = []
+// ── 特殊消息 ────────────────────────────────────────────────────────────────
+type LoadingMessage = { kind: 'loading'; id: string }
+type DividerMessage = { kind: 'divider'; runId: string; runIndex: number; id: string }
+type ShowMoreMessage = { kind: 'show-more'; runId: string; hiddenCount: number; id: string }
+type RenderMessage = ChatMessage | LoadingMessage | DividerMessage | ShowMoreMessage
+type RenderItem = { runId?: string; message: RenderMessage }
 
 /**
  * 暴露给 ChatPanel 的命令式 API。
@@ -47,7 +50,6 @@ type Props = {
   loading?: boolean
   ref?: Ref<MessageListRef>
 }
-
 const roleStyles = {
   user: {
     placement: 'end' as const,
@@ -62,115 +64,96 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   // ── 数据订阅 —— 全部用稳定原始引用,过滤 / 转换在 useMemo 中完成 ──────────────
   const fs = useFlowStore((s) => s.flowRunStates[flowId])
   const allRuns = fs?.runs
-  const answeredToolPermissions = useMemo(() => getAnsweredToolPermissions(fs), [fs])
 
-  // 注入快照小节标题按 node_type 区分:code 节点展示全量 shareValues(「共享数据」),
-  // agent 节点展示按 allowed_read 过滤的注入值(「注入数据」)。MessageList 按 agentId 聚合,
-  // 故整列 node_type 一致。
-  const flows = useFlowStore((s) => s.flows)
-  const injectedTitle = useMemo(() => {
-    const agent = flows.find((f) => f.id === flowId)?.agents?.find((a) => a.id === agentId)
-    return agent?.node_type === 'code' ? '共享数据' : '注入数据'
-  }, [flows, flowId, agentId])
-
+  // 允许展示一个agent的所有runs或指定runs
   const runs = useMemo<AgentRun[]>(() => {
-    if (!allRuns) return EMPTY_RUNS
+    if (!allRuns) return []
     if (runId) {
       const r = allRuns.find((r) => r.runId === runId)
-      return r ? [r] : EMPTY_RUNS
+      return r ? [r] : []
     }
     return allRuns.filter((r) => r.agentId === agentId)
   }, [allRuns, agentId, runId])
 
-  // 四类挂起统一订阅 pendingToolPermissions(AskUserQuestion / CompleteTask / ExitPlanMode / must_confirm)
-  const pendingToolPerms = useMemo(() => {
-    if (!fs) return EMPTY_PENDING_TOOL_PERMS
-    if (runId) {
-      const list = fs.pendingToolPermissions
-      const filtered = list.filter((p) => p.runId === runId)
-      if (filtered.length === list.length) return list
-      if (filtered.length === 0) return EMPTY_PENDING_TOOL_PERMS
-      return filtered
-    }
-    return getPendingToolPermissionsFor(fs, agentId)
-  }, [fs, runId, agentId])
-
-  const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
-  const forkFlow = useFlowStore((s) => s.forkFlow)
   const { modal } = App.useApp()
 
-  // ── ctx 构建 —— 历史 AskUserQuestion 卡片 / fork icon / tool 权限卡片用 ──
-
-  const pendingToolPermissionToolUseIds = useMemo(() => {
-    if (pendingToolPerms.length === 0) return undefined
-    return new Set(pendingToolPerms.map((p) => p.toolUseId))
-  }, [pendingToolPerms])
-
-  const onToolPermissionAllow = useCallback(
-    (toolUseId: string) => {
-      const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
-      if (!p) return
-      answerToolPermission(flowId, p.runId, toolUseId, true)
-    },
-    [answerToolPermission, flowId, pendingToolPerms],
-  )
-  // deny:message 供 CompleteTask 拒绝原因(回喂模型);其余工具不传 → executor 用 'user denied'
-  const onToolPermissionDeny = useCallback(
-    (toolUseId: string, message?: string) => {
-      const p = pendingToolPerms.find((p) => p.toolUseId === toolUseId)
-      if (!p) return
-      answerToolPermission(flowId, p.runId, toolUseId, false, message ? { message } : undefined)
-    },
-    [answerToolPermission, flowId, pendingToolPerms],
-  )
-
-  const onViewPlan = useCallback((planFilePath: string) => {
-    postMessageToExtension({
-      type: 'openFile',
-      data: { filename: planFilePath, placement: 'active' },
-    })
-  }, [])
-
-  /**
-   * fork 触发入口：sessionCompleted=true（历史 session）时弹 modal 提示
-   * 「shareValues 一致性不保证」并由用户确认后再发 command；当前 session 直接发。
-   */
-  const onForkRequest = useCallback(
-    (target: { runId: string; messageUuid: string }, sessionCompleted: boolean) => {
-      const doFork = () => forkFlow(flowId, target)
-      if (!sessionCompleted) {
-        doFork()
-        return
+  // ctx 构建
+  const ctx = useMemo<BubbleCtx>(() => {
+    const answeredToolPermissions = getAnsweredToolPermissions(fs)
+    // 四类挂起统一订阅 pendingToolPermissions(AskUserQuestion / CompleteTask / ExitPlanMode / must_confirm)
+    const pendingToolPerms = (() => {
+      if (!fs) return []
+      if (runId) {
+        const list = fs.pendingToolPermissions
+        const filtered = list.filter((p) => p.runId === runId)
+        if (filtered.length === list.length) return list
+        if (filtered.length === 0) return []
+        return filtered
       }
-      modal.confirm({
-        title: '从历史会话 fork',
-        content: '该会话已完成，shareValues 在 fork 后可能与原值不一致。是否继续？',
-        okText: 'fork',
-        cancelText: '取消',
-        onOk: doFork,
-      })
-    },
-    [forkFlow, flowId, modal],
-  )
-
-  const ctx = useMemo<BubbleCtx>(
-    () => ({
+      return getPendingToolPermissionsFor(fs, agentId)
+    })()
+    const pendingToolPermissionToolUseIds = (() => {
+      if (pendingToolPerms.length === 0) return undefined
+      return new Set(pendingToolPerms.map((p) => p.toolUseId))
+    })()
+    return {
       pendingToolPermissionToolUseIds,
       answeredToolPermissions,
-      onToolPermissionAllow,
-      onToolPermissionDeny,
-      onViewPlan,
-      onFork: onForkRequest,
-    }),
-    [
-      pendingToolPermissionToolUseIds,
-      answeredToolPermissions,
-      onToolPermissionAllow,
-      onToolPermissionDeny,
-      onViewPlan,
-      onForkRequest,
-    ],
-  )
+      onToolPermissionAllow: (toolUseId) => {
+        const state = useFlowStore.getState()
+        const fs = state.flowRunStates[flowId]
+        if (!fs) return
+        const list = runId
+          ? fs.pendingToolPermissions.filter((p) => p.runId === runId)
+          : getPendingToolPermissionsFor(fs, agentId)
+        const p = list.find((p) => p.toolUseId === toolUseId)
+        if (!p) return
+        state.answerToolPermission(flowId, p.runId, toolUseId, true)
+      },
+      // deny:message 供 CompleteTask 拒绝原因(回喂模型);其余工具不传 → executor 用 'user denied'
+      onToolPermissionDeny: (toolUseId, message) => {
+        const state = useFlowStore.getState()
+        const fs = state.flowRunStates[flowId]
+        if (!fs) return
+        const list = runId
+          ? fs.pendingToolPermissions.filter((p) => p.runId === runId)
+          : getPendingToolPermissionsFor(fs, agentId)
+        const p = list.find((p) => p.toolUseId === toolUseId)
+        if (!p) return
+        state.answerToolPermission(
+          flowId,
+          p.runId,
+          toolUseId,
+          false,
+          message ? { message } : undefined,
+        )
+      },
+      onViewPlan: (planFilePath) => {
+        postMessageToExtension({
+          type: 'openFile',
+          data: { filename: planFilePath, placement: 'active' },
+        })
+      },
+      /**
+       * fork 触发入口：sessionCompleted=true（历史 session）时弹 modal 提示
+       * 「shareValues 一致性不保证」并由用户确认后再发 command；当前 session 直接发。
+       */
+      onFork: (target, sessionCompleted) => {
+        const doFork = () => useFlowStore.getState().forkFlow(flowId, target)
+        if (!sessionCompleted) {
+          doFork()
+          return
+        }
+        modal.confirm({
+          title: '从历史会话 fork',
+          content: '该会话已完成，shareValues 在 fork 后可能与原值不一致。是否继续？',
+          okText: 'fork',
+          cancelText: '取消',
+          onOk: doFork,
+        })
+      },
+    }
+  }, [fs, runId, agentId, flowId, modal])
 
   // ── 折叠状态 ────────────────────────────────────────────────────────────────
   // 同时只展开一个 run；expandedRunId 为空时自动跟随末位（新 run 追加时自动展开最新）
@@ -178,133 +161,97 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   const lastRunId = runs.at(-1)?.runId
   const effectiveExpanded = expandedRunId ?? lastRunId
 
-  // ── 渲染项 ─────────────────────────────────────────────────────────────────
-  const items = useMemo<Item[]>(() => {
-    const result: Item[] = []
+  // ── 列表项构建 ────────────
+  const renderItems = useMemo<RenderItem[]>(() => {
+    if (runs.length === 0) return []
+
+    const items: RenderItem[] = []
+
     runs.forEach((run, idx) => {
+      const { messages, runId } = run
+      const isExpanded = runId === effectiveExpanded
       if (idx > 0) {
-        result.push({
-          key: `divider-${run.runId}`,
-          role: 'divider',
-          content: (
-            <Divider className='my-1 text-[10px]! text-[#6c7086]!'>第 {idx + 1} 次执行</Divider>
-          ),
+        items.push({
+          runId,
+          message: { kind: 'divider', runId: run.runId, runIndex: idx, id: 'divider' },
         })
       }
-      // buildRenderItems 内部按 cacheKey 缓存(用 runId 作 key,与 store 端 clearBuildCacheForRuns 对齐)
-      // 折叠 run 传 'light':取首尾两条消息(用户初始 + agentComplete),不写缓存
-      const isExpanded = run.runId === effectiveExpanded
-      const bubbles = toBubbleItems(
-        run.runId,
-        run.messages,
-        ctx,
-        run.completed,
-        run.injectedShareValues,
-        isExpanded ? 'full' : 'light',
-        injectedTitle,
-      )
-      if (isExpanded) {
-        bubbles.forEach((item) => {
-          result.push({
-            key: `${run.runId}-${item.key}`,
-            role: item.role,
-            content: item.content,
-          })
-        })
-      } else {
-        // 收起态：首条 user + 「显示消息」按钮 + agent_complete（若存在）
-        const firstUserIdx = bubbles.findIndex((b) => b.role === 'user')
-        const completeItem = bubbles.find((b) => b.key.endsWith('-complete'))
-        // light 模式只返回 user + agentComplete 两条，用原始消息数推算中间信号数
-        const hiddenCount =
-          run.messages.length - (firstUserIdx >= 0 ? 1 : 0) - (completeItem ? 1 : 0)
-        if (firstUserIdx >= 0) {
-          const firstUser = bubbles[firstUserIdx]
-          result.push({
-            key: `${run.runId}-${firstUser.key}`,
-            role: firstUser.role,
-            content: firstUser.content,
-          })
+
+      if (!isExpanded) {
+        // 折叠态：首条 user + showMore + agent_complete
+        const firstUser = messages.find((m) => m.kind === 'user' && !m.parentToolUseId)
+        const complete = messages.find((m) => m.kind === 'agent_complete')
+        // hidden = 原始消息数 - firstUser 数 - complete 数
+        const hiddenCount = run.messages.length - (firstUser ? 1 : 0) - (complete ? 1 : 0)
+
+        if (firstUser) {
+          items.push({ runId, message: firstUser })
         }
         if (hiddenCount > 0) {
-          result.push({
-            key: `${run.runId}-show-more`,
-            role: 'system',
-            content: (
-              <div className='flex justify-center'>
-                <Button
-                  size='small'
-                  type='text'
-                  className='text-[11px]! text-[#6c7086]!'
-                  onClick={() => setExpandedRunId(run.runId)}
-                >
-                  显示折叠消息
-                </Button>
-              </div>
-            ),
+          items.push({
+            runId,
+            message: {
+              kind: 'show-more',
+              runId: run.runId,
+              hiddenCount,
+              id: `show-more`,
+            },
           })
         }
-        if (completeItem) {
-          result.push({
-            key: `${run.runId}-${completeItem.key}`,
-            role: completeItem.role,
-            content: completeItem.content,
-          })
+        if (complete) {
+          items.push({ runId, message: complete })
         }
+        return
       }
+
+      // 展开态直接插入message
+      items.push(...messages.map((m) => ({ runId, message: m })))
     })
-    return result
-  }, [runs, ctx, effectiveExpanded, injectedTitle])
+    const lastRunCompleted = runs.at(-1)?.completed
+    if (loading && !lastRunCompleted) {
+      items.push({ message: { kind: 'loading', id: `__loading__` } })
+    }
+    return items
+  }, [runs, loading, effectiveExpanded])
 
-  const lastRunCompleted = runs.at(-1)?.completed
-  const finalItems = useMemo<Item[]>(() => {
-    if (!loading || lastRunCompleted) return items
-    return [
-      ...items,
-      {
-        key: '__loading__',
-        role: 'ai',
-        content: null,
-        loading: true,
-      },
-    ]
-  }, [items, loading, lastRunCompleted])
-
-  // 诊断:气泡重叠根因排查 —— 检测喂给 virtualizer 的重复 key。
-  // 重复 key 会让 react-virtual 复用同一 measurement、React 复用同一 DOM,导致气泡重叠且持久不消失。
-  // 正常会话不触发;命中时把冲突的两个完整 item 打印出来,据此定位产源(是 streaming-* 占位还是别的)。
+  // 诊断:气泡重叠根因排查
   useEffect(() => {
-    const seen = new Map<string, Item>()
-    for (const item of finalItems) {
-      const key = String(item.key)
-      const existing = seen.get(key)
-      if (existing) {
+    const seen = new Map<string, number>()
+    for (let i = 0; i < renderItems.length; i++) {
+      const curItem = renderItems[i]
+      const { message, runId } = curItem
+      const id = `${runId}-${message.id}`
+      if (seen.has(id)) {
         console.warn('[MessageList] 重复 RenderItem key', {
-          key,
+          id,
           flowId,
           agentId,
-          runId,
-          existing,
-          duplicate: item,
+          existingItem: renderItems[seen.get(id)!],
+          duplicateItem: curItem,
         })
       } else {
-        seen.set(key, item)
+        seen.set(id, i)
       }
     }
-  }, [finalItems, flowId, agentId, runId])
+  }, [flowId, agentId, runId, renderItems])
 
   const scrollerElRef = useRef<HTMLDivElement | null>(null)
   // 是否粘底:用户向上滚则置 false,滚回底部 32px 内置 true
   const shouldScrollRef = useRef(true)
 
   const virtualizer = useVirtualizer({
-    count: finalItems.length,
+    count: renderItems.length,
     getScrollElement: () => scrollerElRef.current,
     // estimateSize 尽量贴近真实平均高度。常规一行气泡 ~50px、tooluse ~30px,
     estimateSize: () => 50,
     // 视口上下预渲染窗口
     overscan: 30,
-    getItemKey: (idx) => String(finalItems[idx].key),
+    // key包含runId 确保不重复
+    getItemKey: (idx) => {
+      const { runId, message } = renderItems[idx]
+      const key = `${runId}-${message.id}`
+      return key
+    },
   })
 
   const virtualItems = virtualizer.getVirtualItems()
@@ -324,7 +271,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     if (!shouldScrollRef.current) return
     scrollToEnd()
     // 有AI消息/首次进入/渲染变化时滚动
-  }, [finalItems, totalSize, scrollToEnd])
+  }, [renderItems, totalSize, scrollToEnd])
 
   useImperativeHandle(
     ref,
@@ -351,7 +298,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     >
       <div className='relative w-full max-w-full overflow-hidden' style={{ height: totalSize }}>
         {virtualItems.map((vi) => {
-          const item = finalItems[vi.index]
+          const item = renderItems[vi.index]
           return (
             <div
               key={vi.key}
@@ -360,7 +307,14 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
               className='absolute top-0 left-0 w-full px-3 [&:has(.from-sub-agent)]:ml-4'
               style={{ transform: `translateY(${vi.start}px)` }}
             >
-              {renderItem(item)}
+              <Message
+                flowId={flowId}
+                agentId={agentId}
+                runId={item.runId}
+                message={item.message}
+                ctx={ctx}
+                setExpandedRunId={setExpandedRunId}
+              />
             </div>
           )
         })}
@@ -373,14 +327,82 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
 // 几个稳定字段;store 变化由组件内部的 selector 自行订阅,不再因父级重渲染连带刷新。
 export const MessageList = memo(MessageListInner)
 
-function renderItem(item: Item) {
-  // key 必须从 spread 中剥离 —— React 19 禁止把 key 通过 props 对象间接传入 JSX
-  const { key, ...rest } = item
-  return match(item.role)
-    .with('divider', () => <Bubble.Divider key={key} {...rest} />)
-    .with('system', () => <Bubble.System key={key} {...rest} />)
-    .otherwise((role) => {
-      const cfg = roleStyles[role as keyof typeof roleStyles] ?? {}
-      return <Bubble key={key} {...cfg} {...rest} />
-    })
-}
+// ── MessageItem —— 单条列表项渲染，memo 确保 item/ctx 未变时跳过重渲染 ───────────
+const Message = memo(function ({
+  message,
+  ctx,
+  flowId,
+  runId,
+  agentId,
+  setExpandedRunId,
+}: {
+  message: RenderMessage
+  ctx: BubbleCtx
+  flowId: string
+  runId?: string
+  agentId: string
+  setExpandedRunId: (runId: string) => void
+}) {
+  const injectedTitle = useFlowStore((s) => {
+    const f = s.flows.find((f) => f.id === flowId)
+    const a = f?.agents?.find((a) => a.id === agentId)
+    return a?.node_type === 'code' ? '共享数据' : '注入数据'
+  })
+  const completed = useFlowStore((s) => {
+    const fs = s.flowRunStates[flowId]
+    return fs.runs.find((r) => r.runId === runId)?.completed ?? false
+  })
+  if (message.kind === 'divider') {
+    return (
+      <Divider className='my-1 text-[10px]! text-[#6c7086]!'>
+        第 {message.runIndex + 1} 次执行
+      </Divider>
+    )
+  }
+  if (message.kind === 'show-more') {
+    return (
+      <div className='flex justify-center'>
+        <Button
+          size='small'
+          type='text'
+          className='text-[11px]! text-[#6c7086]!'
+          onClick={() => setExpandedRunId(message.runId)}
+        >
+          显示折叠消息({message.hiddenCount})
+        </Button>
+      </div>
+    )
+  }
+  if (message.kind === 'loading') {
+    return <Bubble placement='start' variant='filled' content={null} loading />
+  }
+  if (!runId) return null
+
+  // ChatMessage
+  const raw = chatMessageToBubble(
+    message,
+    ctx,
+    completed,
+    runId,
+    message.uuid,
+    message.kind === 'user' ? message.injectedShareValues : undefined,
+    injectedTitle,
+  )
+  if (!raw) return null
+  const bubbles: RenderedBubble[] = Array.isArray(raw) ? raw : [raw]
+  const applied = message.parentToolUseId ? bubbles.map(indentBubble) : bubbles
+  return (
+    <>
+      {applied.map((b) => {
+        const { key, ...rest } = b
+        return match(b.role)
+          .with('divider', () => <Bubble.Divider key={key} {...rest} />)
+          .with('system', () => <Bubble.System key={key} {...rest} />)
+          .otherwise((role) => {
+            const cfg = roleStyles[role as keyof typeof roleStyles] ?? {}
+            return <Bubble key={key} {...cfg} {...rest} />
+          })
+      })}
+    </>
+  )
+})

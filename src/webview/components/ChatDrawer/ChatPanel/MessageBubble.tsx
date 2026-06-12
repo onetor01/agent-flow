@@ -1,8 +1,9 @@
-import { memo, useState, type FC, type ReactNode } from 'react'
+import { useState, type FC, type ReactNode } from 'react'
 import { Button, Input, Radio, Tag, Tooltip } from 'antd'
 import { BranchesOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import { Bubble, Think } from '@ant-design/x'
-import type { AskUserQuestionInput, ExtensionToWebviewMessage, ModelTokenUsage } from '@/common'
+import { Think } from '@ant-design/x'
+import { match, P } from 'ts-pattern'
+import type { AskUserQuestionInput, ChatMessage, ModelTokenUsage, ToolResult } from '@/common'
 import { formatTokenCount, formatTokenCost } from '@/common'
 import { CodeRefChip } from '@/webview/components/CodeRefChip'
 import { FileRefChip } from '@/webview/components/FileRefChip'
@@ -10,18 +11,6 @@ import { CopyButton, Md } from '../../text-components'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { ToolPermissionCard } from './ToolPermissionCard'
 import { ToolUseDetails } from './ToolUseDetails'
-import {
-  buildRenderItems,
-  clearBuildCache,
-  clearBuildCacheForRuns,
-  getContextUsage,
-  type RenderItem,
-  type ToolResult,
-} from './buildRenderItems'
-
-type Props = {
-  msg: ExtensionToWebviewMessage
-}
 
 export type BubbleCtx = {
   /**
@@ -50,7 +39,7 @@ export type BubbleCtx = {
   onFork?: (target: { runId: string; messageUuid: string }, sessionCompleted: boolean) => void
 }
 
-type RenderedBubble = {
+export type RenderedBubble = {
   key: string
   role: 'user' | 'ai' | 'system' | 'divider'
   content: ReactNode
@@ -216,7 +205,7 @@ function renderUserContent(rawContent: unknown): { copyText: string; node: React
 }
 
 // ── 渲染层 ───────────────────────────────────────────────────────────────
-// 纯把 RenderItem 转 React 节点，不再涉及消息流的语义合并。
+// 纯把 ChatMessage 转 React 节点，不再涉及消息流的语义合并。
 
 /** 单条按模型 token 用量行：模型名 + in/out/cache write/cache read + cost */
 function ModelUsageRow({ model, usage }: { model: string; usage: ModelTokenUsage }) {
@@ -499,37 +488,35 @@ const InjectedShareValuesSection: FC<{ values: Record<string, string | null>; ti
   )
 }
 
-function renderItemToBubble(
-  item: RenderItem,
-  ctx?: BubbleCtx,
-  sessionCompleted = false,
-  itemContextUsage?: { used: number; total: number },
-  runId?: string,
+export function chatMessageToBubble(
+  message: ChatMessage,
+  ctx: BubbleCtx | undefined,
+  sessionCompleted: boolean,
+  runId: string | undefined,
+  forkUuid: string | undefined,
   injectedShareValues?: Record<string, string | null>,
   injectedTitle = '注入数据',
 ): RenderedBubble | RenderedBubble[] | null {
-  /**
-   * 构造 fork icon —— 仅当 ctx.onFork 存在时返回按钮元素。
-   */
-  const buildForkIcon = (target: { runId: string; messageUuid: string }): ReactNode | undefined => {
-    if (!ctx?.onFork) return undefined
-    return <ForkButton onFork={() => ctx.onFork!(target, sessionCompleted)} />
+  const fromSubAgent = !!message.parentToolUseId
+  /** 构造 fork icon —— 仅当 ctx.onFork 与 forkUuid 都存在时返回按钮元素。 */
+  const buildForkIcon = (): ReactNode | null => {
+    if (!ctx?.onFork || !runId || !forkUuid) return undefined
+    if (fromSubAgent) return null
+    const forkBtn = (
+      <ForkButton onFork={() => ctx.onFork!({ runId, messageUuid: forkUuid }, sessionCompleted)} />
+    )
+    return match(message)
+      .with({ kind: P.union('thinking', 'text'), status: 'done' }, () => forkBtn)
+      .with({ kind: 'tool_use', status: 'done' }, () => forkBtn)
+      .otherwise(() => null)
   }
-  switch (item.kind) {
+  switch (message.kind) {
     case 'user': {
-      const { copyText, node } = renderUserContent(item.rawContent)
-      // user fork 语义 = 「让用户重新说一次」= 切到上一条 SDK 消息为止。
-      // 只要 messageUuid（findPrevUuid 找到的上一条 SDK 消息 uuid）存在就合法,
-      // 不依赖 turn 是否闭环（thinking/text fork 后切片末端 user / agent running 中
-      // 的当前 user 都属于 turn 未闭环但 fork 合法的场景）。
-      const fork =
-        runId && item.messageUuid && !item.fromSubAgent
-          ? buildForkIcon({ runId, messageUuid: item.messageUuid })
-          : undefined
+      const { copyText, node } = renderUserContent(message.rawContent)
       // 注入快照仅附加在 run 首条 user 气泡内；空对象时不展示
       const hasInjected = injectedShareValues && Object.keys(injectedShareValues).length > 0
       return {
-        key: item.key,
+        key: message.id,
         role: 'user',
         content: (
           <div className='flex'>
@@ -539,91 +526,61 @@ function renderItemToBubble(
                 <InjectedShareValuesSection values={injectedShareValues} title={injectedTitle} />
               )}
             </div>
-            <div className='ml-1 flex flex-col items-center gap-1'>
-              {fork}
-              <CopyButton text={copyText} />
-            </div>
+            <CopyButton className='ml-1' text={copyText} />
           </div>
         ),
       }
     }
     case 'text': {
-      const md = <Md content={item.text} className='flex-1 overflow-hidden' />
-      if (item.streaming) {
-        return { key: item.key, role: 'ai', content: md }
+      const md = <Md content={message.text} className='flex-1 overflow-hidden' />
+      if (message.status === 'streaming') {
+        return { key: message.id, role: 'ai', content: md }
       }
-      const fork =
-        runId && item.messageUuid && !item.fromSubAgent
-          ? buildForkIcon({ runId, messageUuid: item.messageUuid })
-          : undefined
+      const fork = buildForkIcon()
       return {
-        key: item.key,
+        key: message.id,
         role: 'ai',
         content: (
           <div className='flex'>
             {md}
             <div className='ml-1 flex flex-col items-center gap-1'>
               {fork}
-              <CopyButton text={item.text} />
+              <CopyButton text={message.text} />
             </div>
           </div>
         ),
       }
     }
     case 'thinking': {
-      if (item.streaming) {
+      if (message.status === 'streaming' || message.status === 'interrupted') {
         return {
-          key: item.key,
+          key: message.id,
           role: 'ai',
           content: (
-            <Think title='思考中' key={item.key + 'streaming'} defaultExpanded>
-              <Md content={item.text} />
+            <Think title='思考中' key={message.id + 'streaming'} defaultExpanded>
+              <Md content={message.text} />
             </Think>
           ),
         }
       }
-      // 与 user 对齐:只要 messageUuid 存在即放行 fork。同 text 分支说明。
-      const fork =
-        runId && item.messageUuid && !item.fromSubAgent
-          ? buildForkIcon({ runId, messageUuid: item.messageUuid })
-          : undefined
+      const fork = buildForkIcon()
       return {
-        key: item.key,
+        key: message.id,
         role: 'ai',
-        content: <ThinkingContent text={item.text} itemKey={item.key} fork={fork} />,
+        content: <ThinkingContent text={message.text} itemKey={message.id} fork={fork} />,
       }
     }
     case 'tool_use': {
-      const isPending = ctx?.pendingToolPermissionToolUseIds?.has(item.toolUseId) ?? false
-      const answered = ctx?.answeredToolPermissions?.[item.toolUseId]
-
-      // tool_use 不能作 fork 终点,messageUuid 回退到所属 assistant 消息的 uuid(同 text/thinking)。
-      // 与其它分支一致:runId && messageUuid 都存在才渲染 fork icon。
-      const fork =
-        runId && item.messageUuid && !item.fromSubAgent
-          ? buildForkIcon({ runId, messageUuid: item.messageUuid })
-          : undefined
+      const isPending = ctx?.pendingToolPermissionToolUseIds?.has(message.toolUseId) ?? false
+      const answered = ctx?.answeredToolPermissions?.[message.toolUseId]
+      const fork = buildForkIcon()
 
       // AskUserQuestion：pending 时由底部固定卡片渲染(active)，历史态从 answeredToolPermissions 就地解析答案
-      if (item.toolName.includes('AskUserQuestion')) {
-        if (isPending) return null
-        // 无 ctx（单气泡调试场景）：降级为静态历史卡片
-        if (!ctx) {
-          return {
-            key: item.key,
-            role: 'system',
-            content: (
-              <AskUserQuestionCard
-                input={item.input as AskUserQuestionInput}
-                mode='historical'
-                fork={fork}
-              />
-            ),
-          }
-        }
+      if (message.toolName.includes('AskUserQuestion')) {
+        if (!answered || isPending) return null
         // 从 answeredToolPermissions.updatedInput 就地解析历史答案
         const answersObj = (
-          answered?.updatedInput as { answers?: Record<string, string> } | undefined
+          answered.updatedInput as { answers?: Record<string, string> } | undefined
         )?.answers
         const answeredValues: Record<string, string[]> | undefined = answersObj
           ? Object.fromEntries(
@@ -637,11 +594,11 @@ function renderItemToBubble(
             )
           : undefined
         return {
-          key: item.key,
+          key: message.id,
           role: 'system',
           content: (
             <AskUserQuestionCard
-              input={item.input as AskUserQuestionInput}
+              input={message.input as AskUserQuestionInput}
               mode='historical'
               answeredValues={answeredValues}
               fork={fork}
@@ -652,27 +609,27 @@ function renderItemToBubble(
 
       // CompleteTask：完成前确认。pending 时在工具详情下方挂确认卡片;历史只显示工具详情
       // (成功完成由 agent_complete 卡片体现,拒绝则带 isError result)。
-      if (item.toolName.includes('CompleteTask')) {
-        const completeInput = item.input as Record<string, any> | undefined
+      if (message.toolName.includes('CompleteTask')) {
+        const completeInput = message.input as Record<string, any> | undefined
         // CompleteTask 仅在被拒绝(带 isError result)时可作 fork 起点;成功完成 / pending 不挂 fork。
-        const completeFork = item.result?.isError ? fork : undefined
+        const completeFork = message.result?.isError ? fork : undefined
         const toolUseItem: RenderedBubble = {
-          key: item.key,
+          key: message.id,
           role: 'ai',
           content: (
             <ToolUseBubbleContent
-              toolName={item.toolName}
-              input={item.input}
-              result={item.result}
+              toolName={message.toolName}
+              input={message.input}
+              result={message.result}
               treatNoResultAsSuccess={sessionCompleted}
-              copyText={item.result?.text ?? ''}
+              copyText={message.result?.text ?? ''}
               fork={completeFork}
             />
           ),
         }
         if (isPending && ctx) {
           const confirmItem: RenderedBubble = {
-            key: item.key + '-confirm',
+            key: message.id + '-confirm',
             role: 'ai',
             content: (
               <CompleteTaskConfirmCard
@@ -685,8 +642,8 @@ function renderItemToBubble(
                     ? completeInput.values
                     : undefined
                 }
-                onAccept={() => ctx.onToolPermissionAllow?.(item.toolUseId)}
-                onDeny={(reason) => ctx.onToolPermissionDeny?.(item.toolUseId, reason)}
+                onAccept={() => ctx.onToolPermissionAllow?.(message.toolUseId)}
+                onDeny={(reason) => ctx.onToolPermissionDeny?.(message.toolUseId, reason)}
               />
             ),
           }
@@ -696,16 +653,16 @@ function renderItemToBubble(
       }
 
       // ExitPlanMode：pending 时移至底部卡片；历史态仍内联展示
-      if (item.toolName.includes('ExitPlanMode')) {
+      if (message.toolName.includes('ExitPlanMode')) {
         if (isPending) return null
-        const planFilePath = (item.input as { planFilePath?: string })?.planFilePath ?? ''
+        const planFilePath = (message.input as { planFilePath?: string })?.planFilePath ?? ''
         return {
-          key: item.key + '-exit-plan',
+          key: message.id + '-exit-plan',
           role: 'system' as const,
           content: (
             <ToolPermissionCard
               toolName='ExitPlanMode'
-              input={item.input}
+              input={message.input}
               mode='historical'
               answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
@@ -715,17 +672,15 @@ function renderItemToBubble(
         }
       }
 
-      // 通用工具权限(must_confirm 等)：pending 显示授权卡片;answered 显示历史授权卡片 + 工具详情;
-      // 未触发权限(普通工具)只显示工具详情。
       // 通用工具权限(must_confirm 等)：pending 时移至底部卡片；历史态内联展示授权结果 + 工具详情
       if (isPending) return null
       const permItem: RenderedBubble = {
-        key: item.key + '-perm',
+        key: message.id + '-perm',
         role: 'system',
         content: (
           <ToolPermissionCard
-            toolName={item.toolName}
-            input={item.input}
+            toolName={message.toolName}
+            input={message.input}
             mode='historical'
             answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
             fork={fork}
@@ -733,14 +688,14 @@ function renderItemToBubble(
         ),
       }
       const toolUseItem: RenderedBubble = {
-        key: item.key,
+        key: message.id,
         role: 'ai',
         content: (
           <ToolUseBubbleContent
-            toolName={item.toolName}
-            input={item.input}
-            result={item.result}
-            copyText={item.result?.text ?? ''}
+            toolName={message.toolName}
+            input={message.input}
+            result={message.result}
+            copyText={message.result?.text ?? ''}
             fork={fork}
           />
         ),
@@ -749,11 +704,8 @@ function renderItemToBubble(
       return toolUseItem
     }
     case 'turn_end': {
-      const modelUsages = item.modelUsages ?? []
-      const fork =
-        runId && item.messageUuid
-          ? buildForkIcon({ runId, messageUuid: item.messageUuid })
-          : undefined
+      const modelUsages = message.modelUsages ?? []
+      const itemContextUsage = message.contextUsage
       // turn_end 由 antd-x DividerBubble 包装（用 antd Divider 渲染 content）,
       // antd Divider 的 ::before/::after 横线会让 absolute 子元素被遮挡,group-hover
       // 在 divider 容器层级也会失效。所以 fork icon 必须 inline 渲染在 content 内。
@@ -767,39 +719,41 @@ function renderItemToBubble(
               <ContextUsageBar used={itemContextUsage.used} total={itemContextUsage.total} />
             )}
             <span className='text-[10px] text-[#6c7086]'>
-              <CheckCircleOutlined className={item.isError ? 'text-[#f38ba8]' : 'text-[#a6e3a1]'} />
-              <span className='ml-1'>{item.isError ? '执行出错' : '回合结束'}</span>
+              <CheckCircleOutlined
+                className={message.isError ? 'text-[#f38ba8]' : 'text-[#a6e3a1]'}
+              />
+              <span className='ml-1'>{message.isError ? '执行出错' : '回合结束'}</span>
             </span>
           </span>
-          {fork && <span className='shrink-0'>{fork}</span>}
         </div>
       )
       return {
-        key: item.key,
+        key: message.id,
         role: 'divider',
         content: inner,
       }
     }
     case 'agent_complete': {
       const completionText = [
-        item.outputName ? `完成 → ${item.outputName}` : '完成',
-        item.displayContent,
+        message.outputName ? `完成 → ${message.outputName}` : '完成',
+        message.displayContent,
       ]
         .filter(Boolean)
         .join('\n')
-      const breakdown = item.modelBreakdown ?? []
+      const breakdown = message.modelBreakdown ?? []
+      const itemContextUsage = message.contextUsage
       return {
-        key: item.key,
+        key: `${message.id}-complete`,
         role: 'ai',
         content: (
           <div className='flex'>
             <div>
               <CompleteTaskBody
-                outputName={item.outputName}
-                content={item.displayContent}
-                values={item.values}
+                outputName={message.outputName}
+                content={message.displayContent}
+                values={message.values}
               />
-              {(breakdown.length > 0 || item.totalCost !== undefined || itemContextUsage) && (
+              {(breakdown.length > 0 || message.totalCost !== undefined || itemContextUsage) && (
                 <div className='mt-2 border-t border-[#45475a] pt-2'>
                   <div className='mb-1 text-[10px] text-[#a6adc8]'>session 累计</div>
                   {breakdown.map((b) => (
@@ -813,9 +767,9 @@ function renderItemToBubble(
                       />
                     </div>
                   )}
-                  {item.totalCost !== undefined && item.totalCost > 0 && (
+                  {message.totalCost !== undefined && message.totalCost > 0 && (
                     <div className='mt-1 text-[10px] text-[#a6adc8]'>
-                      合计 {formatTokenCost(item.totalCost)}
+                      合计 {formatTokenCost(message.totalCost)}
                     </div>
                   )}
                 </div>
@@ -830,14 +784,14 @@ function renderItemToBubble(
     }
     case 'error': {
       return {
-        key: item.key,
+        key: message.id,
         role: 'ai',
         content: (
           <div className='flex min-w-20 flex-col gap-2'>
             <Tag color={'error'} className='self-start'>
               错误信息
             </Tag>
-            <div className='break-all whitespace-pre-wrap'>{item.message}</div>
+            <div className='break-all whitespace-pre-wrap'>{message.message}</div>
           </div>
         ),
       }
@@ -845,130 +799,7 @@ function renderItemToBubble(
   }
 }
 
-/**
- * 把 subAgent 的 text/thinking/tool_use 项归置到触发它的父「Agent tool_use」气泡之后
- * （并行多 subAgent 时各归各父），只重排顺序、不改 key。
- *
- * - 子项的 `parentToolUseId`（= SDK message.parent_tool_use_id）等于父 tool_use 的 `toolUseId`。
- * - 早退：无任何带 parentToolUseId 的项时返回原引用 + 空集，零开销（无 subAgent 的回归路径）。
- * - 孤儿（parentToolUseId 未命中任何 tool_use，父尚未到达等）：原序保留、不缩进、不丢。
- * - 返回 subItemKeys 供调用方对子项气泡加 ml-4 缩进。
- */
-function regroupSubAgentItems(items: RenderItem[]): {
-  ordered: RenderItem[]
-  subItemKeys: Set<string>
-} {
-  const hasSub = items.some(
-    (it) =>
-      (it.kind === 'text' || it.kind === 'thinking' || it.kind === 'tool_use') &&
-      !!it.parentToolUseId,
-  )
-  if (!hasSub) return { ordered: items, subItemKeys: new Set() }
-
-  // 趟1：按 parentToolUseId 分桶（保持原序），并收集所有 tool_use 的 toolUseId
-  const buckets = new Map<string, RenderItem[]>()
-  const validParents = new Set<string>()
-  for (const it of items) {
-    if (it.kind === 'tool_use') validParents.add(it.toolUseId)
-    if (
-      (it.kind === 'text' || it.kind === 'thinking' || it.kind === 'tool_use') &&
-      it.parentToolUseId
-    ) {
-      const arr = buckets.get(it.parentToolUseId)
-      if (arr) arr.push(it)
-      else buckets.set(it.parentToolUseId, [it])
-    }
-  }
-
-  // 趟2：线性输出。父尚未到达的子项（孤儿）原序保留；命中父则跳过、由父带出整桶
-  const ordered: RenderItem[] = []
-  const subItemKeys = new Set<string>()
-  for (const it of items) {
-    const parentId =
-      it.kind === 'text' || it.kind === 'thinking' || it.kind === 'tool_use'
-        ? it.parentToolUseId
-        : undefined
-    if (parentId && validParents.has(parentId)) continue // 由父带出
-    ordered.push(it)
-    if (it.kind === 'tool_use') {
-      const bucket = buckets.get(it.toolUseId)
-      if (bucket) {
-        for (const sub of bucket) {
-          ordered.push(sub)
-          subItemKeys.add(sub.key)
-        }
-      }
-    }
-  }
-  return { ordered, subItemKeys }
-}
-
 /** 给子项气泡内容包一层 ml-4 缩进，表达从属于父 Agent tool_use */
-function indentBubble(b: RenderedBubble): RenderedBubble {
+export function indentBubble(b: RenderedBubble): RenderedBubble {
   return { ...b, content: <div className='from-sub-agent'>{b.content}</div> }
 }
-
-export function toBubbleItems(
-  runId: string,
-  msgs: ExtensionToWebviewMessage[],
-  ctx?: BubbleCtx,
-  sessionCompleted = false,
-  injectedShareValues?: Record<string, string | null>,
-  mode?: import('./buildRenderItems').BuildMode,
-  injectedTitle?: string,
-): RenderedBubble[] {
-  const renderItems = buildRenderItems(runId, msgs, mode)
-  const { ordered, subItemKeys } = regroupSubAgentItems(renderItems)
-  const out: RenderedBubble[] = []
-  let firstUserPassed = false
-  for (const item of ordered) {
-    const cu = getContextUsage(runId, item.key)
-    // sessionId 在 MessageList 调用点传的是 run.runId(buildRenderItems 的 cache key 历史命名),
-    // 这里把它作为 runId 透传给 buildForkIcon 拼 fork target
-    // 注入快照仅透传给首个 user 项，其余项不传
-    const injected =
-      !firstUserPassed && item.kind === 'user' && injectedShareValues
-        ? injectedShareValues
-        : undefined
-    if (item.kind === 'user') firstUserPassed = true
-    const bubble = renderItemToBubble(
-      item,
-      ctx,
-      sessionCompleted,
-      cu,
-      runId,
-      injected,
-      injectedTitle,
-    )
-    if (!bubble) continue
-    const isSub = subItemKeys.has(item.key)
-    if (Array.isArray(bubble)) out.push(...(isSub ? bubble.map(indentBubble) : bubble))
-    else out.push(isSub ? indentBubble(bubble) : bubble)
-  }
-  return out
-}
-
-export { clearBuildCache, clearBuildCacheForRuns }
-
-/**
- * 保留单气泡渲染入口（可用于调试或非列表场景）。
- * 列表场景请直接使用 Bubble.List + toBubbleItems。
- */
-const MessageBubbleInner: FC<Props> = ({ msg }) => {
-  const items = toBubbleItems('__debug__', [msg])
-  if (items.length === 0) return null
-  return (
-    <div className='flex flex-col gap-1'>
-      {items.map((item) => (
-        <Bubble
-          key={item.key}
-          placement={item.role === 'user' ? 'end' : 'start'}
-          content={item.content}
-          variant={item.role === 'divider' ? 'borderless' : 'filled'}
-        />
-      ))}
-    </div>
-  )
-}
-
-export const MessageBubble = memo(MessageBubbleInner)
