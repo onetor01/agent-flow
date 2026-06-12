@@ -9,6 +9,7 @@ import {
   CodeSchema,
   FlowSchema,
   OutputSchema,
+  stripFlowRuntimeFields,
   validateFlow,
 } from '.'
 
@@ -205,7 +206,8 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
     },
     withErrorBoundary('ValidateFlow', async ({ flow }) => {
       const parsed = FlowSchema.parse(JSON.parse(flow))
-      const result = validateFlow(parsed)
+      const cleaned = stripFlowRuntimeFields(parsed)
+      const result = validateFlow(cleaned)
       const hasErrors = Object.keys(result).length > 0
       return {
         isError: hasErrors,
@@ -242,7 +244,7 @@ export function buildAgentMcpServer({ agent, onComplete, onTerminate }: AgentMcp
         model: z.literal('sonnet'),
         must_confirm_tools: z.tuple([z.literal('Bash(git merge)'), z.literal('Bash(git push)')]),
       }) satisfies z.ZodType<Agent>
-      const LiteFlow = FlowSchema.pick({ id: true, name: true, shareValuesKeys: true }).extend({
+      const LiteFlow = FlowSchema.pick({ id: true, name: true, shareValuesKeys: true, icon: true }).extend({
         agents: z
           .array(z.union([LiteAgent, CodeSchema]))
           .optional()

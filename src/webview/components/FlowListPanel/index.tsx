@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, type FC } from 'react'
 import { Button, Input } from 'antd'
-import { PlusOutlined, UnorderedListOutlined, SearchOutlined } from '@ant-design/icons'
+import {
+  PlusOutlined,
+  UnorderedListOutlined,
+  SearchOutlined,
+  FolderOutlined,
+} from '@ant-design/icons'
 import {
   DndContext,
   closestCenter,
@@ -35,6 +40,11 @@ export const FlowListPanel: FC = () => {
     ? flows.filter((f) => f.name.toLowerCase().includes(searchText.toLowerCase()))
     : flows
 
+  const projectFlows = filteredFlows.filter((f) => f.project)
+  const globalFlows = filteredFlows.filter((f) => !f.project)
+  const displayFlows = [...globalFlows, ...projectFlows]
+  const hasWorkspace = projectFlows.length > 0 || !searchText
+
   useEffect(() => {
     if (!flowListCollapsed && activeFlowId && listRef.current) {
       const el = listRef.current?.querySelector(`[data-flow-id="${activeFlowId}"]`)
@@ -60,10 +70,10 @@ export const FlowListPanel: FC = () => {
     })
   }
 
-  const onAdd = () => {
+  const onAdd = (project?: boolean) => {
     const id = crypto.randomUUID()
     save((flows) => {
-      flows.push({ id, name: '新建工作流', agents: [] })
+      flows.push({ id, name: '新建工作流', agents: [], ...(project ? { project: true } : {}) })
     })
     setActiveFlowId(id)
     if (flowListCollapsed) setFlowListCollapsed(false)
@@ -86,6 +96,18 @@ export const FlowListPanel: FC = () => {
       if (f) f.name = name
     })
   }
+
+  const renderFlowItem = (flow: (typeof flows)[number]) => (
+    <SortableFlowItem
+      key={flow.id}
+      flow={flow}
+      isActive={flow.id === activeFlowId}
+      phase={getFlowPhase(flowRunStates[flow.id])}
+      onClick={() => setActiveFlowId(flow.id)}
+      onDelete={() => onDelete(flow.id)}
+      onRename={(name) => onRename(flow.id, name)}
+    />
+  )
 
   return (
     <div
@@ -125,11 +147,22 @@ export const FlowListPanel: FC = () => {
             <div className='flex items-center justify-between border-b border-[#313244] px-3 py-2'>
               <span className='text-sm font-semibold text-[#cdd6f4]'>工作流列表</span>
               <span className='flex items-center gap-0.5'>
+                {hasWorkspace && (
+                  <Button
+                    type='text'
+                    size='small'
+                    icon={<FolderOutlined />}
+                    onClick={() => onAdd(true)}
+                    title='新建项目工作流'
+                    className='text-[#89b4fa]! hover:bg-[#313244]!'
+                  />
+                )}
                 <Button
                   type='text'
                   size='small'
                   icon={<PlusOutlined />}
-                  onClick={onAdd}
+                  onClick={() => onAdd()}
+                  title='新建全局工作流'
                   className='text-[#6366f1]! hover:bg-[#313244]!'
                 />
                 <Button
@@ -169,20 +202,17 @@ export const FlowListPanel: FC = () => {
                 onDragEnd={onDragEnd}
               >
                 <SortableContext
-                  items={filteredFlows.map((f) => f.id)}
+                  items={displayFlows.map((f) => f.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {filteredFlows.map((flow) => (
-                    <SortableFlowItem
-                      key={flow.id}
-                      flow={flow}
-                      isActive={flow.id === activeFlowId}
-                      phase={getFlowPhase(flowRunStates[flow.id])}
-                      onClick={() => setActiveFlowId(flow.id)}
-                      onDelete={() => onDelete(flow.id)}
-                      onRename={(name) => onRename(flow.id, name)}
-                    />
-                  ))}
+                  {globalFlows.map(renderFlowItem)}
+                  {projectFlows.length > 0 && (
+                    <div className='mt-1 flex items-center gap-1.5 border-t border-[#313244] px-2 pb-0.5 pt-1.5 text-[11px] text-[#585b70]'>
+                      <FolderOutlined />
+                      <span>项目flow</span>
+                    </div>
+                  )}
+                  {projectFlows.map(renderFlowItem)}
                 </SortableContext>
               </DndContext>
             </div>

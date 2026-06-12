@@ -117,7 +117,7 @@ const usePasteFlow = () => {
     if (singleFlow.success) {
       const newId = crypto.randomUUID()
       save((flows) => {
-        flows.push({ ...singleFlow.data, id: newId })
+        flows.push({ ...singleFlow.data, id: newId, project: true })
       })
       setActiveFlowId(newId)
       setFlowListCollapsed(false)
@@ -130,7 +130,7 @@ const usePasteFlow = () => {
       save((flows) => {
         for (const flow of flowArray.data) {
           lastId = crypto.randomUUID()
-          flows.push({ ...flow, id: lastId })
+          flows.push({ ...flow, id: lastId, project: true })
         }
       })
       if (lastId) {

@@ -1,9 +1,16 @@
 import { useState, type FC } from 'react'
 import { Typography } from 'antd'
-import { HolderOutlined, DeleteOutlined, BlockOutlined, DatabaseOutlined } from '@ant-design/icons'
+import {
+  HolderOutlined,
+  DeleteOutlined,
+  BlockOutlined,
+  DatabaseOutlined,
+  GlobalOutlined,
+} from '@ant-design/icons'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Flow, FlowPhase } from '@/common'
+import { stripFlowRuntimeFields } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 
@@ -71,7 +78,13 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
       style={style}
       className={cn(
         'group cursor-pointer rounded-md px-2 py-1.5 text-[13px] transition-colors',
-        isActive ? 'bg-[#313244] text-[#cdd6f4]' : 'text-[#a6adc8] hover:bg-[#1e1e2e]',
+        flow.project
+          ? isActive
+            ? 'bg-[#45475a] text-[#cdd6f4]'
+            : 'text-[#a6adc8] hover:bg-[#313244]'
+          : isActive
+            ? 'bg-[#313244] text-[#cdd6f4]'
+            : 'text-[#a6adc8] hover:bg-[#1e1e2e]',
       )}
       onClick={onClick}
     >
@@ -109,6 +122,7 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
             ellipsis
             className='w-full'
           >
+            {flow.icon && <span className='mr-1'>{flow.icon}</span>}
             {name}
           </Typography.Text>
         </div>
@@ -117,9 +131,21 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
           className='flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100'
           onClick={(e) => e.stopPropagation()}
         >
+          {flow.project && (
+            <GlobalOutlined
+              title='设为全局'
+              onClick={() => {
+                save((flows) => {
+                  const f = flows.find((x) => x.id === id)
+                  if (f) delete f.project
+                })
+              }}
+              className='text-[#a6adc8]! opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#89b4fa]!'
+            />
+          )}
           <DatabaseOutlined
             title='编辑工作流'
-            onClick={(e) => {
+            onClick={() => {
               setEditingFlowId(id)
             }}
             className={cn(
@@ -135,6 +161,7 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
               const newId = crypto.randomUUID()
               const cloned = structuredClone(flow)
               cloned.id = newId
+              cloned.project = true
               save((flows) => flows.push(cloned))
               setActiveFlowId(newId)
               setFlowListCollapsed(false)
@@ -142,7 +169,7 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
             className='text-[#a6adc8]! opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#89b4fa]!'
           />
           <Typography.Text
-            copyable={{ tooltips: false, text: () => JSON.stringify(flow, null, 2) }}
+            copyable={{ tooltips: false, text: () => JSON.stringify(stripFlowRuntimeFields(flow), null, 2) }}
           />
           <DeleteOutlined className='text-[#a6adc8]! hover:text-[#f38ba8]!' onClick={onDelete} />
         </span>

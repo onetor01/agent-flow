@@ -3,6 +3,7 @@ import type {
   SDKPartialAssistantMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
+import { z } from 'zod'
 import { produce } from 'immer'
 import { match, P } from 'ts-pattern'
 import type {
@@ -342,6 +343,11 @@ export type FlowRunState = {
   /** Flow 运行时的共享数据 */
   shareValues: Record<string, string>
 }
+
+/** FlowRunState 的 zod schema（z.custom 避免深层嵌套完整定义，仅做基本结构校验） */
+export const FlowRunStateSchema = z.custom<FlowRunState>(
+  (val) => typeof val === 'object' && val !== null && 'killed' in val && 'runs' in val,
+)
 
 // ── 消息的副作用 ────────────────────────────────────────────────────────
 
@@ -1191,3 +1197,32 @@ export const flowCanBeKilled = (p: FlowPhase) =>
     )
     .with(P.union('idle', 'completed', 'stopped', 'error'), () => false)
     .exhaustive()
+
+/**
+ * 恢复持久化 FlowRunState 时调用，把磁盘快照归一化为可继续对话的状态：
+ * - killed=false（会话可继续）
+ * - 未回答的挂起权限标记为拒绝（allow=false），清空 pendingToolPermissions
+ * - 对未完成的 run（completed=false）：清 error/outputName，置 interrupted=true，
+ *   清 acc.activeBlocks（流式占位已失效），调 markInterrupted 修复流式/挂起消息状态
+ * - 保留 shareValues、answeredToolPermissions、消息历史
+ */
+export function normalizeRestoredFlowRunState(state: FlowRunState): FlowRunState {
+  return produce(state, (draft) => {
+    draft.killed = false
+    for (const p of draft.pendingToolPermissions) {
+      if (!draft.answeredToolPermissions[p.toolUseId]) {
+        draft.answeredToolPermissions[p.toolUseId] = { allow: false }
+      }
+    }
+    draft.pendingToolPermissions = []
+    for (const run of draft.runs) {
+      if (!run.completed) {
+        run.error = undefined
+        run.outputName = undefined
+        run.interrupted = true
+        run.acc.activeBlocks = {}
+        markInterrupted(run)
+      }
+    }
+  })
+}

@@ -138,4 +138,18 @@ export class FlowRunnerManager {
     this.runners.set(flowId, runner)
     runner.spawnForFork({ runId, agentId, resumeSessionId })
   }
+
+  /** 崩溃恢复时为持久化 run 注册 lazy executor，语义同 spawnForFork */
+  spawnForRestore(params: {
+    flowId: string
+    runId: string
+    agentId: string
+    resumeSessionId: string
+  }): void {
+    const { flowId, agentId, resumeSessionId, runId } = params
+    this.disposeRunner(flowId)
+    const runner = this.createRunner(flowId)
+    this.runners.set(flowId, runner)
+    runner.spawnForFork({ runId, agentId, resumeSessionId })
+  }
 }

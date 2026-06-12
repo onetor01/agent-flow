@@ -1,6 +1,7 @@
 import { groupBy } from 'lodash-es'
 import { match, P } from 'ts-pattern'
 import { z } from 'zod'
+import { FlowRunStateSchema } from './flowRunState'
 
 export * from './event'
 export * from './flowRunState'
@@ -151,10 +152,21 @@ export const FlowSchema = z.object({
     .describe(
       'Anthropic API key 默认值；Agent 同名字段非空时覆盖，注入 SDK 的 ANTHROPIC_AUTH_TOKEN',
     ),
+  project: z
+    .boolean()
+    .optional()
+    .describe('项目级 flow 标记（仅内存/UI，不持久化到磁盘 flows 数组）'),
+  icon: z.string().optional().describe('Flow 图标（emoji 或 icon name）'),
 })
 
 /** @see {@link FlowSchema} */
 export type Flow = z.infer<typeof FlowSchema>
+
+/** 剥除运行时标记（project），保存前调用，确保磁盘 flows 数组不含内存专属字段 */
+export function stripFlowRuntimeFields(flow: Flow): Omit<Flow, 'project'> {
+  const { project: _, ...rest } = flow
+  return rest
+}
 
 /** AskUserQuestion 工具的 input 结构（SDK 内建工具，claude_code 预设提供） */
 export type AskUserQuestionOption = {
@@ -179,7 +191,11 @@ export type AskUserQuestionOutput = {
 }
 
 /** 持久化到本地的 flows */
-export const PersistedDataSchema = z.object({ flows: z.array(FlowSchema) })
+export const PersistedDataSchema = z.object({
+  flows: z.array(FlowSchema),
+  /** 全局文件使用：按 workspaceRoot 字符串 key 映射到该 workspace 的项目运行态 */
+  workspaceRunStates: z.record(z.string(), z.record(z.string(), FlowRunStateSchema)).optional(),
+})
 
 /** @see {@link PersistedDataSchema} */
 export type PersistedData = z.infer<typeof PersistedDataSchema>
