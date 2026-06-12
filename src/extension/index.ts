@@ -200,7 +200,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       // 需要包含所有子消息
-      if (curMessage.parentToolUseId === messageToolUseId) {
+      if (messageToolUseId && curMessage.parentToolUseId === messageToolUseId) {
         messageIdx = j
       }
     }
