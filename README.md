@@ -54,7 +54,7 @@ pnpm build-extension   # 生成 .vsix 文件
 - **入口节点**：可将节点标记为建议的入口节点（`is_entry`），画布上显示绿色入口图标，布局自动固定在入口层；无前驱节点自动视同入口；节点上可一键快捷设置。
 - **Plan 模式**：开启后 Agent 以只读计划模式运行，倾向先给出方案而不直接执行文件修改，适合先让 AI 规划再决定是否落地；节点上可一键快速切换。
 - **隔离模式**：开启后不加载项目的 settings 和 CLAUDE.md，适合需要完全独立上下文的 Agent；节点上可一键快速切换。
-- **节点便捷设置**：在 AgentNode 上可直接切换 `no_input`、`no_output`、`require_confirm`、隔离模式及模型，无需进入编辑器，与 plan_mode / is_entry 快捷操作对齐。
+- **节点便捷设置**：在 AgentNode 上可直接切换 `no_input`、`no_output`、`require_confirm`、隔离模式、模型、思考强度（effort）及工作模式，无需进入编辑器，与 plan_mode / is_entry 快捷操作对齐。
 - **API 端点分层配置**：Flow 和 Agent 层级都可以单独设置 `base_url` / `api_key`，Agent 的配置覆盖 Flow 默认值，两端都不填时使用系统环境变量。同一工作流内不同 Agent 可以走不同的模型服务。
 - **完成前确认（按分支独立配置）**：在某个输出分支上开启后，Agent 选择该分支完成时不会立即推进，而是先弹出确认卡片。你可以同意继续，也可以填写拒绝原因让 Agent 重新修正。不同分支可以单独配置。
 - **Code 节点**：不走 AI，直接执行你写的 JavaScript 代码——可用于数据转换、调用外部命令、格式化输出等纯逻辑处理，结果驱动后续节点。编辑器支持代码补全（`input` / `values.*` / `runCommand`）和 `Shift+Alt+F` 格式化。
