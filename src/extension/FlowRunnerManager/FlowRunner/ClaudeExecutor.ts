@@ -81,6 +81,16 @@ export type ExecutorEvents = {
   }) => void
   /** 错误 */
   onError: (err: Error) => void
+  /**
+   * Bedrock 1M context 网关 tool_use input JSON 解析失败 —— SDK 内置 retry 失败后会推一条
+   * `<synthetic>` 模型 + `is_error: true` 的伪 result 然后停止。该回调在检测到该消息时触发,
+   * Executor 自身已设 disposed 退出 for-await。
+   *
+   * 上层(FlowRunner)据此 fire `flow.signal.toolUseParseError`,signal 携带 sessionId,
+   * webview UI 据此显示「一键自动恢复」banner —— 用户点击后通过 `recoverFromToolUseParseError`
+   * command 重新 attach(同 sessionId,新 run),并自动注入恢复 prompt 引导 LLM 改用 CompleteTask。
+   */
+  onToolUseParseError?: () => void
 }
 
 /**
@@ -313,14 +323,29 @@ export class ClaudeExecutor {
   private canUseTool: CanUseTool = (toolName, input, { toolUseID }) => {
     const toolInput = input as Record<string, unknown>
     if (toolName.includes('AskUserQuestion')) {
+      // 防御性校验:LLM 偶发会把 questions 传成 JSON 字符串而非数组,
+      // 直接挂起会让 webview 渲染 AskUserQuestionCard 时 .every 抛 TypeError 拖崩整个 UI。
+      // 这里入口拦截,直接 deny 并把错误信息回喂给模型,模型下一轮会重试正确格式。
+      const askInput = input as { questions?: unknown }
+      if (!Array.isArray(askInput.questions)) {
+        const denyMsg =
+          'AskUserQuestion 调用格式错误:`questions` 字段必须是数组(类型: AskUserQuestionItem[]),实际收到 ' +
+          (typeof askInput.questions) +
+          '。请按 schema 重新调用,questions 直接传 JSON 数组而不是字符串化的 JSON。'
+        logError('[ClaudeExecutor] AskUserQuestion malformed input rejected', {
+          toolUseID,
+          actualType: typeof askInput.questions,
+        })
+        return Promise.resolve({ behavior: 'deny', message: denyMsg })
+      }
       // silent_task 是无人值守模式：直接以占位字符串自动应答，不挂起。
       // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
       // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
       if (this.agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
-        const askInput = input as AskUserQuestionInput
-        const questions = askInput.questions ?? []
+        const askInputTyped = input as AskUserQuestionInput
+        const questions = askInputTyped.questions ?? []
         const answers: Record<string, string> = {}
         for (const q of questions) {
           answers[q.question] = SILENT_ASK_AUTO_ANSWER
@@ -527,6 +552,23 @@ export class ClaudeExecutor {
           this.initEmitted = true
           this.events.onStarted()
         }
+        // Bedrock 1M context 网关偶发 tool_use input JSON 解析失败:SDK 内置 retry 也失败后,
+        // 会推一条 `<synthetic>` 模型 + is_error=true 的伪 result 占位,然后流停止。
+        // 不透传这条假 result(避免 reducer 进入 result phase 触发"生成完毕"通知误导用户),
+        // 改 fire onToolUseParseError 让上层 webview 显示恢复 banner;同时设 disposed 跳出循环。
+        if (isBedrockToolUseParseError(msg)) {
+          logError('[ClaudeExecutor] bedrock tool_use parse error detected, halting executor', {
+            sessionId: this._sessionId,
+          })
+          this.disposed = true
+          this.pendingCompleteResult = null
+          this.rejectAllPendingPermissions('bedrock tool_use parse error')
+          this.events.onToolUseParseError?.()
+          // 通知正在等待的 interrupt 路径(如有)解除阻塞
+          this.resolveResultArrived?.()
+          this.resolveResultArrived = null
+          break
+        }
         // CompleteTask结果已暂存 视作会话结束 拦截所有消息
         const skipForward = this.pendingCompleteResult !== null
         if (!skipForward) {
@@ -579,6 +621,44 @@ export class ClaudeExecutor {
     this.queryInstance?.close()
     this.queryInstance = null
   }
+}
+
+/**
+ * 识别 Bedrock 1M context 网关的 tool_use input JSON 解析失败消息 —— 形如:
+ * ```json
+ * {
+ *   "type": "assistant",
+ *   "message": {
+ *     "model": "<synthetic>",
+ *     "stop_reason": "stop_sequence",
+ *     "content": [{ "type": "text", "text": "The model's tool call could not be parsed (retry also failed)." }]
+ *   }
+ * }
+ * ```
+ *
+ * 触发场景:claude-opus-4-8 1M context + 长中文 tool_use input(如 AskUserQuestion 多选项),
+ * Bedrock 网关重组流式 tool_use JSON 时失败,SDK 内置 retry 也失败,推一条合成消息占位后停止。
+ *
+ * 关键字:`<synthetic>` 模型 + 内容含 'tool call could not be parsed'。仅匹配 SDK 端
+ * 已无法继续会话的失败信号 —— 真实模型不会自报这个字符串。
+ */
+function isBedrockToolUseParseError(msg: unknown): boolean {
+  if (!msg || typeof msg !== 'object') return false
+  const m = msg as { type?: string; message?: unknown }
+  if (m.type !== 'assistant' || !m.message) return false
+  const inner = m.message as { model?: string; content?: unknown }
+  if (inner.model !== '<synthetic>') return false
+  const content = inner.content
+  if (!Array.isArray(content)) return false
+  return content.some((c: unknown) => {
+    if (!c || typeof c !== 'object') return false
+    const item = c as { type?: string; text?: unknown }
+    return (
+      item.type === 'text' &&
+      typeof item.text === 'string' &&
+      item.text.includes('tool call could not be parsed')
+    )
+  })
 }
 
 /** 可由外部 push 数据的 AsyncIterable */

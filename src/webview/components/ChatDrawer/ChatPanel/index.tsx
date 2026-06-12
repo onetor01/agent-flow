@@ -1,6 +1,6 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, useState, type FC } from 'react'
-import { Button, Skeleton, Tag, Tooltip } from 'antd'
-import { CloseOutlined, RobotOutlined, SendOutlined, StopOutlined } from '@ant-design/icons'
+import { Alert, Button, Skeleton, Tag, Tooltip } from 'antd'
+import { CloseOutlined, RobotOutlined, SendOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
 import { AnimatePresence, motion } from 'motion/react'
 import { match, P } from 'ts-pattern'
@@ -57,6 +57,7 @@ export const ChatPanel: FC<Props> = ({
 }) => {
   const killFlow = useFlowStore((s) => s.killFlow)
   const answerToolPermission = useFlowStore((s) => s.answerToolPermission)
+  const recoverFromToolUseParseError = useFlowStore((s) => s.recoverFromToolUseParseError)
 
   const agentName = useFlowStore(
     (s) =>
@@ -112,6 +113,33 @@ export const ChatPanel: FC<Props> = ({
     }
     return allRuns.filter((r) => r.agentId === agentId)
   }, [allRuns, agentId, runId])
+
+  // 扫描当前视图下 runs 的尾部信号:若最后一条非 aiMessage 的信号是 toolUseParseError,
+  // 说明该 run 因 Bedrock 网关解析失败被中断,需要在 Header 下方展示自动恢复 banner。
+  // 仅取最新的一条(末尾遍历),避免历史失败 run 在已经 recover 后还残留 banner。
+  const parseErrorTarget = useMemo<{ runId: string } | null>(() => {
+    for (let i = runs.length - 1; i >= 0; i--) {
+      const r = runs[i]
+      // 已在该 run 之后追加了恢复 run(同 agentId 续轮)→ 不再展示历史 banner
+      const hasRecoveryAfter = runs.some(
+        (other, j) => j > i && other.agentId === r.agentId && other.sessionId === r.sessionId,
+      )
+      if (hasRecoveryAfter) continue
+      // 从后往前找:命中 toolUseParseError 即返回;命中其他 ai/agent* 信号则该 run 不是解析失败状态
+      for (let j = r.messages.length - 1; j >= 0; j--) {
+        const m = r.messages[j]
+        if (m.type === 'flow.signal.toolUseParseError') return { runId: r.runId }
+        if (
+          m.type === 'flow.signal.aiMessage' ||
+          m.type === 'flow.signal.agentComplete' ||
+          m.type === 'flow.signal.agentError' ||
+          m.type === 'flow.signal.agentInterrupted'
+        )
+          break
+      }
+    }
+    return null
+  }, [runs])
 
   // Token / cost 累计:tokenMode = 'flow' 跨 Flow 全部 runs;'view' 用当前视图选出的 runs。
   // modelUsage 与 total_cost_usd 都是 session 累计快照,因此每个 run 都只取「最后一条 result」,
@@ -347,6 +375,25 @@ export const ChatPanel: FC<Props> = ({
           style={{ color: '#6c7086' }}
         />
       </div>
+      {/* Bedrock tool_use 解析失败:一键自动恢复 banner */}
+      {parseErrorTarget && (
+        <Alert
+          banner
+          type='error'
+          icon={<ToolOutlined />}
+          message='Bedrock 网关 tool_use 解析失败'
+          description='当前 1M context 网关解析长 tool_use(如 AskUserQuestion 多选项)不稳定。点击后将基于同 sessionId 续轮,并自动注入恢复 prompt 引导 LLM 改用 CompleteTask。'
+          action={
+            <Button
+              size='small'
+              danger
+              onClick={() => recoverFromToolUseParseError(flowId, parseErrorTarget.runId)}
+            >
+              一键自动恢复
+            </Button>
+          }
+        />
+      )}
       {/* Messages */}
       {match({
         length: runs.length,

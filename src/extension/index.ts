@@ -4,6 +4,7 @@ import * as path from 'path'
 import { match, P } from 'ts-pattern'
 import * as vscode from 'vscode'
 import type {
+  AgentRun,
   ExtensionFlowCommandEvents,
   ExtensionFlowCommandMessage,
   ExtensionFlowSignalMessage,
@@ -339,6 +340,78 @@ export function activate(context: vscode.ExtensionContext) {
     })
   }
 
+  /**
+   * 处理 Bedrock 网关 tool_use 解析失败的一键恢复 ——
+   * 流程同 attachSession VSCode 命令,但触发路径是 webview banner 一键发的 command:
+   * 1. 据 data.runId 在 RunState 中找失败 run,反查 sessionId / agentId
+   * 2. applyCommand 让 reducer 镜像在 extension 端 state 上追加新 run
+   *    (data.newRunId 由 webview 端预生成,两端 reducer 用同一 runId)
+   * 3. spawnForFork(lazy 模式)启动新 ClaudeExecutor,runId=data.newRunId
+   * 4. 自动 push 一条 userMessage 注入恢复 prompt,引导 LLM 改用 CompleteTask 替代
+   *    会触发解析失败的长 input 工具(如 AskUserQuestion 多选项)
+   */
+  const handleRecoverFromToolUseParseError = async (
+    data: ExtensionFlowCommandEvents['flow.command.recoverFromToolUseParseError'],
+  ): Promise<void> => {
+    const { flowId, runId: failedRunId, newRunId } = data
+    const sourceState = flowRunStateManager.getFlowRunStates()[flowId]
+    if (!sourceState) {
+      logError('[recoverFromToolUseParseError] flow state missing', flowId)
+      return
+    }
+    const failedRun = sourceState.runs.find((r) => r.runId === failedRunId)
+    if (!failedRun) {
+      logError('[recoverFromToolUseParseError] failed run not found', { flowId, failedRunId })
+      return
+    }
+    const sessionId = failedRun.sessionId
+    if (!sessionId) {
+      logError('[recoverFromToolUseParseError] failed run has no sessionId', { failedRunId })
+      return
+    }
+    const agentId = failedRun.agentId
+
+    // 1. 让 reducer 镜像在 extension 端 state 追加新 run(与 webview 端 dispatchCommand 同构)
+    flowRunStateManager.applyCommand({
+      type: 'flow.command.recoverFromToolUseParseError',
+      data: { flowId, runId: failedRunId, newRunId },
+    })
+
+    // 2. spawnForFork(lazy 模式;首次 sendUserMessage 触发 SDK resume sessionId)。
+    //    runId 用 data.newRunId —— webview 端 reducer 已用同一 runId 写入 state,
+    //    后续 sendUserMessage / answerToolPermission / interrupt 都按此 runId 路由。
+    runnerManager.spawnForFork({
+      flowId,
+      agentId,
+      resumeSessionId: sessionId,
+      runId: newRunId,
+    })
+
+    // 3. 自动 push 恢复 prompt —— 引导 LLM 改用 CompleteTask,避开会触发 Bedrock 解析失败的
+    //    长 input 工具(AskUserQuestion 多选项最易触发)。
+    //    通过 runnerManager.handleCommand 路径走,等同于 webview 主动发 userMessage,
+    //    reducer 会把它作为 aiMessage 追加到新 run.messages,UI 自然显示。
+    const recoveryPrompt =
+      '上一次工具调用因 Bedrock 网关解析失败被中断。请改用 mcp__AgentControllerMcp__CompleteTask 直接给出结论,' +
+      '不要再调用 AskUserQuestion 等会产生长 input JSON 的工具 —— 当前 1M context 下网关解析这类长 tool_use 不稳定。'
+    const userMsg: ExtensionFlowCommandEvents['flow.command.userMessage'] = {
+      flowId,
+      runId: newRunId,
+      message: {
+        type: 'user',
+        message: { role: 'user', content: recoveryPrompt },
+        parent_tool_use_id: null,
+        session_id: sessionId,
+      },
+    }
+    // 同步 reducer 镜像(否则 webview 收不到此用户消息回显)
+    flowRunStateManager.applyCommand({
+      type: 'flow.command.userMessage',
+      data: userMsg,
+    })
+    runnerManager.handleCommand('flow.command.userMessage', userMsg)
+  }
+
   const openPanel = vscode.commands.registerCommand('agent-flow.openPanel', () => {
     if (currentPanel) {
       currentPanel.reveal(undefined, true)
@@ -449,6 +522,15 @@ export function activate(context: vscode.ExtensionContext) {
             await handleFork(e.data as ExtensionFlowCommandEvents['flow.command.fork'])
             return
           }
+          // recoverFromToolUseParseError 是特殊命令:不走通用 applyCommand + runner 路径,
+          // 由 handleRecoverFromToolUseParseError 内部完成 reducer 镜像 + spawnForFork + 注入 prompt。
+          // 与 fork 同构,都涉及 spawn lazy ClaudeExecutor 的 attach 类操作。
+          if (e.type === 'flow.command.recoverFromToolUseParseError') {
+            await handleRecoverFromToolUseParseError(
+              e.data as ExtensionFlowCommandEvents['flow.command.recoverFromToolUseParseError'],
+            )
+            return
+          }
           // 先镜像到 state（flowStart 路径的覆盖式初始化也由 reducer 完成；killFlow 会置 stopped）
           flowRunStateManager.applyCommand(e as ExtensionFlowCommandMessage)
           const { type, data } = e
@@ -506,7 +588,138 @@ export function activate(context: vscode.ExtensionContext) {
     },
   )
 
-  context.subscriptions.push(openPanel, addSelectionToInput)
+  /**
+   * 手动恢复 SDK session：webview 因渲染异常崩溃时,extension 端 FlowRunState 已被
+   * 该次崩溃中断;但 SDK transcript 仍在磁盘 `~/.claude/projects/<hash>/<sid>.jsonl`
+   * 完整保留。本命令以 lazy 模式 spawnForFork 重新挂上去,用户首次发消息时 SDK
+   * resume 该 session,完整上下文回归。
+   *
+   * 流程:
+   * 1. QuickPick 选 Flow(从已加载的 currentFlows)
+   * 2. QuickPick 选 Agent(必须 node_type='agent';code 无 SDK session)
+   * 3. InputBox 输 sessionId(.jsonl 文件名去后缀)
+   * 4. 构造最小 FlowRunState:单 run + agentInterrupted signal,phase=interrupted
+   *    → ChatInput 处于 ready,可发消息触发 lazy resume
+   * 5. spawnForFork 启动 lazy ClaudeExecutor
+   * 6. 推 load 给 webview 拉新状态
+   *
+   * 注意:必须先打开过 panel(load 命令拉过 disk flows)才能选到 Flow;否则 currentFlows 为空。
+   */
+  const attachSession = vscode.commands.registerCommand(
+    'agent-flow.attachSession',
+    async () => {
+      // 确保 currentFlows 已加载;若空,先尝试从 disk 拉一次
+      if (currentFlows.flows.length === 0) {
+        const diskFlows = await flowStore.load()
+        currentFlows = { flows: diskFlows.flows }
+        flowRunStateManager.applyFlows(currentFlows.flows, (flowId) =>
+          runnerManager.disposeRunner(flowId),
+        )
+      }
+      if (currentFlows.flows.length === 0) {
+        vscode.window.showWarningMessage('没有可用的 Flow。请先在 Agent Flow 面板中创建或加载工作流。')
+        return
+      }
+
+      // 1. 选 Flow
+      const flowPick = await vscode.window.showQuickPick(
+        currentFlows.flows.map((f) => ({
+          label: f.name || '(未命名)',
+          description: f.id,
+          flow: f,
+        })),
+        { placeHolder: '选择要挂载 SDK session 的 Flow', ignoreFocusOut: true },
+      )
+      if (!flowPick) return
+      const flow = flowPick.flow
+
+      // 2. 选 Agent —— 仅 node_type='agent'(code 节点无 SDK session)
+      const agentCandidates = (flow.agents ?? []).filter((a) => a.node_type === 'agent')
+      if (agentCandidates.length === 0) {
+        vscode.window.showWarningMessage(`Flow "${flow.name}" 没有可用的 agent 节点(code 节点不支持 attach)。`)
+        return
+      }
+      const agentPick = await vscode.window.showQuickPick(
+        agentCandidates.map((a) => ({
+          label: a.agent_name || '(未命名)',
+          description: a.id,
+          agent: a,
+        })),
+        { placeHolder: '选择要挂载 session 的 Agent', ignoreFocusOut: true },
+      )
+      if (!agentPick) return
+      const agent = agentPick.agent
+
+      // 3. 输 sessionId
+      const sessionId = await vscode.window.showInputBox({
+        prompt: 'SDK Session ID(~/.claude/projects/<hash>/<sessionId>.jsonl 的文件名,去 .jsonl 后缀)',
+        placeHolder: '例如 3cb273dd-bd44-4f01-9cbb-acbde8c0cdbe',
+        ignoreFocusOut: true,
+        validateInput: (v) => {
+          const t = v.trim()
+          if (!t) return 'sessionId 不能为空'
+          if (!/^[0-9a-f-]{8,}$/i.test(t)) return 'sessionId 格式不像 UUID'
+          return undefined
+        },
+      })
+      if (!sessionId) return
+      const trimmedSessionId = sessionId.trim()
+
+      // 4. 构造最小 FlowRunState —— 单 run + agentInterrupted signal,使 phase=interrupted
+      //    与 fork 路径末尾追加 agentInterrupted 同构,确保 ChatInput 进入 ready 态。
+      const runId = globalThis.crypto.randomUUID()
+      const newRun: AgentRun = {
+        runId,
+        agentId: agent.id,
+        sessionId: trimmedSessionId,
+        messages: [
+          {
+            type: 'flow.signal.agentInterrupted',
+            data: { flowId: flow.id, runId },
+          },
+        ],
+        completed: false,
+      }
+      const newRunState: FlowRunState = {
+        killed: false,
+        runs: [newRun],
+        answeredToolPermissions: {},
+        pendingToolPermissions: [],
+        shareValues: flowRunStateManager.getFlowRunStates()[flow.id]?.shareValues ?? {},
+      }
+
+      // 5. 写入 state + spawnForFork(lazy 模式,首次 sendUserMessage 触发 SDK resume)
+      flowRunStateManager.setRunState(flow.id, newRunState)
+      runnerManager.spawnForFork({
+        flowId: flow.id,
+        agentId: agent.id,
+        resumeSessionId: trimmedSessionId,
+        runId,
+      })
+
+      // 6. 通知 webview 刷新(若 panel 已开)
+      postMessageToWebview({
+        type: 'load',
+        data: {
+          flows: currentFlows.flows,
+          flowRunStates: flowRunStateManager.getFlowRunStates(),
+        },
+      })
+      postMessageToWebview({
+        type: 'focusFlow',
+        data: { flowId: flow.id },
+      })
+      // 自动开 panel,方便用户立即操作
+      vscode.commands.executeCommand('agent-flow.openPanel')
+      currentPanel?.reveal(undefined, true)
+
+      vscode.window.showInformationMessage(
+        `已挂载 session ${trimmedSessionId.slice(0, 8)}… 到 Flow "${flow.name}" / Agent "${agent.agent_name}"。在聊天框发消息即触发 SDK resume。`,
+      )
+    },
+  )
+
+  context.subscriptions.push(openPanel, addSelectionToInput, attachSession)
 }
 
 export function deactivate() {}

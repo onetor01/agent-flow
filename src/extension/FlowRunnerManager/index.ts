@@ -88,6 +88,10 @@ export class FlowRunnerManager {
       .with('flow.command.fork', () => {
         // fork 由 extension 顶层 handleFork 处理,不会进入 runnerManager
       })
+      .with('flow.command.recoverFromToolUseParseError', () => {
+        // recoverFromToolUseParseError 由 extension 顶层 handleRecoverFromToolUseParseError 处理
+        // (需要 spawnForFork + 注入恢复 prompt,涉及 RunState 反查 sessionId,与 fork 同构)
+      })
       .exhaustive()
   }
 

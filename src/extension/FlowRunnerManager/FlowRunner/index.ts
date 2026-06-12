@@ -163,6 +163,9 @@ export class FlowRunner {
       .with('flow.command.fork', () => {
         // fork 由 extension 端 handleFork 直接处理，不进入 FlowRunner
       })
+      .with('flow.command.recoverFromToolUseParseError', () => {
+        // recoverFromToolUseParseError 由 extension 顶层处理(走 spawnForFork + 注入 prompt 路径)
+      })
       .exhaustive()
   }
 
@@ -433,6 +436,20 @@ export class FlowRunner {
           runId,
           agentId: agent.id,
           err: err.message || String(err),
+        })
+      },
+      onToolUseParseError: () => {
+        // ClaudeExecutor 检测到 Bedrock 网关 tool_use 解析失败时调用 —— 上层据此 fire signal,
+        // webview UI 显示「一键自动恢复」banner。sessionId 从 executor.sessionId 取
+        // (此时 _sessionId 已确定,initEmitted=true 保证不会拿到 null)。
+        // CodeExecutor 不会触发该回调(没有 SDK session)。
+        const exec = getExecutor()
+        const sessionId =
+          exec instanceof ClaudeExecutor ? (exec.sessionId ?? undefined) : undefined
+        this.fire('flow.signal.toolUseParseError', {
+          runId,
+          agentId: agent.id,
+          sessionId,
         })
       },
     }

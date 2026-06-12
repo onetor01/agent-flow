@@ -78,7 +78,14 @@ export const AskUserQuestionCard: FC<Props> = ({
   onChangeHeight,
   fork,
 }) => {
-  const questions = useMemo(() => input.questions ?? [], [input.questions])
+  // 防御性校验:LLM 偶发会把 questions 传成 JSON 字符串而非数组,此时 ?? [] 不会回退
+  // (string 是 truthy),后续 .every 会抛 TypeError 把 webview 拖崩。
+  // 顶层 ErrorBoundary 已能兜住,这里再加一道保险:非数组直接当空处理,UI 渲染空卡片
+  // 而非崩溃,用户至少看得到上下文。
+  const questions = useMemo(() => {
+    const q = input?.questions
+    return Array.isArray(q) ? q : []
+  }, [input?.questions])
   const isActive = mode === 'active'
   const [selections, setSelections] = useState<Selections>({})
   const [otherStates, setOtherStates] = useState<Record<number, OtherState>>({})

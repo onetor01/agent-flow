@@ -1,13 +1,13 @@
 {
-  "name": "agent-flow",
+  "name": "agent-flow-dev",
   "license": "MIT",
-  "displayName": "agent-flow",
+  "displayName": "Agent Flow (dev)",
   "description": "可视化地编排 Agent 工作流",
-  "version": "0.0.61",
-  "publisher": "FanetheDivine",
+  "version": "0.0.60",
+  "publisher": "onetor01",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FanetheDivine/agent-flow.git"
+    "url": "https://github.com/onetor01/agent-flow.git"
   },
   "icon": "resources/icon.png",
   "packageManager": "pnpm@10.32.1",
@@ -38,6 +38,10 @@
       {
         "command": "agent-flow.addSelectionToInput",
         "title": "Agent Flow: Add Selection to Active Input"
+      },
+      {
+        "command": "agent-flow.attachSession",
+        "title": "Agent Flow: Attach SDK Session"
       }
     ],
     "keybindings": [

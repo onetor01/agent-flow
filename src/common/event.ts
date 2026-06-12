@@ -132,6 +132,19 @@ type FlowSignalPayload = {
   agentInterrupted: { runId: string }
   /** agent错误 */
   agentError: { runId: string; agentId: string; err: string }
+  /**
+   * Bedrock 1M context 网关的 tool_use input JSON 解析失败 ——
+   * SDK 在重组流式 tool_use 时无法解析,内置 retry 也失败,会向调用方推一条
+   * `<synthetic>` 模型 + `is_error: true` 的伪 result 然后停止。
+   *
+   * 单独抽出此 signal(不复用 agentError)是因为:
+   * - 解析失败本身是网关层瞬时问题,不是 agent 真的 error,语义上不该污染 agent-error 通知
+   * - 携带 sessionId,webview UI 可凭此一键 attach 同 sessionId 自动恢复(发恢复 prompt
+   *   引导 LLM 改用 CompleteTask 替代 AskUserQuestion 等会触发解析失败的长 input 工具)
+   * - reducer 据此 phase 推断为 'error',与 agentError 等价阻塞 ChatInput,
+   *   防止用户在 SDK 已停止的会话上继续输入
+   */
+  toolUseParseError: { runId: string; agentId: string; sessionId?: string }
   /** flow运行错误 */
   error: { runId?: string; msg: string }
   /**
@@ -237,6 +250,23 @@ type FlowCommandPayload = {
   fork: {
     target: { runId: string; messageUuid: string }
   }
+  /**
+   * 从 Bedrock tool_use 解析失败的 run 自动恢复 —— 与 attachSession 命令同构,
+   * 但触发路径不同(webview banner 一键触发 vs 命令面板手动选择)。
+   *
+   * 行为:
+   * 1. 在源 RunState 末尾追加一个新 run(同 agentId、同 sessionId,messages 仅含 agentInterrupted)
+   * 2. extension 端 spawnForFork(lazy 模式,首次 sendUserMessage 触发 SDK resume)
+   * 3. extension 端自动 push 一条恢复 prompt,引导 LLM 改用 CompleteTask 等替代路径
+   *
+   * 不引入新 signal —— reducer 在 webview/extension 两端都跑同一份逻辑,UI 即时更新;
+   * extension 端额外做 spawnForFork + 自动 prompt 注入,这两步对 reducer state 透明。
+   *
+   * @field runId - 解析失败的 run 主键(从该 run 的 sessionId / agentId 反查启动数据)
+   * @field newRunId - 新建恢复 run 的主键(由 webview 端预生成,随 command 下发,
+   *   保证 webview / extension 两端 reducer 用同一个 runId,避免各自 randomUUID 不一致)
+   */
+  recoverFromToolUseParseError: { runId: string; newRunId: string }
 }
 
 /** FlowRunner 内部指令（不含 flowId） */

@@ -487,6 +487,9 @@ export function updateFlowRunState(
       })
       .with({ type: 'flow.signal.agentInterrupted' }, () => {
         clearPendings()
+        // run 异常终结兜底:此前累积的 stream_event 永远等不到 final assistant/result 来 strip,
+        // 不清会永久滞留撑爆内存(尤其是 Bedrock 流式重组失败 / 用户中断的长 turn 场景)。
+        stripStreamEvents(run)
       })
       .with({ type: 'flow.signal.toolPermissionResult' }, ({ data }) => {
         // silent_task 自动应答路径:与 command.toolPermissionResult 同语义,仅入口为 signal,
@@ -502,6 +505,20 @@ export function updateFlowRunState(
       })
       .with({ type: 'flow.signal.agentError' }, () => {
         clearPendings()
+        // 同 agentInterrupted 兜底:错误终止前的 stream_event 不会再被任何完整消息取代,主动 strip
+        stripStreamEvents(run)
+        pushEffect({ flowId, runId: run.runId, agentId: run.agentId, reason: 'agent-error' })
+      })
+      .with({ type: 'flow.signal.toolUseParseError' }, () => {
+        // Bedrock 网关解析失败:与 agentError 同构地清挂起 + 通知,getRunPhase 据 messages
+        // 中存在该 signal 把 phase 推为 'error'(下方 isFlowSignalErrorMessage 判定)。
+        // 不复用 agent-error 通知文案 —— webview UI 据 messages 内含此 signal 显示
+        // 「一键自动恢复」banner,而不是普通 agent 错误展示。
+        clearPendings()
+        // **关键**:解析失败前 SDK 流式重组 tool_use 时已堆积大量 stream_event,
+        // 这些片段永远等不到完整 assistant 来 strip,会永久滞留 messages[] 撑爆 webview 内存
+        // (实测可达数十 MB)。这是 toolUseParseError 场景内存问题的主因。
+        stripStreamEvents(run)
         pushEffect({ flowId, runId: run.runId, agentId: run.agentId, reason: 'agent-error' })
       })
       .with({ type: 'flow.signal.error' }, () => {
@@ -531,6 +548,32 @@ export function updateFlowRunState(
         draft.pendingToolPermissions = draft.pendingToolPermissions.filter(
           (p) => p.toolUseId !== data.toolUseId,
         )
+      })
+      .with({ type: 'flow.command.recoverFromToolUseParseError' }, ({ data }) => {
+        // 从 Bedrock 解析失败的 run 自动恢复:在 runs 末尾追加一个新 run,
+        // 同 agentId、同 sessionId,messages 仅含 agentInterrupted signal,
+        // 这样 phase 变 'interrupted',ChatInput 进入 ready 态,用户可继续。
+        // 与 attachSession VSCode 命令同构(extension 端 spawnForFork 复用 lazy 模式)。
+        // newRunId 由 webview 端预生成随 command 下发 —— webview/extension 两端 reducer
+        // 用同一 runId,避免各自 randomUUID 后两边状态错位。
+        const failedRun = draft.runs.find((r) => r.runId === data.runId)
+        if (!failedRun) return
+        const sid = failedRun.sessionId
+        // 防御性:同 newRunId 的 run 已存在(重复 dispatch),不再追加
+        if (draft.runs.some((r) => r.runId === data.newRunId)) return
+        draft.runs.push({
+          runId: data.newRunId,
+          agentId: failedRun.agentId,
+          sessionId: sid,
+          messages: [
+            {
+              type: 'flow.signal.agentInterrupted',
+              data: { flowId, runId: data.newRunId },
+            },
+          ],
+          completed: false,
+          injectedShareValues: failedRun.injectedShareValues,
+        })
       })
       // ── fork：源 Flow 状态完全不变,新 Flow 的 RunState 由调用方在 store 外侧写入 ──
       .with({ type: 'flow.signal.fork' }, () => {})
@@ -570,10 +613,13 @@ export function getRunPhase(run: AgentRun, state: FlowRunState): AgentPhase {
   if (state.killed) return 'stopped'
   if (state.pendingToolPermissions.some((p) => p.runId === run.runId))
     return 'awaiting-tool-permission'
-  // 倒序找:agentInterrupted 在末条 aiMessage 之后出现 → interrupted;反之视为已恢复
+  // 倒序找:agentInterrupted / toolUseParseError 在末条 aiMessage 之后出现 → interrupted;反之视为已恢复
+  // toolUseParseError(Bedrock 解析失败)语义上等同于"被网关中断",与人工 interrupt 同处理 ——
+  // 让聚合 phase 不污染整个 agent(否则整体 error 会掩盖恢复 attach 后新 run 的活跃态)。
   for (let i = run.messages.length - 1; i >= 0; i--) {
     const m = run.messages[i]
-    if (m.type === 'flow.signal.agentInterrupted') return 'interrupted'
+    if (m.type === 'flow.signal.agentInterrupted' || m.type === 'flow.signal.toolUseParseError')
+      return 'interrupted'
     if (m.type === 'flow.signal.aiMessage') break
   }
   // 末条 aiMessage 决定 result / running

@@ -8,6 +8,7 @@ import '@ant-design/x-markdown/themes/dark.css'
 import zh_CN_X from '@ant-design/x/locale/zh_CN'
 import 'dayjs/locale/zh-cn'
 import { App } from './App'
+import { ErrorBoundary } from './ErrorBoundary'
 import './global.css'
 import './utils/ExtensionMessage'
 
@@ -34,8 +35,10 @@ const AntdProvider: FC<PropsWithChildren> = (props) => {
 const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
-    <AntdProvider>
-      <App />
-    </AntdProvider>,
+    <ErrorBoundary>
+      <AntdProvider>
+        <App />
+      </AntdProvider>
+    </ErrorBoundary>,
   )
 }

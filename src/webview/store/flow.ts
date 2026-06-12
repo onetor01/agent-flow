@@ -91,6 +91,13 @@ type FlowStoreType = StoreState & {
    * 仅 post command,本地不预提交 reducer,等 extension 回 `flow.signal.fork` 后再写入新 Flow。
    */
   forkFlow: (sourceFlowId: string, target: { runId: string; messageUuid: string }) => void
+  /**
+   * 从 Bedrock 网关 tool_use 解析失败的 run 一键自动恢复 ——
+   * 在同一 Flow 末尾追加新 run(同 sessionId / agentId),lazy spawn ClaudeExecutor 续 SDK session,
+   * extension 端自动注入恢复 prompt 引导 LLM 改用 CompleteTask。
+   * 走 dispatchCommand 路径让本地 reducer 立即建新 run(UI 即时反应),extension 收到后做 spawnForFork。
+   */
+  recoverFromToolUseParseError: (flowId: string, runId: string) => void
   openChatDrawer: (state: ChatDrawerState) => void
   closeChatDrawer: () => void
   setEditingAgent: (agent?: { flowId: string; agentId: string }) => void
@@ -465,6 +472,16 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       postMessageToExtension({
         type: 'flow.command.fork',
         data: { flowId: sourceFlowId, target },
+      })
+    },
+    recoverFromToolUseParseError: (flowId, runId) => {
+      // 走 dispatchCommand:本地 reducer 立即在 runs 末尾建新 run(UI 即时变 interrupted phase),
+      // extension 收到 command 后做 spawnForFork + 注入恢复 prompt(reducer 不可见的副作用)。
+      // newRunId 由 webview 端预生成,两端 reducer 都用此 runId,不会因独立 randomUUID 错位。
+      const newRunId = crypto.randomUUID()
+      dispatchCommand({
+        type: 'flow.command.recoverFromToolUseParseError',
+        data: { flowId, runId, newRunId },
       })
     },
     copyAgents: (newAgents, flowId) => {
