@@ -6,6 +6,19 @@ export const PresetFlows: Flow[] = [
     name: '修改代码',
     agents: [
       {
+        node_type: 'code',
+        agent_name: '简单需求',
+        outputs: [
+          {
+            output_name: '修改代码',
+            output_desc: '',
+            next_agent: '2',
+          },
+        ],
+        code: "return { \n  output_name: '修改代码',\n  content: '执行任务',\n  values:{\n    summary: input\n  } \n}",
+        id: '0',
+      },
+      {
         id: '1',
         model: 'sonnet[1m]',
         effort: 'high',
