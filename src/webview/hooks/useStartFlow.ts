@@ -22,6 +22,12 @@ export function useStartFlow() {
         return true
       }
 
+      if (flowPhase === 'stopped') {
+        const { continueFlow } = st
+        continueFlow(flowId, agentId, initMessage)
+        return true
+      }
+
       return new Promise<boolean>((resolve) => {
         modal.confirm({
           title: '确认运行',

@@ -237,6 +237,14 @@ type FlowCommandPayload = {
   fork: {
     target: { runId: string; messageUuid: string }
   }
+  /** 清空 Flow：销毁 FlowRunner，清除全部对话记录和 shareValues，仅需 flowId */
+  clearFlow: object
+  /** 在已有 state 基础上追加新 AgentRun，保留 shareValues 和 answeredToolPermissions */
+  continueFlow: {
+    runId: string
+    agentId: string
+    initMessage: UserMessageType
+  }
 }
 
 /** FlowRunner 内部指令（不含 flowId） */

@@ -834,6 +834,40 @@ export function updateFlowRunState(
     return { state: base, effects }
   }
 
+  if (msg.type === 'flow.command.clearFlow') {
+    return { state: undefined, effects }
+  }
+
+  if (msg.type === 'flow.command.continueFlow') {
+    const baseValues = state?.shareValues ?? {}
+    const startAgent = flows
+      .find((f) => f.id === msg.data.flowId)
+      ?.agents?.find((a) => a.id === msg.data.agentId)
+    const injectedShareValues =
+      startAgent?.node_type === 'code'
+        ? { ...baseValues }
+        : startAgent
+          ? pickInjectedShareValues(startAgent.allowed_read_values_keys ?? [], baseValues)
+          : undefined
+    const newRun: AgentRun = {
+      runId: msg.data.runId,
+      agentId: msg.data.agentId,
+      sessionId: undefined,
+      messages: [],
+      completed: false,
+      acc: emptyAcc(),
+    }
+    appendSdkMessage(newRun, msg.data.initMessage, injectedShareValues)
+    const continued: FlowRunState = {
+      killed: false,
+      runs: [...(state?.runs ?? []), newRun],
+      answeredToolPermissions: state?.answeredToolPermissions ?? {},
+      pendingToolPermissions: [],
+      shareValues: baseValues,
+    }
+    return { state: continued, effects }
+  }
+
   if (!state) return { state: undefined, effects }
 
   const findFlow = (flowId: string): Flow | undefined => flows.find((f) => f.id === flowId)
