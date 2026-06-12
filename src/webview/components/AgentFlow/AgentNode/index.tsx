@@ -4,6 +4,7 @@ import { Badge, Checkbox, Input, Tag, Tooltip, Typography } from 'antd'
 import {
   BellOutlined,
   CodeOutlined,
+  CommentOutlined,
   DisconnectOutlined,
   EditOutlined,
   LoginOutlined,
@@ -11,6 +12,7 @@ import {
   MessageOutlined,
   PlayCircleOutlined,
   RobotOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
@@ -206,93 +208,140 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         {/* Agent 信息：code 节点显示标签,普通 agent 显示 model + plan_mode 快捷切换 */}
 
         <div className='flex h-6.5 items-center gap-1 px-3 pt-1'>
-          {isCodeNode ? (
-            <Tag color='cyan' style={{ fontSize: 10, height: 22, lineHeight: '20px' }}>
-              code
-            </Tag>
-          ) : (
-            <>
-              {agent?.model ? (
-                <ModelEditor model={agent.model} flowId={flowId} agentId={agentId} />
-              ) : null}
-              <span className='ml-auto flex items-center gap-1'>
-                {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
-                  <Tooltip
-                    title={agent?.work_mode === 'task' ? '任务模式' : '静默模式'}
-                    mouseEnterDelay={0.5}
+          {match(agent)
+            .with(undefined, () => null)
+            .with({ node_type: 'code' }, () => (
+              <Tag color='cyan' style={{ fontSize: 10, height: 22, lineHeight: '20px' }}>
+                code
+              </Tag>
+            ))
+            .with({ node_type: 'agent' }, (agent) => {
+              return (
+                <>
+                  <ModelEditor model={agent.model} flowId={flowId} agentId={agentId} />
+                  <Tag
+                    className={cn('w-9 cursor-pointer px-0.5 text-center transition')}
+                    color={match(agent.effort ?? 'medium')
+                      .with('xhigh', () => 'orange')
+                      .with('max', () => 'red')
+                      .otherwise(() => 'blue')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useFlowStore.getState().save((flows) => {
+                        const f = flows.find((f) => f.id === flowId)
+                        const a = f?.agents?.find((a) => a.id === agentId)
+                        if (!a || a.node_type !== 'agent') return
+                        const order = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+                        const idx = a.effort ? order.indexOf(a.effort) : 0
+                        a.effort = order[(idx + 1) % order.length]
+                      })
+                    }}
                   >
-                    <span
-                      className={cn(
-                        'relative inline-flex cursor-pointer items-center',
-                        agent?.work_mode === 'silent_task'
-                          ? 'text-[#f9e2af]'
-                          : 'text-[#6c7086] hover:text-[#f9e2af]',
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        useFlowStore.getState().save((flows) => {
-                          const f = flows.find((f) => f.id === flowId)
-                          const a = f?.agents?.find((a) => a.id === agentId)
-                          if (!a || a.node_type !== 'agent') return
-                          if (a.work_mode === 'task') {
-                            a.work_mode = 'silent_task'
-                            notifySilentMode()
-                          } else if (a.work_mode === 'silent_task') {
-                            a.work_mode = 'task'
-                          }
-                        })
-                      }}
+                    {match(agent.effort)
+                      .with('low', () => 'low')
+                      .with('medium', () => 'med')
+                      .with('high', () => 'high')
+                      .with('xhigh', () => 'xhigh')
+                      .with('max', () => 'max')
+                      .with(undefined, () => 'eff')
+                      .exhaustive()}
+                  </Tag>
+                  <span className='ml-auto flex items-center gap-1'>
+                    <Tooltip
+                      title={match(agent.work_mode)
+                        .with('task', () => '任务模式')
+                        .with('chat', () => '对话模式')
+                        .with('silent_task', () => '静默模式')
+                        .exhaustive()}
+                      mouseEnterDelay={0.5}
                     >
-                      <BellOutlined className={cn('text-xs transition-colors')} />
-                      <span className='absolute top-1/2 left-1/2 h-[0.9px] w-[1.1em] -translate-1/2 rotate-45 rounded bg-[currentColor] transition' />
-                    </span>
-                  </Tooltip>
-                ) : null}
-                <Tooltip
-                  title={agent?.isolation_mode ? '隔离模式' : '开启隔离模式'}
-                  mouseEnterDelay={0.5}
-                >
-                  <DisconnectOutlined
-                    className={cn(
-                      'cursor-pointer text-xs transition-colors',
-                      agent?.isolation_mode
-                        ? 'text-[#f38ba8]'
-                        : 'text-[#6c7086] hover:text-[#f38ba8]',
-                    )}
-                    onClick={createToggler('isolation_mode', true)}
-                  />
-                </Tooltip>
-                <Tooltip
-                  title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}
-                  mouseEnterDelay={0.5}
-                >
-                  <span
-                    className={cn(
-                      'text-1 mb-0.5 cursor-pointer text-xs transition-colors',
-                      agent?.plan_mode ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
-                    )}
-                    onClick={createToggler('plan_mode', true)}
-                  >
-                    Plan
+                      <span
+                        className={cn(
+                          'relative inline-flex cursor-pointer items-center text-[#89b4fa] hover:text-[#f9e2af]',
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          useFlowStore.getState().save((flows) => {
+                            const f = flows.find((f) => f.id === flowId)
+                            const a = f?.agents?.find((a) => a.id === agentId)
+                            if (!a || a.node_type !== 'agent') return
+                            match(a.work_mode)
+                              .with('task', () => {
+                                a.work_mode = 'chat'
+                              })
+                              .with('chat', () => {
+                                a.work_mode = 'silent_task'
+                                notifySilentMode()
+                              })
+                              .with('silent_task', () => {
+                                a.work_mode = 'task'
+                              })
+                              .exhaustive()
+                          })
+                        }}
+                      >
+                        {match(agent.work_mode)
+                          .with('task', () => (
+                            <ThunderboltOutlined className='text-xs transition-colors' />
+                          ))
+                          .with('chat', () => (
+                            <CommentOutlined className='text-xs transition-colors' />
+                          ))
+                          .with('silent_task', () => (
+                            <>
+                              <BellOutlined className='text-xs transition-colors' />
+                              <span className='absolute top-1/2 left-1/2 h-[0.9px] w-[1.1em] -translate-1/2 rotate-45 rounded bg-[currentColor] transition' />
+                            </>
+                          ))
+                          .exhaustive()}
+                      </span>
+                    </Tooltip>
+                    <Tooltip
+                      title={agent?.isolation_mode ? '隔离模式' : '开启隔离模式'}
+                      mouseEnterDelay={0.5}
+                    >
+                      <DisconnectOutlined
+                        className={cn(
+                          'cursor-pointer text-xs transition-colors hover:text-[#f9e2af]',
+                          agent?.isolation_mode ? 'text-[#f38ba8]' : 'text-[#6c7086]',
+                        )}
+                        onClick={createToggler('isolation_mode', true)}
+                      />
+                    </Tooltip>
+                    <Tooltip
+                      title={agent?.plan_mode ? 'Plan 模式' : '开启 Plan 模式'}
+                      mouseEnterDelay={0.5}
+                    >
+                      <span
+                        className={cn(
+                          'text-1 mb-0.5 cursor-pointer text-xs transition-colors hover:text-[#f9e2af]',
+                          agent?.plan_mode ? 'text-[#89b4fa]' : 'text-[#6c7086]',
+                        )}
+                        onClick={createToggler('plan_mode', true)}
+                      >
+                        Plan
+                      </span>
+                    </Tooltip>
+                    <Tooltip title={agent?.no_output ? '无输出' : '有输出'} mouseEnterDelay={0.5}>
+                      <span
+                        className={cn(
+                          'relative inline-flex cursor-pointer items-center hover:text-[#f9e2af]',
+                          agent?.no_output ? 'text-[#89b4fa]' : 'text-[#6c7086]',
+                          {
+                            invisible: agent.work_mode === 'chat',
+                          },
+                        )}
+                        onClick={createToggler('no_output', true)}
+                      >
+                        <LogoutOutlined className={cn('text-[10px] transition-colors')} />
+                        <span className='absolute top-1/2 left-1/2 h-[0.9px] w-[1.1em] -translate-1/2 rotate-45 rounded bg-[currentColor] transition' />
+                      </span>
+                    </Tooltip>
                   </span>
-                </Tooltip>
-                {agent?.work_mode === 'task' || agent?.work_mode === 'silent_task' ? (
-                  <Tooltip title={agent?.no_output ? '无输出' : '有输出'} mouseEnterDelay={0.5}>
-                    <span
-                      className={cn(
-                        'relative inline-flex cursor-pointer items-center',
-                        agent?.no_output ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]',
-                      )}
-                      onClick={createToggler('no_output', true)}
-                    >
-                      <LogoutOutlined className={cn('text-[10px] transition-colors')} />
-                      <span className='absolute top-1/2 left-1/2 h-[0.9px] w-[1.1em] -translate-1/2 rotate-45 rounded bg-[currentColor] transition' />
-                    </span>
-                  </Tooltip>
-                ) : null}
-              </span>
-            </>
-          )}
+                </>
+              )
+            })
+            .exhaustive()}
         </div>
 
         {/* 输出端口列表 */}
