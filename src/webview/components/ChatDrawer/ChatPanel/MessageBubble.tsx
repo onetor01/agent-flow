@@ -614,7 +614,20 @@ export function chatMessageToBubble(
 
       // loading 判定：用户已显式回答（answeredToolPermissions 有记录）但工具执行结果尚未到达
       const isAnsweredAwaitingResult = !!answered && !message.result
-
+      // 默认tooluse气泡 可以为权限卡片补充信息
+      const defaultToolUseItem: RenderedBubble = {
+        key: message.id,
+        role: 'ai',
+        content: (
+          <ToolUseBubbleContent
+            toolName={message.toolName}
+            input={message.input}
+            result={message.result}
+            copyText={message.result?.text ?? ''}
+            fork={fork}
+          />
+        ),
+      }
       // Edit 工具：走 ToolPermissionCard editDiff 变体；pending 时移至底部活动卡片，历史态内联展示
       if (message.toolName === 'Edit') {
         if (isPending) return null
@@ -623,25 +636,28 @@ export function chatMessageToBubble(
           old_string?: string
           new_string?: string
         }
-        return {
-          key: message.id + '-edit-diff',
-          role: 'system' as const,
-          content: (
-            <ToolPermissionCard
-              toolName='Edit'
-              input={message.input}
-              mode='historical'
-              answered={effectiveAnswered}
-              loading={isAnsweredAwaitingResult}
-              editDiff={{
-                filePath: input.file_path ?? '',
-                oldString: input.old_string ?? '',
-                newString: input.new_string ?? '',
-              }}
-              fork={fork}
-            />
-          ),
-        }
+        return [
+          {
+            key: message.id + '-edit-diff',
+            role: 'system' as const,
+            content: (
+              <ToolPermissionCard
+                toolName='Edit'
+                input={message.input}
+                mode='historical'
+                answered={effectiveAnswered}
+                loading={isAnsweredAwaitingResult}
+                editDiff={{
+                  filePath: input.file_path ?? '',
+                  oldString: input.old_string ?? '',
+                  newString: input.new_string ?? '',
+                }}
+                fork={fork}
+              />
+            ),
+          },
+          defaultToolUseItem,
+        ]
       }
 
       // AskUserQuestion：pending 时由底部固定卡片渲染(active)，历史态从 answeredToolPermissions 就地解析答案
@@ -743,37 +759,10 @@ export function chatMessageToBubble(
         }
       }
 
-      // 通用工具权限(must_confirm 等)：pending 时移至底部卡片；历史态内联展示授权结果 + 工具详情
+      // 通用工具权限(must_confirm 等)：pending 时移至底部卡片 不在消息中展示权限配置
       if (isPending) return null
-      const permItem: RenderedBubble = {
-        key: message.id + '-perm',
-        role: 'system',
-        content: (
-          <ToolPermissionCard
-            toolName={message.toolName}
-            input={message.input}
-            mode='historical'
-            answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
-            loading={isAnsweredAwaitingResult}
-            fork={fork}
-          />
-        ),
-      }
-      const toolUseItem: RenderedBubble = {
-        key: message.id,
-        role: 'ai',
-        content: (
-          <ToolUseBubbleContent
-            toolName={message.toolName}
-            input={message.input}
-            result={message.result}
-            copyText={message.result?.text ?? ''}
-            fork={fork}
-          />
-        ),
-      }
-      if (answered) return [permItem, toolUseItem]
-      return toolUseItem
+
+      return defaultToolUseItem
     }
     case 'turn_end': {
       const modelUsages = message.modelUsages ?? []
