@@ -193,12 +193,20 @@ export type AskUserQuestionOutput = {
 /** 持久化到本地的 flows */
 export const PersistedDataSchema = z.object({
   flows: z.array(FlowSchema),
-  /** 全局文件使用：按 workspaceRoot 字符串 key 映射到该 workspace 的项目运行态 */
-  workspaceRunStates: z.record(z.string(), z.record(z.string(), FlowRunStateSchema)).optional(),
 })
 
 /** @see {@link PersistedDataSchema} */
 export type PersistedData = z.infer<typeof PersistedDataSchema>
+
+/** 持久化到 ~/.agent-flows-projects/<cwd>.json 的工作区数据 */
+export const WorkspacePersistedDataSchema = z.object({
+  flows: z.array(FlowSchema),
+  /** 按 flowId 映射的全量运行态（含全局 flow 在该 cwd 的运行记录） */
+  runStates: z.record(z.string(), FlowRunStateSchema).optional(),
+})
+
+/** @see {@link WorkspacePersistedDataSchema} */
+export type WorkspacePersistedData = z.infer<typeof WorkspacePersistedDataSchema>
 
 // ── Flow 校验 ──────────────────────────────────────────────────────────────────
 
