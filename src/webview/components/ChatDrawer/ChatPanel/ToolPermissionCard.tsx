@@ -130,7 +130,7 @@ export const ToolPermissionCard: FC<Props> = ({
           <SafetyOutlined className='text-[#f9e2af]' />
         )}
         <span className='font-semibold text-[#cdd6f4]'>
-          {isEditDiff ? '文件变更' : isExitPlan ? '计划已生成' : '请求使用工具'}
+          {isEditDiff ? '文件编辑' : isExitPlan ? '计划已生成' : '请求使用工具'}
         </span>
         {fork}
         {!isExitPlan && !isEditDiff && (
@@ -180,7 +180,7 @@ export const ToolPermissionCard: FC<Props> = ({
             }}
             className='text-[#89b4fa] hover:underline'
           >
-            点击查看差异
+            查看差异
           </a>
         </span>
       ) : isExitPlan ? (

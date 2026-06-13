@@ -207,7 +207,7 @@ export const FlowListPanel: FC = () => {
                 >
                   {globalFlows.map(renderFlowItem)}
                   {projectFlows.length > 0 && (
-                    <div className='mt-1 flex items-center gap-1.5 border-t border-[#313244] px-2 pb-0.5 pt-1.5 text-[11px] text-[#585b70]'>
+                    <div className='mt-1 flex items-center gap-1.5 border-t border-[#313244] px-2 pt-1.5 pb-0.5 text-xs text-[#4096ff]'>
                       <FolderOutlined />
                       <span>项目flow</span>
                     </div>
