@@ -8,7 +8,7 @@ import {
   useState,
   type Ref,
 } from 'react'
-import { App, Button, Divider } from 'antd'
+import { App, Button, ConfigProvider, Divider } from 'antd'
 import { Bubble } from '@ant-design/x'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemoizedFn } from 'ahooks'
@@ -353,9 +353,11 @@ const Message = memo(function ({
   })
   if (message.kind === 'divider') {
     return (
-      <Divider className='my-1 text-[10px]! text-[#6c7086]!'>
-        第 {message.runIndex + 1} 次执行
-      </Divider>
+      <ConfigProvider theme={{ components: { Divider: { colorSplit: '#fa541c' } } }}>
+        <Divider className='my-1 text-[10px]! font-bold text-[#fa541c]!'>
+          第 {message.runIndex + 1} 次执行
+        </Divider>
+      </ConfigProvider>
     )
   }
   if (message.kind === 'show-more') {
