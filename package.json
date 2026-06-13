@@ -29,6 +29,16 @@
         }
       ]
     },
+    "views": {
+      "agent-flow-sidebar": [
+        {
+          "id": "agent-flow.runChanges",
+          "name": "文件变更",
+          "contextualTitle": "Agent Flow",
+          "type": "tree"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "agent-flow.openPanel",
@@ -38,6 +48,14 @@
       {
         "command": "agent-flow.addSelectionToInput",
         "title": "Agent Flow: Add Selection to Active Input"
+      },
+      {
+        "command": "agent-flow.openRunFile",
+        "title": "Agent Flow: Open File"
+      },
+      {
+        "command": "agent-flow.openRunDiffFile",
+        "title": "Agent Flow: Open Diff"
       }
     ],
     "keybindings": [

@@ -29,7 +29,13 @@ import {
 type LoadingMessage = { kind: 'loading'; id: string }
 type DividerMessage = { kind: 'divider'; runId: string; runIndex: number; id: string }
 type ShowMoreMessage = { kind: 'show-more'; runId: string; hiddenCount: number; id: string }
-type RenderMessage = ChatMessage | LoadingMessage | DividerMessage | ShowMoreMessage
+type ShowDiffMessage = { kind: 'show-diff'; runId: string; id: string }
+type RenderMessage =
+  | ChatMessage
+  | LoadingMessage
+  | DividerMessage
+  | ShowMoreMessage
+  | ShowDiffMessage
 type RenderItem = { runId?: string; message: RenderMessage }
 
 /**
@@ -176,6 +182,13 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
           message: { kind: 'divider', runId: run.runId, runIndex: idx, id: 'divider' },
         })
       }
+      const hasSuccessfulEdit = run.messages.some(
+        (m) =>
+          m.kind === 'tool_use' &&
+          m.status === 'done' &&
+          !m.result?.isError &&
+          (m.toolName === 'Edit' || m.toolName === 'Write'),
+      )
 
       if (!isExpanded) {
         // 折叠态：首条 user + showMore + agent_complete
@@ -198,14 +211,31 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
             },
           })
         }
+        if (hasSuccessfulEdit) {
+          items.push({ runId, message: { kind: 'show-diff', runId: run.runId, id: 'show-diff' } })
+        }
         if (complete) {
           items.push({ runId, message: complete })
         }
         return
       }
 
-      // 展开态直接插入message
-      items.push(...messages.map((m) => ({ runId, message: m })))
+      // 展开态：show-diff 插到 agent_complete 之前的最后一条消息
+      messages.forEach((m, i) => {
+        if (i !== messages.length - 1 || !hasSuccessfulEdit) {
+          items.push({ runId, message: m })
+          return
+        }
+        const showDiffMsg: RenderMessage = { kind: 'show-diff', runId: run.runId, id: 'show-diff' }
+        if (m.kind === 'agent_complete') {
+          items.push({ runId, message: showDiffMsg })
+
+          items.push({ runId, message: m })
+        } else {
+          items.push({ runId, message: m })
+          items.push({ runId, message: showDiffMsg })
+        }
+      })
     })
     if (loading) {
       items.push({ message: { kind: 'loading', id: `__loading__` } })
@@ -376,6 +406,25 @@ const Message = memo(function ({
   }
   if (message.kind === 'loading') {
     return <Bubble placement='start' variant='filled' content={null} loading />
+  }
+  if (message.kind === 'show-diff') {
+    return (
+      <div className='flex justify-start px-1 pb-1'>
+        <a
+          href='#'
+          className='text-[#89b4fa] hover:underline'
+          onClick={(e) => {
+            e.preventDefault()
+            postMessageToExtension({
+              type: 'showRunDiff',
+              data: { flowId, runId: message.runId },
+            })
+          }}
+        >
+          查看此会话的文件变更
+        </a>
+      </div>
+    )
   }
   if (!runId) return null
 

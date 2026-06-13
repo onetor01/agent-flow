@@ -16,6 +16,11 @@ import {
   stripFlowRuntimeFields,
 } from '@/common'
 import { markInterrupted, normalizeRestoredFlowRunState } from '@/common'
+import {
+  FileChangeTreeProvider,
+  type RunChangedFile,
+  type RunEditOp,
+} from './FileChangeTreeProvider'
 import { FlowRunStateManager } from './FlowRunStateManager'
 import { FlowRunnerManager } from './FlowRunnerManager'
 import { PersistedDataController } from './PersistedDataController'
@@ -103,6 +108,85 @@ export function activate(context: vscode.ExtensionContext) {
   const diffVirtualDocs = new Map<string, string>()
   /** 全局文件 workspaceRunStates 的内存缓存（key = workspaceRoot） */
   let cachedWorkspaceRunStates: Record<string, Record<string, FlowRunState>> = {}
+
+  async function openFileInEditor(data: {
+    filename: string
+    line?: [number, number]
+    placement?: 'active' | 'beside'
+  }) {
+    const { filename, line, placement } = data
+    const folders = vscode.workspace.workspaceFolders
+    if (!path.isAbsolute(filename) && !folders?.length) return
+    try {
+      const uri = path.isAbsolute(filename)
+        ? vscode.Uri.file(filename)
+        : vscode.Uri.joinPath(folders![0].uri, filename)
+      const doc = await vscode.workspace.openTextDocument(uri)
+      const editor = await vscode.window.showTextDocument(
+        doc,
+        match(placement)
+          .with('beside', () => vscode.ViewColumn.Beside)
+          .otherwise(() => vscode.ViewColumn.Active),
+      )
+      if (line) {
+        const [startLine, endLine] = line
+        const startPos = new vscode.Position(Math.max(0, startLine - 1), 0)
+        const endPos = new vscode.Position(Math.max(0, endLine - 1), Number.MAX_SAFE_INTEGER)
+        editor.selection = new vscode.Selection(startPos, endPos)
+        editor.revealRange(new vscode.Range(startPos, endPos), vscode.TextEditorRevealType.InCenter)
+      }
+    } catch {
+      // 文件不存在或无法打开时静默忽略
+    }
+  }
+
+  async function openDiffInEditor(
+    data:
+      | {
+          file_path: string
+          old_string: string
+          new_string: string
+          status: 'pending' | 'success' | 'error'
+        }
+      | { file_path: string; edits: RunEditOp[] },
+  ) {
+    const { file_path } = data
+    const ext = file_path.split('.').pop()?.toLowerCase() ?? ''
+    const folders = vscode.workspace.workspaceFolders
+    const fileUri = path.isAbsolute(file_path)
+      ? vscode.Uri.file(file_path)
+      : vscode.Uri.joinPath(folders?.[0]?.uri ?? vscode.Uri.file(''), file_path)
+    const title = `Diff: ${file_path}`
+    const key = crypto.randomUUID()
+    const virtualUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${key}.${ext}`)
+    try {
+      const rawBytes = await vscode.workspace.fs.readFile(fileUri)
+      // 统一为 \n —— 磁盘文件可能带 \r\n（Windows），SDK 的 old_string/new_string 始终用 \n，不统一会导致 replace 静默失败
+      const fileText = Buffer.from(rawBytes).toString('utf-8').replace(/\r\n/g, '\n')
+      if ('edits' in data) {
+        // 多编辑：从当前文件反向还原所有 edit（逆序，new_string → old_string）得到 before 状态
+        let before = fileText
+        for (const edit of [...data.edits].reverse()) {
+          before = edit.replace_all
+            ? before.replaceAll(edit.new_string, edit.old_string)
+            : before.replace(edit.new_string, edit.old_string)
+        }
+        diffVirtualDocs.set(virtualUri.toString(), before)
+        await vscode.commands.executeCommand('vscode.diff', virtualUri, fileUri, title)
+      } else {
+        const { old_string, new_string, status } = data
+        if (status === 'success') {
+          diffVirtualDocs.set(virtualUri.toString(), fileText.replace(new_string, old_string))
+          await vscode.commands.executeCommand('vscode.diff', virtualUri, fileUri, title)
+        } else {
+          diffVirtualDocs.set(virtualUri.toString(), fileText.replace(old_string, new_string))
+          await vscode.commands.executeCommand('vscode.diff', fileUri, virtualUri, title)
+        }
+      }
+    } catch {
+      // 文件不存在或 diff 编辑器打开失败时静默忽略
+    }
+  }
 
   const postMessageToWebview = (msg: ExtensionToWebviewMessage) => {
     if (msg.type === 'batchMessages') {
@@ -580,58 +664,43 @@ export function activate(context: vscode.ExtensionContext) {
           }
         })
         .with({ type: 'openFile' }, async ({ data }) => {
-          const { filename, line, placement } = data
-          const folders = vscode.workspace.workspaceFolders
-          if (!path.isAbsolute(filename) && !folders?.length) return
-          try {
-            const uri = path.isAbsolute(filename)
-              ? vscode.Uri.file(filename)
-              : vscode.Uri.joinPath(folders![0].uri, filename)
-            const doc = await vscode.workspace.openTextDocument(uri)
-            const editor = await vscode.window.showTextDocument(
-              doc,
-              match(placement)
-                .with('beside', () => vscode.ViewColumn.Beside)
-                .otherwise(() => vscode.ViewColumn.Active),
-            )
-            if (line) {
-              const [startLine, endLine] = line
-              const startPos = new vscode.Position(Math.max(0, startLine - 1), 0)
-              const endPos = new vscode.Position(Math.max(0, endLine - 1), Number.MAX_SAFE_INTEGER)
-              editor.selection = new vscode.Selection(startPos, endPos)
-              editor.revealRange(
-                new vscode.Range(startPos, endPos),
-                vscode.TextEditorRevealType.InCenter,
-              )
-            }
-          } catch {
-            // 文件不存在或无法打开时静默忽略
-          }
+          await openFileInEditor(data)
         })
         .with({ type: 'openDiff' }, async ({ data }) => {
-          const { file_path, old_string, new_string, status } = data
-          const ext = file_path.split('.').pop()?.toLowerCase() ?? ''
-          const folders = vscode.workspace.workspaceFolders
-          const fileUri = path.isAbsolute(file_path)
-            ? vscode.Uri.file(file_path)
-            : vscode.Uri.joinPath(folders?.[0]?.uri ?? vscode.Uri.file(''), file_path)
-          const title = `Diff: ${file_path}`
-          const key = crypto.randomUUID()
-          const virtualUri = vscode.Uri.parse(`${DIFF_SCHEME}://diff/${key}.${ext}`)
-          try {
-            const rawBytes = await vscode.workspace.fs.readFile(fileUri)
-            // 统一为 \n —— 磁盘文件可能带 \r\n（Windows），SDK 的 old_string/new_string 始终用 \n，不统一会导致 replace 静默失败
-            const fileText = Buffer.from(rawBytes).toString('utf-8').replace(/\r\n/g, '\n')
-            if (status === 'success') {
-              diffVirtualDocs.set(virtualUri.toString(), fileText.replace(new_string, old_string))
-              await vscode.commands.executeCommand('vscode.diff', virtualUri, fileUri, title)
-            } else {
-              diffVirtualDocs.set(virtualUri.toString(), fileText.replace(old_string, new_string))
-              await vscode.commands.executeCommand('vscode.diff', fileUri, virtualUri, title)
+          await openDiffInEditor(data)
+        })
+        .with({ type: 'showRunDiff' }, async ({ data }) => {
+          // 从运行态取该 run 的 messages
+          const flowState = flowRunStateManager.getFlowRunStates()[data.flowId]
+          const messages = flowState?.runs.find((r) => r.runId === data.runId)?.messages
+          if (!messages) return
+
+          // 聚合成功 Edit/Write 改动的文件
+          const map = new Map<string, RunChangedFile>()
+          for (const m of messages) {
+            if (m.kind !== 'tool_use') continue
+            if (m.toolName !== 'Edit' && m.toolName !== 'Write') continue
+            if (m.status !== 'done' || m.result === undefined || m.result.isError) continue
+            const input = m.input as Record<string, unknown>
+            const filePath = input.file_path
+            if (typeof filePath !== 'string') continue
+
+            if (!map.has(filePath)) {
+              map.set(filePath, { filePath, changeKind: 'new', edits: [] })
             }
-          } catch {
-            // 文件不存在或 diff 编辑器打开失败时静默忽略
+            const entry = map.get(filePath)!
+            if (m.toolName === 'Edit') {
+              entry.edits.push({
+                old_string: String(input.old_string ?? ''),
+                new_string: String(input.new_string ?? ''),
+                replace_all: !!input.replace_all,
+              })
+              entry.changeKind = 'modified'
+            }
+            // Write：此前无 Edit 则 changeKind 保持 'new'；已含 Edit 则保持 'modified'
           }
+          fileChangeTreeProvider.setChanges([...map.values()])
+          await vscode.commands.executeCommand('agent-flow.runChanges.focus')
         })
         .with({ type: P.string.startsWith('flow.command.') }, async (e) => {
           // fork 是特殊命令：不走 runner，由 extension 自己处理 SDK forkSession
@@ -660,10 +729,35 @@ export function activate(context: vscode.ExtensionContext) {
       currentPanel = undefined
       webviewReady = false
       pendingMessages = []
-      // 故意不 disposeAll：runner 与 flowStateManager 在 webview 关闭后继续工作，
-      // 下次重新打开 panel 时通过 load 把当前状态发回 webview。
     })
   })
+
+  const openRunFile = vscode.commands.registerCommand(
+    'agent-flow.openRunFile',
+    async (data: {
+      filename: string
+      line?: [number, number]
+      placement?: 'active' | 'beside'
+    }) => {
+      await openFileInEditor(data)
+    },
+  )
+
+  const openRunDiffFile = vscode.commands.registerCommand(
+    'agent-flow.openRunDiffFile',
+    async (
+      data:
+        | {
+            file_path: string
+            old_string: string
+            new_string: string
+            status: 'pending' | 'success' | 'error'
+          }
+        | { file_path: string; edits: RunEditOp[] },
+    ) => {
+      await openDiffInEditor(data)
+    },
+  )
 
   const addSelectionToInput = vscode.commands.registerCommand(
     'agent-flow.addSelectionToInput',
@@ -695,10 +789,17 @@ export function activate(context: vscode.ExtensionContext) {
       currentPanel?.reveal(undefined, true)
     },
   )
+  const fileChangeTreeProvider = new FileChangeTreeProvider(workspaceRoot)
+  const fileChangesView = vscode.window.createTreeView('agent-flow.runChanges', {
+    treeDataProvider: fileChangeTreeProvider,
+  })
 
   context.subscriptions.push(
     openPanel,
+    openRunFile,
+    openRunDiffFile,
     addSelectionToInput,
+    fileChangesView,
     vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, {
       provideTextDocumentContent(uri) {
         return diffVirtualDocs.get(uri.toString()) ?? ''

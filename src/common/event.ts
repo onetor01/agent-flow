@@ -57,6 +57,8 @@ export type ExtensionFromWebviewEvents = {
   previewAttachment: { name: string; content: string }
   /** 打开 VSCode diff 编辑器展示文件变更 */
   openDiff: { file_path: string; old_string: string; new_string: string; status: 'pending' | 'success' | 'error' }
+  /** 展示指定 run 的文件变更侧边栏视图 */
+  showRunDiff: { flowId: string; runId: string }
 } & ExtensionFlowCommandEvents
 
 /** extension发出 webview接受的消息 */
