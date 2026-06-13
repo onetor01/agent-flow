@@ -207,8 +207,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       // 展开态直接插入message
       items.push(...messages.map((m) => ({ runId, message: m })))
     })
-    const lastRunCompleted = runs.at(-1)?.completed
-    if (loading && !lastRunCompleted) {
+    if (loading) {
       items.push({ message: { kind: 'loading', id: `__loading__` } })
     }
     return items

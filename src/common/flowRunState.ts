@@ -3,9 +3,9 @@ import type {
   SDKPartialAssistantMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
-import { z } from 'zod'
 import { produce } from 'immer'
 import { match, P } from 'ts-pattern'
+import { z } from 'zod'
 import type {
   AIMessageType,
   ExtensionFlowCommandMessage,
@@ -328,7 +328,7 @@ export type PendingToolPermission = {
 export type FlowRunState = {
   /** killFlow 后置 true;[getRunPhase] 据此把所有非终态 run 投影为 stopped */
   killed: boolean
-  /** 按追加顺序排列的 AgentRun;首项是 flowStart 创建,后续由 next_agent */
+  /** 按追加顺序排列的 AgentRun;由 flowStart / next_agent 追加 */
   runs: AgentRun[]
   /**
    * 已回答的工具权限请求:toolUseId -> { allow, updatedInput },用于 UI 回显历史态。
@@ -447,7 +447,6 @@ function pushStreamItem(
   run.acc.activeBlocks[blockKey] = idx
   return idx
 }
-
 
 /** content_block_delta:按 blockKey 取项累加;项不存在则 lazy-create */
 function applyDelta(
@@ -746,7 +745,7 @@ function applyResultToAcc(
  * - command 路径：webview 发出前 / extension 收到后各 reduce 一次
  *
  * 特殊入口（绕过终态守卫）：
- * - `flow.command.flowStart`：覆盖式初始化,以 msg.data.runId 为主键创建首个 AgentRun
+ * - `flow.command.flowStart`：追加 AgentRun,保留 messages / shareValues
  * - `killFlow`：任意状态下幂等,所有 run 转 stopped
  *
  * 终态守卫：所有 run 都处于 stopped/completed/error 时,其余消息直接忽略。
@@ -762,55 +761,8 @@ export function updateFlowRunState(
   const effects: MessageEffect[] = []
   const { flows, state } = options
 
-  // ── command.flowStart：覆盖式初始化（可在任何 state 下进入，包括 undefined） ──
+  // ── command.flowStart：追加新 run（可在任何 state 下进入，包括 undefined / 终态） ──
   if (msg.type === 'flow.command.flowStart') {
-    const baseValues = state?.shareValues ?? {}
-    const startAgent = flows
-      .find((f) => f.id === msg.data.flowId)
-      ?.agents?.find((a) => a.id === msg.data.agentId)
-    const injectedShareValues =
-      startAgent?.node_type === 'code'
-        ? { ...baseValues }
-        : startAgent
-          ? pickInjectedShareValues(startAgent.allowed_read_values_keys ?? [], baseValues)
-          : undefined
-    const firstRun: AgentRun = {
-      runId: msg.data.runId,
-      agentId: msg.data.agentId,
-      sessionId: undefined,
-      messages: [],
-      completed: false,
-      acc: emptyAcc(),
-    }
-    // 把 initMessage 累加为首条 user 项（替代直接塞 raw signal）
-    appendSdkMessage(firstRun, msg.data.initMessage, injectedShareValues)
-    const fresh: FlowRunState = {
-      killed: false,
-      runs: [firstRun],
-      answeredToolPermissions: {},
-      pendingToolPermissions: [],
-      shareValues: baseValues,
-    }
-    return { state: fresh, effects }
-  }
-
-  if (msg.type === 'flow.command.setShareValues') {
-    const base: FlowRunState = {
-      killed: false,
-      runs: [],
-      answeredToolPermissions: {},
-      pendingToolPermissions: [],
-      ...state,
-      shareValues: msg.data.values,
-    }
-    return { state: base, effects }
-  }
-
-  if (msg.type === 'flow.command.clearFlow') {
-    return { state: undefined, effects }
-  }
-
-  if (msg.type === 'flow.command.continueFlow') {
     const baseValues = state?.shareValues ?? {}
     const startAgent = flows
       .find((f) => f.id === msg.data.flowId)
@@ -829,15 +781,32 @@ export function updateFlowRunState(
       completed: false,
       acc: emptyAcc(),
     }
+    // 把 initMessage 累加为首条 user 项（替代直接塞 raw signal）
     appendSdkMessage(newRun, msg.data.initMessage, injectedShareValues)
-    const continued: FlowRunState = {
+    const started: FlowRunState = {
       killed: false,
       runs: [...(state?.runs ?? []), newRun],
       answeredToolPermissions: state?.answeredToolPermissions ?? {},
       pendingToolPermissions: [],
       shareValues: baseValues,
     }
-    return { state: continued, effects }
+    return { state: started, effects }
+  }
+
+  if (msg.type === 'flow.command.setShareValues') {
+    const base: FlowRunState = {
+      killed: false,
+      runs: [],
+      answeredToolPermissions: {},
+      pendingToolPermissions: [],
+      ...state,
+      shareValues: msg.data.values,
+    }
+    return { state: base, effects }
+  }
+
+  if (msg.type === 'flow.command.clearFlow') {
+    return { state: undefined, effects }
   }
 
   if (!state) return { state: undefined, effects }
@@ -881,6 +850,10 @@ export function updateFlowRunState(
     // ── command.killFlow:任何状态下强制终止（包括终态,幂等） ──────────
     if (msg.type === 'flow.command.killFlow') {
       draft.killed = true
+      const lastRun = draft.runs.at(-1)
+      if (lastRun && !lastRun.completed && !lastRun.error) {
+        lastRun.interrupted = true
+      }
       clearPendings()
       return
     }
@@ -1102,43 +1075,23 @@ export function getRunPhase(run: AgentRun, state: FlowRunState): AgentPhase {
   return last.kind === 'turn_end' ? 'result' : 'running'
 }
 
-/**
- * 按多 run 优先级聚合 phase —— Flow 与 Agent 同用此函数（FlowPhase ≡ AgentPhase）。
- *
- * 优先级:error > awaiting-tool-permission > result > running > starting >
- * interrupted > stopped > completed。
- */
-function aggregatePhase(phases: AgentPhase[]): FlowPhase {
-  if (phases.length === 0) return 'idle'
-  if (phases.includes('error')) return 'error'
-  const order: AgentPhase[] = [
-    'awaiting-tool-permission',
-    'result',
-    'running',
-    'starting',
-    'interrupted',
-  ]
-  for (const phase of order) {
-    if (phases.includes(phase)) return phase
-  }
-  if (phases.includes('stopped')) return 'stopped'
-  if (phases.includes('completed')) return 'completed'
-  return 'idle'
-}
-
 // ── Selector ────────────────────────────────────────────────────────────────
+
+// 同一时间最多有一个活跃的run 取最后一个即可
 
 export function getFlowPhase(state: FlowRunState | undefined): FlowPhase {
   if (!state) return 'idle'
-  return aggregatePhase(state.runs.map((r) => getRunPhase(r, state)))
+  const lastRun = state.runs.at(-1)
+  if (!lastRun) return 'idle'
+  return getRunPhase(lastRun, state)
 }
 
 /** 取该 agent 所有 run 的 phase 聚合;该 agent 无 run 则 idle */
 export function getAgentPhase(state: FlowRunState | undefined, agentId: string): AgentPhase {
   if (!state) return 'idle'
-  return aggregatePhase(
-    state.runs.filter((r) => r.agentId === agentId).map((r) => getRunPhase(r, state)),
-  )
+  const lastRun = state.runs.filter((r) => r.agentId === agentId).at(-1)
+  if (!lastRun) return 'idle'
+  return getRunPhase(lastRun, state)
 }
 
 const EMPTY_PENDING_TOOL_PERMISSIONS: PendingToolPermission[] = []

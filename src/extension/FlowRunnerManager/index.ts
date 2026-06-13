@@ -92,14 +92,6 @@ export class FlowRunnerManager {
         const { flowId } = data as ExtensionFlowCommandEvents['flow.command.clearFlow']
         this.disposeRunner(flowId)
       })
-      .with('flow.command.continueFlow', () => {
-        const { flowId, runId, agentId, initMessage } =
-          data as ExtensionFlowCommandEvents['flow.command.continueFlow']
-        this.disposeRunner(flowId)
-        const runner = this.createRunner(flowId)
-        this.runners.set(flowId, runner)
-        runner.emit('flow.command.flowStart', { runId, agentId, initMessage })
-      })
       .exhaustive()
   }
 

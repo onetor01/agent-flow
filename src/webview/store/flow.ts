@@ -83,7 +83,6 @@ type FlowStoreType = StoreState & {
   interruptAgent: (flowId: string, runId: string) => void
   killFlow: (flowId: string) => void
   clearFlow: (flowId: string) => void
-  continueFlow: (flowId: string, agentId: string, initMessage: UserMessageType) => void
   setShareValues: (flowId: string, values: Record<string, string>) => boolean
   /**
    * 触发会话 fork —— 从源 Flow 当前 transcript 切片复制出新 Flow。
@@ -343,8 +342,10 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       postMessageToExtension({ type: 'load', data: undefined })
       return cleanup
     },
+    // 运行flow前总是kill旧的
     runFlow: (flowId, agentId, initMessage) => {
-      const { flows } = get()
+      const { flows, killFlow } = get()
+      killFlow(flowId)
       const flow = flows.find((f) => f.id === flowId)
       if (!flow) return
       const agent = flow.agents?.find((a) => a.id === agentId)
@@ -466,24 +467,6 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
         data: { flowId },
       })
       destroyFlowNotifications(flowId)
-    },
-    continueFlow: (flowId, agentId, initMessage) => {
-      const { flows } = get()
-      const flow = flows.find((f) => f.id === flowId)
-      if (!flow) return
-      const agent = flow.agents?.find((a) => a.id === agentId)
-      const effectiveInitMessage: UserMessageType = agent?.no_input
-        ? {
-            type: 'user',
-            message: { role: 'user', content: '执行任务' },
-            parent_tool_use_id: null,
-          }
-        : initMessage
-      const runId = crypto.randomUUID()
-      dispatchCommand({
-        type: 'flow.command.continueFlow',
-        data: { flowId, runId, agentId, initMessage: effectiveInitMessage },
-      })
     },
     setShareValues: (flowId, values) => {
       dispatchCommand({

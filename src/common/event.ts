@@ -195,7 +195,7 @@ export type ExtensionFlowSignalMessage = EventMessageType<ExtensionFlowSignalEve
 type FlowCommandPayload = {
   /**
    * webview 发起启动:webview 生成 runId 随 command 下发,作为本次 run 的唯一主键。
-   * reducer 收到后覆盖式重置 runs/answered/pendings,并以 runId 创建首个 AgentRun。
+   * reducer 收到后在已有 state 基础上追加 AgentRun,保留 messages 和 shareValues。
    */
   flowStart: {
     runId: string
@@ -241,12 +241,6 @@ type FlowCommandPayload = {
   }
   /** 清空 Flow：销毁 FlowRunner，清除全部对话记录和 shareValues，仅需 flowId */
   clearFlow: object
-  /** 在已有 state 基础上追加新 AgentRun，保留 shareValues 和 answeredToolPermissions */
-  continueFlow: {
-    runId: string
-    agentId: string
-    initMessage: UserMessageType
-  }
 }
 
 /** FlowRunner 内部指令（不含 flowId） */

@@ -636,7 +636,7 @@ export function activate(context: vscode.ExtensionContext) {
             await handleFork(e.data as ExtensionFlowCommandEvents['flow.command.fork'])
             return
           }
-          // 先镜像到 state（flowStart 路径的覆盖式初始化也由 reducer 完成；killFlow 会置 stopped）
+          // 先镜像到 state（flowStart 追加新 run；killFlow 会置 stopped）
           flowRunStateManager.applyCommand(e as ExtensionFlowCommandMessage)
           const { type, data } = e
           if (type === 'flow.command.flowStart') {
