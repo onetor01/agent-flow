@@ -607,7 +607,7 @@ export function chatMessageToBubble(
       const effectiveAnswered = answered
         ? { allow: answered.allow, reason: answered.message }
         : message.status === 'done'
-          ? { allow: !message.result?.isError }
+          ? { allow: !message.result?.isError, reason: message.result?.text }
           : message.status === 'interrupted'
             ? { allow: false }
             : undefined
@@ -750,7 +750,7 @@ export function chatMessageToBubble(
               toolName='ExitPlanMode'
               input={message.input}
               mode='historical'
-              answered={answered ? { allow: answered.allow, reason: answered.message } : undefined}
+              answered={effectiveAnswered}
               loading={isAnsweredAwaitingResult}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
               fork={fork}
