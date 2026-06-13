@@ -1,6 +1,7 @@
 import { useCallback, useImperativeHandle, useMemo, useRef, useState, type FC } from 'react'
 import { App, Button, Skeleton, Tag, Tooltip } from 'antd'
 import {
+  ClearOutlined,
   CloseOutlined,
   PauseCircleOutlined,
   RobotOutlined,
@@ -296,7 +297,7 @@ export const ChatPanel: FC<Props> = ({
               <Button
                 size='small'
                 type='text'
-                icon={<PauseCircleOutlined />}
+                icon={<StopOutlined />}
                 onClick={() => killFlow(flowId)}
               />
             </Tooltip>
@@ -307,7 +308,7 @@ export const ChatPanel: FC<Props> = ({
                 size='small'
                 danger
                 type='text'
-                icon={<StopOutlined />}
+                icon={<ClearOutlined />}
                 onClick={() =>
                   modal.confirm({
                     title: '确认清空',
