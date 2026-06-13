@@ -172,8 +172,8 @@ export const ChatPanel: FC<Props> = ({
   const showCard = mergedInput.questions.length > 0
 
   const messageListRef = useRef<MessageListRef>(null)
-  const scrollToBottom = useCallback(() => {
-    messageListRef.current?.scrollToBottom()
+  const reFocus = useCallback(() => {
+    messageListRef.current?.reFocus()
   }, [])
 
   const onActiveSubmit = useCallback(
@@ -200,19 +200,19 @@ export const ChatPanel: FC<Props> = ({
         })
       }
 
-      scrollToBottom()
+      reFocus()
     },
-    [answerToolPermission, flowId, pendingQuestions, scrollToBottom],
+    [answerToolPermission, flowId, pendingQuestions, reFocus],
   )
 
   useImperativeHandle(
     ref,
     () => ({
       forceScrollToBottom: () => {
-        scrollToBottom()
+        reFocus()
       },
     }),
-    [scrollToBottom],
+    [reFocus],
   )
 
   const onViewPlan = useCallback((planFilePath: string) => {

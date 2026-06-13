@@ -46,6 +46,7 @@ type RenderItem = { runId?: string; message: RenderMessage }
 export type MessageListRef = {
   scrollBoxNativeElement: HTMLElement | null
   scrollToBottom: (behavior?: 'auto' | 'smooth') => void
+  reFocus: () => void
 }
 
 type Props = {
@@ -265,8 +266,6 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   }, [flowId, agentId, runId, renderItems])
 
   const scrollerElRef = useRef<HTMLDivElement | null>(null)
-  // 是否粘底:用户向上滚则置 false,滚回底部 32px 内置 true
-  const shouldScrollRef = useRef(true)
 
   const virtualizer = useVirtualizer({
     count: renderItems.length,
@@ -295,12 +294,19 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior })
   })
-
-  useLayoutEffect(() => {
-    if (!shouldScrollRef.current) return
+  // 是否粘底:用户向上滚则置 false,滚回底部 32px 内置 true
+  const shouldFocusRef = useRef(true)
+  // 重新聚焦
+  const reFocus = useMemoizedFn(() => {
+    setExpandedRunId(undefined)
+    shouldFocusRef.current = true
     scrollToEnd()
+  })
+  useLayoutEffect(() => {
+    if (!shouldFocusRef.current) return
+    reFocus()
     // 有AI消息/首次进入/渲染变化时滚动
-  }, [renderItems, totalSize, scrollToEnd])
+  }, [renderItems, totalSize, scrollToEnd, reFocus])
 
   useImperativeHandle(
     ref,
@@ -309,11 +315,12 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         return scrollerElRef.current
       },
       scrollToBottom(behavior: 'auto' | 'smooth' = 'auto') {
-        shouldScrollRef.current = true
+        shouldFocusRef.current = true
         setTimeout(() => scrollToEnd(behavior))
       },
+      reFocus,
     }),
-    [scrollToEnd],
+    [reFocus, scrollToEnd],
   )
 
   return (
@@ -321,7 +328,7 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
       ref={scrollerElRef}
       onScroll={(e) => {
         const dom = e.target as HTMLDivElement
-        shouldScrollRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
+        shouldFocusRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
       }}
       className='chat-bubble-compact min-h-0 flex-1 overflow-x-hidden overflow-y-auto'
     >
@@ -342,7 +349,13 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
                 runId={item.runId}
                 message={item.message}
                 ctx={ctx}
-                setExpandedRunId={setExpandedRunId}
+                setExpandedRunId={(id) => {
+                  setExpandedRunId(id)
+                  if (id !== runs.at(-1)?.runId) return
+                  const dom = scrollerElRef.current
+                  if (!dom) return
+                  shouldFocusRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
+                }}
               />
             </div>
           )
