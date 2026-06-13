@@ -13,6 +13,7 @@ import type { Flow, FlowPhase } from '@/common'
 import { stripFlowRuntimeFields } from '@/common'
 import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
+import { CopyButton } from '../text-components'
 
 const PHASE_CONFIG: Record<
   Exclude<FlowPhase, 'idle'>,
@@ -168,9 +169,10 @@ export const SortableFlowItem: FC<SortableFlowItemProps> = (props) => {
             }}
             className='text-[#a6adc8]! opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#89b4fa]!'
           />
-          {/* <Typography.Text
-            copyable={{ tooltips: false, text: () => JSON.stringify(stripFlowRuntimeFields(flow), null, 2) }}
-          /> */}
+          <CopyButton
+            className='text-[#a6adc8]! opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#89b4fa]!'
+            text={() => JSON.stringify(stripFlowRuntimeFields(flow), null, 2)}
+          />
           <DeleteOutlined className='text-[#a6adc8]! hover:text-[#f38ba8]!' onClick={onDelete} />
         </span>
       </div>
