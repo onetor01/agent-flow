@@ -16,6 +16,11 @@ export function log(...args: unknown[]): void {
   channel?.appendLine(args.map(formatArg).join(' '))
 }
 
+export function clearLog() {
+  console.clear()
+  channel?.clear()
+}
+
 export function logError(...args: unknown[]): void {
   channel?.appendLine('[ERROR] ' + args.map(formatArg).join(' '))
 }

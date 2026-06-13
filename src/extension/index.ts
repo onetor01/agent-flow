@@ -20,7 +20,7 @@ import { FlowRunStateManager } from './FlowRunStateManager'
 import { FlowRunnerManager } from './FlowRunnerManager'
 import { PersistedDataController } from './PersistedDataController'
 import { defaultStore } from './PersistedDataController/defaultStore'
-import { initLogger, log, logError, summarizeLogPayload } from './logger'
+import { clearLog, initLogger, log, logError, summarizeLogPayload } from './logger'
 
 /** 扩展名 → VSCode languageId（仅覆盖常见语言，未命中时保持 plaintext） */
 const LANG_BY_EXT: Record<string, string> = {
@@ -127,6 +127,9 @@ export function activate(context: vscode.ExtensionContext) {
     if (msg.type !== 'flow.signal.aiMessage' || msg.data.message.type !== 'stream_event') {
       // 非流式消息直接发送
       flushMessages.flush()
+    }
+    if (msg.type === 'flow.signal.flowStart') {
+      clearLog()
     }
   }
   const flushMessages = throttle(
