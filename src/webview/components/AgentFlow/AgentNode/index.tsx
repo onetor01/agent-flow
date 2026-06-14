@@ -89,7 +89,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
         )}
       >
         {/* target handle：只接受连线，不允许从此拖出连线 */}
-        <Tooltip title={agent?.no_input ? '无输入' : '接受输入'}>
+        <Tooltip title={agent?.no_input ? '无输入' : '接受输入'} mouseEnterDelay={0.5}>
           <Handle
             type='target'
             position={Position.Left}
@@ -252,6 +252,9 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                       <span
                         className={cn(
                           'relative inline-flex cursor-pointer items-center text-[#89b4fa] hover:text-[#f9e2af]',
+                          {
+                            'text-[#f38ba8]': agent.work_mode === 'silent_task',
+                          },
                         )}
                         onClick={(e) => {
                           e.stopPropagation()
