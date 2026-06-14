@@ -301,7 +301,7 @@ function MessageListInner({ flowId, agentId, runId, onSend, ref }: Props) {
   const reFocus = useMemoizedFn(() => {
     setExpandedRunId(undefined)
     shouldFocusRef.current = true
-    scrollToEnd()
+    setTimeout(scrollToEnd)
   })
   useLayoutEffect(() => {
     if (!shouldFocusRef.current) return
@@ -363,10 +363,7 @@ function MessageListInner({ flowId, agentId, runId, onSend, ref }: Props) {
                   setExpandedRunId={(id) => {
                     setExpandedRunId(id)
                     if (id !== runs.at(-1)?.runId) return
-                    const dom = scrollerElRef.current
-                    if (!dom) return
-                    shouldFocusRef.current =
-                      dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
+                    reFocus()
                   }}
                 />
               </div>
