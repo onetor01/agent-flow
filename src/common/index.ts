@@ -570,37 +570,38 @@ export function buildAgentSystemPrompt(
 
   // ── 顶部：配置无关、跨 Agent 不变 ────────────────────────────────────────
   const lines: string[] = [
-    '中文思考与回复，简洁输出，直接给代码或结果，不解释推导过程。',
-    '理解用户真实需求，精确改动相关代码。',
-    '**禁止**主动优化、重构或任何无关改动，严格遵循代码库既有规范与风格。',
-    '**禁止**道歉、表明身份、免责声明等与任务无关的内容。',
-    '改动代码前**必须**先阅读所有调用方，理解代码含义与影响范围后再动手。',
+    '中文思考与回复，简洁输出，直接给代码或结果，不解释推导过程',
+    '引用文件采用markdown格式`[file_path:line_number](file_path:line_number)`，引用整份文件不需要line_number',
+    '理解用户真实需求，精确改动相关代码',
+    '**禁止**主动优化、重构或任何无关改动，严格遵循代码库既有规范与风格',
+    '**禁止**道歉、表明身份、免责声明等与任务无关的内容',
+    '改动代码前**必须**先阅读所有调用方，理解代码含义与影响范围后再动手',
   ]
 
   // ── 中部：agent 配置相关、运行中不变 ─────────────────────────────────────
   match(work_mode)
     .with('task', () => {
       lines.push(
-        '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
-        `遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户${agent.no_output ? '' : '，或写入 mcp__AgentControllerMcp__CompleteTask 的 `content`'}，**禁止**静默忽略或绕开。`,
+        '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户',
+        `遇到冲突、歧义或无法满足的需求**必须**明确暴露：通过 AskUserQuestion 询问用户${agent.no_output ? '' : '，或写入 mcp__AgentControllerMcp__CompleteTask 的 `content`'}，**禁止**静默忽略或绕开`,
       )
     })
     .with('chat', () => {
       lines.push(
-        '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户。',
-        '遇到冲突、歧义或无法满足的需求**必须**明确告知用户，**禁止**静默忽略或绕开。',
+        '**禁止**凭空推测，使用 Tool 获取有效信息，或使用 AskUserQuestion 询问用户',
+        '遇到冲突、歧义或无法满足的需求**必须**明确告知用户，**禁止**静默忽略或绕开',
       )
     })
     .with('silent_task', () => {
       lines.push(
-        '**禁止**凭空推测，必须通过 Tool 获取有效信息。',
-        '**自行决策**，避免使用 AskUserQuestion，不询问用户意见。',
-        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 mcp__AgentControllerMcp__CompleteTask 的 `content`，**禁止**静默忽略。',
+        '**禁止**凭空推测，必须通过 Tool 获取有效信息',
+        '**自行决策**，避免使用 AskUserQuestion，不询问用户意见',
+        '决策中遇到的冲突、歧义、风险或不确定项**必须**完整写入 mcp__AgentControllerMcp__CompleteTask 的 `content`，**禁止**静默忽略',
       )
     })
     .exhaustive()
 
-  // 可读写数据：合并节，集中声明 key 含义，再分列读 / 写授权。chat 不能写
+  // 可读写数据：合并节，集中声明 key 含义，再分列读 / 写授权chat 不能写
   const descByKey = new Map<string, string | undefined>(
     (shareValueKeys ?? []).map((k) => [k.key, k.desc]),
   )
@@ -614,7 +615,7 @@ export function buildAgentSystemPrompt(
     lines.push(
       '# 外部数据',
       '## key 和语义',
-      '本次会话中会出现外部数据，它们的key和语义如下。可以通过语义引用这些数据。',
+      '本次会话中会出现外部数据，它们的key和语义如下可以通过语义引用这些数据',
     )
     lines.push(...declaredKeys.map(keyLine))
     if (allowed_read_values_keys.length > 0) {
@@ -624,7 +625,7 @@ export function buildAgentSystemPrompt(
     if (writableKeys.length > 0) {
       lines.push(
         '### 可写数据',
-        `当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 mcp__AgentControllerMcp__CompleteTask 工具的 \`values\` 参数输出${agent.no_output ? '' : '，仅在 `content` 里描述不算写入'}。`,
+        `当用户要求"记录"、"保存"或"写入"以下任一 key(或对应语义)的值时，**必须**通过 mcp__AgentControllerMcp__CompleteTask 工具的 \`values\` 参数输出${agent.no_output ? '' : '，仅在 `content` 里描述不算写入'}`,
         ...writableKeys.map((k) => `  - ${k}`),
         '#### 写入说明',
         '- 仅可写入上述列出的 key',
@@ -643,23 +644,23 @@ export function buildAgentSystemPrompt(
         lines.push('# 对话规则', agent_prompt)
       })
       .with(P.union('silent_task', 'task'), (mode) => {
-        lines.push('# 对话规则', '下方「任务描述」是本次会话的**最终目标**，全程固定不变。')
+        lines.push('# 对话规则', '下方「任务描述」是本次会话的**最终目标**，全程固定不变')
         if (mode === 'task') {
           lines.push(
-            '你需要围绕该目标与用户进行多轮对话：根据用户输入主动推进、必要时使用 AskUserQuestion 向用户收集信息、读取文件或调用工具补全上下文，直到达成结束条件。',
+            '你需要围绕该目标与用户进行多轮对话：根据用户输入主动推进、必要时使用 AskUserQuestion 向用户收集信息、读取文件或调用工具补全上下文，直到达成结束条件',
           )
         }
         if (mode === 'silent_task') {
-          lines.push('你需要围绕该目标，充分利用自身能力推进任务，自行决策，避免询问用户。')
+          lines.push('你需要围绕该目标，充分利用自身能力推进任务，自行决策，避免询问用户')
         }
         lines.push(
           '## 任务描述',
           agent_prompt,
           '## 完成任务',
-          '一旦达成「任务描述」的结束条件，**立即**调用 mcp__AgentControllerMcp__CompleteTask 工具提交结果并选择输出分支。',
+          '一旦达成「任务描述」的结束条件，**立即**调用 mcp__AgentControllerMcp__CompleteTask 工具提交结果并选择输出分支',
           '## 输出分支',
           outputs.length === 0
-            ? '此任务没有输出分支。'
+            ? '此任务没有输出分支'
             : outputs
                 .map((o) => `  - "${o.output_name}"${o.output_desc ? `: ${o.output_desc}` : ''}`)
                 .join('\n'),
@@ -671,7 +672,7 @@ export function buildAgentSystemPrompt(
   if (work_mode === 'task' || work_mode === 'silent_task') {
     lines.push(
       '# **停止会话**',
-      '**确定无法完成任务时**，调用 mcp__AgentControllerMcp__TerminateTask 工具中止任务。例如缺失关键信息且无工具可获取、环境异常、输出分支和任务执行情况偏差极大等极端情况。',
+      '**确定无法完成任务时**，调用 mcp__AgentControllerMcp__TerminateTask 工具中止任务例如缺失关键信息且无工具可获取、环境异常、输出分支和任务执行情况偏差极大等极端情况',
     )
   }
   // ── 底部：运行时可变（shareValues 快照） ────────────────────────────────

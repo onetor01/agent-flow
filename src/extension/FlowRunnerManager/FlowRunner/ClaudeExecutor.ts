@@ -560,9 +560,6 @@ export class ClaudeExecutor {
         type: 'preset',
         preset: 'claude_code',
         append: this.prompt,
-        // 把 SDK 内置的 cwd / memory / git status 等动态节剥离到首条 user message,
-        // system prompt 保住纯静态、可跨会话命中 prompt 缓存。
-        excludeDynamicSections: true,
       },
       settingSources: agent.isolation_mode ? [] : undefined,
       mcpServers: { AgentControllerMcp: this.mcpServer },
