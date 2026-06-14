@@ -620,6 +620,7 @@ export function chatMessageToBubble(
           />
         ),
       }
+      const defaultSuccessAnswered = { allow: true }
       // Edit/ExitPlanMode pending时展示在底部而不是消息队列
       // 自动失败时(例如入参有问题) 展示tooluse气泡
       // 执行成功或用户选择答案时 展示卡片
@@ -641,7 +642,7 @@ export function chatMessageToBubble(
               toolName='Edit'
               input={message.input}
               mode='historical'
-              answered={answered}
+              answered={!message.result?.isError && !answered ? defaultSuccessAnswered : answered}
               loading={isAnsweredAwaitingResult}
               editDiff={{
                 filePath: input.file_path ?? '',
@@ -667,7 +668,7 @@ export function chatMessageToBubble(
               toolName='ExitPlanMode'
               input={message.input}
               mode='historical'
-              answered={answered}
+              answered={!message.result?.isError && !answered ? defaultSuccessAnswered : answered}
               loading={isAnsweredAwaitingResult}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
               fork={fork}
