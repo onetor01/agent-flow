@@ -701,6 +701,12 @@ export function activate(context: vscode.ExtensionContext) {
           } else {
             runnerManager.handleCommand(type, data)
           }
+          // killFlow / clearFlow 不产生后续 signal，需立即触发 runStates 写盘，否则状态变更不会持久化
+          if (type === 'flow.command.clearFlow' || type === 'flow.command.killFlow') {
+            pendingProjectStatePersist = true
+            flushMessages()
+            flushMessages.flush()
+          }
         })
         .exhaustive()
     })
