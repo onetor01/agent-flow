@@ -5,7 +5,6 @@ import {
   CloseOutlined,
   PauseCircleOutlined,
   RobotOutlined,
-  SendOutlined,
   StopOutlined,
 } from '@ant-design/icons'
 import { Welcome } from '@ant-design/x'
@@ -357,12 +356,7 @@ export const ChatPanel: FC<Props> = ({
             flowId={flowId}
             agentId={agentId}
             runId={runId}
-            loading={
-              phase === 'running' ||
-              phase === 'starting' ||
-              (phase === 'awaiting-tool-permission' &&
-                !!firstPendingToolName?.includes('CompleteTask'))
-            }
+            onSend={onSend}
           />
         ))}
 
@@ -474,23 +468,6 @@ export const ChatPanel: FC<Props> = ({
             )
           })()}
       </AnimatePresence>
-
-      {/* 快捷确认/继续悬浮按钮 —— phase=result 时显示"确认",interrupted 时显示"继续" */}
-      {(phase === 'result' || phase === 'interrupted') && onSend && (
-        <Button
-          type='primary'
-          size='small'
-          className='absolute right-3 bottom-3 z-10 shadow-lg'
-          icon={<SendOutlined rotate={-90} />}
-          iconPlacement='end'
-          onClick={() => {
-            const text = phase === 'result' ? '确认' : '继续'
-            onSend(text)
-          }}
-        >
-          快捷回复:{phase === 'result' ? '确认' : '继续'}
-        </Button>
-      )}
     </div>
   )
 }

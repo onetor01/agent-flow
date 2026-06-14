@@ -8,14 +8,15 @@ import {
   useState,
   type Ref,
 } from 'react'
-import { App, Button, ConfigProvider, Divider } from 'antd'
+import { App, Button, ConfigProvider, Divider, FloatButton } from 'antd'
+import { EyeOutlined, SendOutlined } from '@ant-design/icons'
 import { Bubble } from '@ant-design/x'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemoizedFn } from 'ahooks'
 import { match } from 'ts-pattern'
 import type { ChatMessage } from '@/common'
-import { getAnsweredToolPermissions, getPendingToolPermissionsFor } from '@/common'
-import type { AgentRun } from '@/webview/store/flow'
+import { getAnsweredToolPermissions, getPendingToolPermissionsFor, getRunPhase } from '@/common'
+import type { AgentRun, AgentPhase } from '@/webview/store/flow'
 import { useFlowStore } from '@/webview/store/flow'
 import { postMessageToExtension } from '@/webview/utils'
 import {
@@ -54,7 +55,8 @@ type Props = {
   agentId: string
   /** 单 run 视图;未传则按 agentId 聚合该 agent 全部 runs */
   runId?: string
-  loading?: boolean
+  /** 快捷回复回调,仅末位 run 展开且 phase=result/interrupted 时展示悬浮按钮 */
+  onSend?: (content: string) => Promise<boolean>
   ref?: Ref<MessageListRef>
 }
 const roleStyles = {
@@ -67,7 +69,7 @@ const roleStyles = {
   system: { placement: 'start' as const, variant: 'borderless' as const },
 }
 
-function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
+function MessageListInner({ flowId, agentId, runId, onSend, ref }: Props) {
   // ── 数据订阅 —— 全部用稳定原始引用,过滤 / 转换在 useMemo 中完成 ──────────────
   const fs = useFlowStore((s) => s.flowRunStates[flowId])
   const allRuns = fs?.runs
@@ -168,6 +170,19 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
   const lastRunId = runs.at(-1)?.runId
   const effectiveExpanded = expandedRunId ?? lastRunId
 
+  // 末位 run phase —— 驱动 loading 指示器与快捷回复悬浮按钮
+  const lastRunPhase = useMemo<AgentPhase>(() => {
+    if (!fs || !lastRunId) return 'idle'
+    const lastRun = fs.runs.find((r) => r.runId === lastRunId)
+    if (!lastRun) return 'idle'
+    return getRunPhase(lastRun, fs)
+  }, [fs, lastRunId])
+
+  // loading:末位 run 处于 running/starting
+  const loading = useMemo(() => {
+    return lastRunPhase === 'running' || lastRunPhase === 'starting'
+  }, [lastRunPhase])
+
   // ── 列表项构建 ────────────
   const renderItems = useMemo<RenderItem[]>(() => {
     if (runs.length === 0) return []
@@ -220,22 +235,8 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
         }
         return
       }
-
-      // 展开态：show-diff 插到 agent_complete 之前的最后一条消息
-      messages.forEach((m, i) => {
-        if (i !== messages.length - 1 || !hasSuccessfulEdit) {
-          items.push({ runId, message: m })
-          return
-        }
-        const showDiffMsg: RenderMessage = { kind: 'show-diff', runId: run.runId, id: 'show-diff' }
-        if (m.kind === 'agent_complete') {
-          items.push({ runId, message: showDiffMsg })
-
-          items.push({ runId, message: m })
-        } else {
-          items.push({ runId, message: m })
-          items.push({ runId, message: showDiffMsg })
-        }
+      messages.forEach((m) => {
+        items.push({ runId, message: m })
       })
     })
     if (loading) {
@@ -322,45 +323,90 @@ function MessageListInner({ flowId, agentId, runId, loading, ref }: Props) {
     }),
     [reFocus, scrollToEnd],
   )
-
+  const lastRunHasSuccessfulEdit = runs
+    .at(-1)
+    ?.messages.some(
+      (m) =>
+        m.kind === 'tool_use' &&
+        m.status === 'done' &&
+        !m.result?.isError &&
+        (m.toolName === 'Edit' || m.toolName === 'Write'),
+    )
   return (
-    <div
-      ref={scrollerElRef}
-      onScroll={(e) => {
-        const dom = e.target as HTMLDivElement
-        shouldFocusRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
-      }}
-      className='chat-bubble-compact min-h-0 flex-1 overflow-x-hidden overflow-y-auto'
-    >
-      <div className='relative w-full max-w-full overflow-hidden' style={{ height: totalSize }}>
-        {virtualItems.map((vi) => {
-          const item = renderItems[vi.index]
-          return (
-            <div
-              key={vi.key}
-              data-index={vi.index}
-              ref={virtualizer.measureElement}
-              className='absolute top-0 left-0 w-full px-3 [&:has(.from-sub-agent)]:ml-4'
-              style={{ transform: `translateY(${vi.start}px)` }}
-            >
-              <Message
-                flowId={flowId}
-                agentId={agentId}
-                runId={item.runId}
-                message={item.message}
-                ctx={ctx}
-                setExpandedRunId={(id) => {
-                  setExpandedRunId(id)
-                  if (id !== runs.at(-1)?.runId) return
-                  const dom = scrollerElRef.current
-                  if (!dom) return
-                  shouldFocusRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
-                }}
-              />
-            </div>
-          )
-        })}
+    // 包装层持有 relative，FloatButton 放此层避免被滚动容器的 overflow 裁剪
+    <div className='relative flex min-h-0 flex-1 flex-col'>
+      <div
+        ref={scrollerElRef}
+        onScroll={(e) => {
+          const dom = e.target as HTMLDivElement
+          shouldFocusRef.current = dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
+        }}
+        className='chat-bubble-compact min-h-0 flex-1 overflow-x-hidden overflow-y-auto'
+      >
+        <div className='relative w-full max-w-full overflow-hidden' style={{ height: totalSize }}>
+          {virtualItems.map((vi) => {
+            const item = renderItems[vi.index]
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                className='absolute top-0 left-0 w-full px-3 [&:has(.from-sub-agent)]:ml-4'
+                style={{ transform: `translateY(${vi.start}px)` }}
+              >
+                <Message
+                  flowId={flowId}
+                  agentId={agentId}
+                  runId={item.runId}
+                  message={item.message}
+                  ctx={ctx}
+                  setExpandedRunId={(id) => {
+                    setExpandedRunId(id)
+                    if (id !== runs.at(-1)?.runId) return
+                    const dom = scrollerElRef.current
+                    if (!dom) return
+                    shouldFocusRef.current =
+                      dom.scrollHeight - dom.scrollTop - dom.clientHeight < 32
+                  }}
+                />
+              </div>
+            )
+          })}
+        </div>
       </div>
+      {/* 快捷确认/继续悬浮按钮组 最后一个run展开时可用 */}
+      {effectiveExpanded === lastRunId && (
+        <FloatButton.Group className='absolute right-3 bottom-1 text-xs [&_.ant-float-btn]:!w-7 [&_.ant-float-btn]:!h-7 [&_.ant-float-btn]:!min-h-0 [&_.ant-float-btn-body]:!w-7 [&_.ant-float-btn-body]:!h-7 [&_.ant-float-btn-icon]:!text-sm' shape='square'>
+          {lastRunHasSuccessfulEdit ? (
+            // 最后一个run进行了文件变更时展示
+            <FloatButton
+              type='primary'
+              icon={<EyeOutlined />}
+              tooltip={{ title: '查看文件变更', placement: 'left' }}
+              onClick={() => {
+                postMessageToExtension({
+                  type: 'showRunDiff',
+                  data: { flowId, runId: lastRunId! },
+                })
+              }}
+            />
+          ) : null}
+          {lastRunPhase === 'result' || lastRunPhase === 'interrupted' ? (
+            <FloatButton
+              type='primary'
+              icon={<SendOutlined rotate={-90} />}
+              tooltip={{
+                title: `快捷回复：${lastRunPhase === 'result' ? '确认' : '继续'}`,
+                placement: 'left',
+              }}
+              onClick={() => {
+                const text = lastRunPhase === 'result' ? '确认' : '继续'
+                onSend!(text)
+              }}
+            />
+          ) : null}
+        </FloatButton.Group>
+      )}
     </div>
   )
 }
