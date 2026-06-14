@@ -190,7 +190,7 @@ export const CodeEditor: FC<CodeEditorProps> = ({
   return (
     <div
       ref={containerRef}
-      className='h-full w-full'
+      className='flex-1 overflow-hidden'
       // 阻止 Form 的全局 onKeyDown 拦截 Tab（CodeMirror 需要 Tab 做缩进）
       onKeyDown={(e) => e.stopPropagation()}
     />
