@@ -1153,7 +1153,7 @@ export const flowCanBeKilled = (p: FlowPhase) =>
 
 /**
  * 恢复持久化 FlowRunState 时调用，把磁盘快照归一化为可继续对话的状态：
- * - killed=false（会话可继续）
+ * - killed 保留原值：killed=true 的 flow 恢复后仍显示 stopped（flowStart 时才重置）
  * - 未回答的挂起权限标记为拒绝（allow=false），清空 pendingToolPermissions
  * - 对未完成的 run（completed=false）：清 error/outputName，置 interrupted=true，
  *   清 acc.activeBlocks（流式占位已失效），调 markInterrupted 修复流式/挂起消息状态
@@ -1161,7 +1161,6 @@ export const flowCanBeKilled = (p: FlowPhase) =>
  */
 export function normalizeRestoredFlowRunState(state: FlowRunState): FlowRunState {
   return produce(state, (draft) => {
-    draft.killed = false
     for (const p of draft.pendingToolPermissions) {
       if (!draft.answeredToolPermissions[p.toolUseId]) {
         draft.answeredToolPermissions[p.toolUseId] = { allow: false }
