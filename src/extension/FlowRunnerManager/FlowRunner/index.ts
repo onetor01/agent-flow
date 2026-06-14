@@ -356,7 +356,7 @@ export class FlowRunner {
     }
     const executor: ClaudeExecutor = new ClaudeExecutor('eager', () => {
       // 重查最新 flow:与 lazy 路径对齐,允许 runAgent 调用前外部改动(如 save 命令)生效;
-      // ClaudeExecutor 在 canUseTool / createQuery 每次调用此闭包取最新 agent。
+      // ClaudeExecutor 在 preToolUseHook / createQuery 每次调用此闭包取最新 agent。
       const latestFlow = this.getLatestFlow()
       const found = latestFlow.agents?.find((a) => a.id === agent.id)
       const latestAgent = found && found.node_type !== 'code' ? found : agent

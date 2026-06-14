@@ -232,7 +232,12 @@ export const AgentEditor: FC = () => {
                     classNames: {
                       container: 'w-max whitespace-pre',
                     },
-                    title: ['通过ClaudeCode配置禁止使用的工具', '遵循Claude规则'].join('\n'),
+                    title: [
+                      `禁止 Agent 调用的工具，优先级最高，命中即直接拒绝`,
+                      `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
+                      `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
+                      `组合命令中任一子命令命中即禁止`,
+                    ].join('\n'),
                   }}
                 >
                   <Select

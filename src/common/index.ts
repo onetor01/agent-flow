@@ -442,19 +442,46 @@ export function matchSubCommand(subCmd: string, commandPattern: string): boolean
 }
 
 /**
- * 判断工具名是否命中给定的 pattern 列表。
+ * 内部实现：工具名是否命中 pattern 列表，由 `bashTest` 决定 Bash 命令级匹配语义。
+ * {@link matchTool}（白名单，所有子命令匹配）和 {@link matchToolRule}（黑名单，任一匹配）共用此函数。
+ */
+function matchToolImpl(
+  toolName: string,
+  patterns: readonly string[],
+  input: Record<string, unknown> | undefined,
+  bashTest: (subCmds: string[], commandPattern: string) => boolean,
+): boolean {
+  for (const p of patterns) {
+    if (p === MCP_WILDCARD) {
+      if (toolName.startsWith('mcp__')) return true
+      continue
+    }
+    const parsed = parseToolPattern(p)
+    if (parsed.toolName !== toolName) continue
+    if (!parsed.commandPattern) return true
+    if (toolName !== 'Bash') continue
+    const command = input?.command
+    if (typeof command !== 'string') continue
+    const subCmds = splitBashCommand(command)
+    if (subCmds.length === 0) continue
+    if (bashTest(subCmds, parsed.commandPattern)) return true
+  }
+  return false
+}
+
+/**
+ * 判断工具名是否命中给定的 pattern 列表（**白名单**语义）。
  *
  * 规则：
  * - 字面量相等（大小写敏感）
- * - 特殊值 "MCP" 匹配所有以 `mcp__` 开头的工具（即任意 MCP 工具）
- * - `Bash(pattern)` 格式：对 Bash 工具的命令级匹配。
- *   当提供 `input.command` 时，将命令按 shell 操作符拆分为子命令，
- *   **所有子命令都需匹配 pattern** 才算命中（防止组合命令绕过）。
- *   未提供 `input` 或 `input.command` 时，退化为工具名匹配。
+ * - 特殊值 "MCP" 匹配所有以 `mcp__` 开头的工具
+ * - `Bash(pattern)`：**所有**子命令都需匹配 pattern 才算命中（防 `allowed_cmd && dangerous_cmd` 绕过）
  * - 裸 `Bash`（不带括号）：匹配整个 Bash 工具，不检查命令内容
  *
+ * 适用于 auto_allowed_tools 等白名单检查；黑名单/确认列表请用 {@link matchToolRule}。
+ *
  * @param toolName - SDK 传入的工具名
- * @param patterns - must_confirm_tools 或 deny_tools 的字符串数组
+ * @param patterns - auto_allowed_tools 等白名单字符串数组
  * @param input - 工具调用的入参（Bash 工具含 `command` 字段）
  */
 export function matchTool(
@@ -462,73 +489,28 @@ export function matchTool(
   patterns: readonly string[],
   input?: Record<string, unknown>,
 ): boolean {
-  for (const p of patterns) {
-    if (p === MCP_WILDCARD) {
-      if (toolName.startsWith('mcp__')) return true
-      continue
-    }
-
-    const parsed = parseToolPattern(p)
-
-    // 工具名不匹配，跳过
-    if (parsed.toolName !== toolName) continue
-
-    // 裸工具名（无命令模式）：工具名匹配即命中
-    if (!parsed.commandPattern) return true
-
-    // 有命令模式但工具不是 Bash：模式不适用，跳过
-    if (toolName !== 'Bash') continue
-
-    // Bash 命令级匹配：需要 input.command
-    const command = input?.command
-    if (typeof command !== 'string') continue
-
-    // 拆分命令为子命令，**所有**子命令都需匹配（防绕过）
-    const subCmds = splitBashCommand(command)
-    if (subCmds.length === 0) continue
-
-    const commandPattern = parsed.commandPattern
-    const allMatch = subCmds.every((sub) => matchSubCommand(sub, commandPattern))
-    if (allMatch) return true
-  }
-  return false
+  return matchToolImpl(toolName, patterns, input, (subCmds, commandPattern) =>
+    subCmds.every((sub) => matchSubCommand(sub, commandPattern)),
+  )
 }
 
 /**
- * Bash 命令级 must_confirm / deny 检查：组合命令中**任一**子命令命中即要求确认或禁止。
+ * 判断工具是否命中给定的规则列表（deny_tools / must_confirm_tools 专用，**黑名单**语义）。
  *
- * 与 {@link matchTool} 的区别：matchTool 要求所有子命令都匹配（用于 auto_allowed 防绕过），
- * 本函数只要有一个子命令匹配就返回 true（用于 must_confirm：只要有一个危险命令就需要确认；
- * 用于 deny_tools：只要有一个危险命令即禁止）。
+ * - `"MCP"` 匹配所有 `mcp__*` 工具
+ * - 裸工具名精确匹配
+ * - `Bash(pattern)`：**任一**子命令以 pattern 开头即命中（防 `safe && dangerous` 绕过）
  *
- * 仅对 Bash 工具的 `Bash(pattern)` 规则有意义；非 Bash 工具或裸工具名规则不走此路径。
- *
- * @param toolName - SDK 传入的工具名
- * @param patterns - must_confirm_tools 或 deny_tools 的字符串数组
- * @param input - 工具调用的入参（Bash 工具含 `command` 字段）
+ * 与 {@link matchTool} 的区别：白名单要求所有子命令匹配；本函数只要有一个危险子命令即触发。
  */
-export function matchToolAnySubCommand(
+export function matchToolRule(
   toolName: string,
   patterns: readonly string[],
   input?: Record<string, unknown>,
 ): boolean {
-  if (toolName !== 'Bash') return false
-  const command = input?.command
-  if (typeof command !== 'string') return false
-
-  const subCmds = splitBashCommand(command)
-  if (subCmds.length === 0) return false
-
-  for (const p of patterns) {
-    const parsed = parseToolPattern(p)
-    if (parsed.toolName !== 'Bash' || !parsed.commandPattern) continue
-
-    const commandPattern = parsed.commandPattern
-    if (subCmds.some((sub) => matchSubCommand(sub, commandPattern))) {
-      return true
-    }
-  }
-  return false
+  return matchToolImpl(toolName, patterns, input, (subCmds, commandPattern) =>
+    subCmds.some((sub) => matchSubCommand(sub, commandPattern)),
+  )
 }
 
 /**
