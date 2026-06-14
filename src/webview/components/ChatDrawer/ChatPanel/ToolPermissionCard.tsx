@@ -116,6 +116,11 @@ export const ToolPermissionCard: FC<Props> = ({
     .with({ allow: false, reason: P.string.minLength(1) }, () => DENY_WITH_REASON_VALUE)
     .otherwise(() => DENY_VALUE)
 
+  // 历史态：没有选中任何 option → 不渲染；有选中 → 只展示选中的那个 option
+  if (mode === 'historical' && !historicalValue) return null
+  const displayOptions =
+    mode === 'historical' ? options.filter((o) => o.value === historicalValue) : options
+
   return (
     <div
       ref={containerRef}
@@ -203,7 +208,7 @@ export const ToolPermissionCard: FC<Props> = ({
         </pre>
       )}
       <RadioWithInput
-        options={options}
+        options={displayOptions}
         inputTriggerValue={DENY_WITH_REASON_VALUE}
         value={isActive ? selection : historicalValue}
         inputValue={isActive ? denyReason : answered?.reason}
