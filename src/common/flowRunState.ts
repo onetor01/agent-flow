@@ -1057,9 +1057,9 @@ const isTerminalPhase = (p: AgentPhase): boolean =>
  * 优先级:
  * - error                       run.error 非空
  * - completed                   run.completed === true
- * - stopped                     state.killed
+ * - stopped                     state.killed / 非末位 run.interrupted
  * - awaiting-tool-permission    state.pendingToolPermissions 中有属于本 run 的项
- * - interrupted                 run.interrupted === true
+ * - interrupted                 末位 run.interrupted === true
  * - result / running            末项 kind 是 turn_end / 其它
  * - starting                    无任何消息
  */
@@ -1067,6 +1067,8 @@ export function getRunPhase(run: AgentRun, state: FlowRunState): AgentPhase {
   if (run.error) return 'error'
   if (run.completed) return 'completed'
   if (state.killed) return 'stopped'
+  // 被后续 flowStart 替代的非末位 interrupted run 投影为 stopped,不再可恢复
+  if (run.interrupted && state.runs.at(-1)?.runId !== run.runId) return 'stopped'
   if (state.pendingToolPermissions.some((p) => p.runId === run.runId))
     return 'awaiting-tool-permission'
   if (run.interrupted) return 'interrupted'

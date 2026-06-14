@@ -389,6 +389,9 @@ export class FlowRunner {
         }
       },
       onMessage: (message: AIMessageType) => {
+        // 只接受当前 Map 里仍然绑定的 executor 的消息;切换到下一个 agent 时
+        // 旧 executor 已被 kill 并从 Map 中移除,onMessage 即使到达也丢弃。
+        if (this.executors.get(runId) !== getExecutor()) return
         this.fire('flow.signal.aiMessage', { runId, message })
       },
       onComplete: (result: ExecutorResult) => {
