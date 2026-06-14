@@ -127,4 +127,4 @@ Flow 分三个持久化文件：全局（`~/.agent-flows.json`）、工作区（
 
 ### 运行态恢复
 
-- **恢复项目 flowRunStates 必须先归一化** → [normalizeRestoredFlowRunState](src/common/flowRunState.ts) / [extension/index.ts load 分支](src/extension/index.ts):运行态来源为 workspaceStore 文件的 `runStates` 字段（workspaceStore 不存在时为空）；加载磁盘快照后立即调 `normalizeRestoredFlowRunState`（killed=false、清 pendingToolPermissions、未完成 run 置 interrupted+清 acc.activeBlocks+调 markInterrupted）；再为最后一个 interrupted+有 sessionId 的 agent run 调 `runnerManager.spawnForRestore`；code 节点或无 sessionId 时跳过 runner 注册（不报错，仅保留中断态）
+- **恢复项目 flowRunStates 必须先归一化** → [normalizeRestoredFlowRunState](src/common/flowRunState.ts) / [extension/index.ts load 分支](src/extension/index.ts):运行态来源为 workspaceStore 文件的 `runStates` 字段（workspaceStore 不存在时为空）；加载磁盘快照后立即调 `normalizeRestoredFlowRunState`（`killed` 保留原值：killed=true 的 flow 恢复后仍显示 stopped，flowStart 时才重置；清 pendingToolPermissions、未完成 run 置 interrupted+清 acc.activeBlocks+调 markInterrupted）；再为最后一个 interrupted+有 sessionId 的 agent run 调 `runnerManager.spawnForRestore`；code 节点或无 sessionId 时跳过 runner 注册（不报错，仅保留中断态）
