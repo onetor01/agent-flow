@@ -348,19 +348,24 @@ const ToolUseBubbleContent: FC<{
 const CompleteTaskBody: FC<{
   outputName?: string
   content?: string
+  cwd?: string | null
   values?: Record<string, string>
-}> = ({ outputName, content, values }) => {
+}> = ({ outputName, content, values, cwd }) => {
   const shareEntries = values ? Object.entries(values) : []
   return (
-    <div className='min-w-75'>
-      <Tag color='green' className='m-0 text-[10px]'>
+    <div className='flex min-w-75 flex-col gap-2'>
+      {cwd === undefined ? null : (
+        <>
+          <Tag color='green' className='m-0 self-start text-[10px]'>
+            cwd
+          </Tag>
+          <span className='text-[10px]'>{cwd || '(空)'}</span>
+        </>
+      )}
+      <Tag color='green' className='m-0 self-start text-[10px]'>
         完成{outputName ? ` → ${outputName}` : ''}
       </Tag>
-      {content && (
-        <div className='mt-2'>
-          <Md content={content} />
-        </div>
-      )}
+      {content && <Md content={content} />}
       {shareEntries.length > 0 && (
         <div className='mt-2 border-t border-[#45475a] pt-2'>
           <div className='mb-1 text-[10px] text-[#a6adc8]'>共享数据写入</div>
@@ -794,6 +799,7 @@ export function chatMessageToBubble(
           <div className='flex'>
             <div>
               <CompleteTaskBody
+                cwd={message.cwd}
                 outputName={message.outputName}
                 content={message.displayContent}
                 values={message.values}

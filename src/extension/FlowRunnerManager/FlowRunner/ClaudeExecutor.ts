@@ -27,6 +27,11 @@ export type ExecutorResult = {
   content?: string
   values?: Record<string, string>
   /**
+   * 仅Code 节点使用，返回的工作目录，透传至 agentComplete signal 后由 reducer 写入 FlowRunState.cwd
+   * string=设置路径 / null或空串=清空为默认工作区 / undefined=不更改
+   */
+  cwd?: string | null
+  /**
    * 本回合 SDK 最后一条 result 消息。CompleteTask 暂存后,result 不再走 onMessage
    * 透传(否则 reducer 会触发 phase='result' 的"生成完毕"通知),改随 onComplete
    * 上抛,由上层写入 agentComplete signal 的 result 字段。
@@ -56,6 +61,7 @@ export type ExecutorOptions = {
   resumeSessionId?: string
   flowBaseUrl?: string
   flowApiKey?: string
+  cwd?: string
 }
 
 export type ExecutorEvents = {
@@ -566,7 +572,7 @@ export class ClaudeExecutor {
       permissionMode: agent.plan_mode ? 'plan' : 'default',
       canUseTool: this.canUseTool,
       hooks: { PreToolUse: [{ hooks: [this.preToolUseHook] }] },
-      cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
+      cwd: this.getOptions().cwd,
       includePartialMessages: true,
     }
     // env 注入:SDK 文档约定 options.env 一旦设置会**替换**整个子进程 env,

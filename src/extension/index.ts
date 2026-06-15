@@ -288,6 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
     postMessageToWebview,
     (flowId) => flowRunStateManager.getFlowRunStates()[flowId]?.shareValues ?? {},
     (flowId) => currentFlows.flows.find((f) => f.id === flowId),
+    (flowId) => flowRunStateManager.getFlowRunStates()[flowId]?.cwd,
   )
 
   /**
@@ -374,7 +375,7 @@ export function activate(context: vscode.ExtensionContext) {
     // signal 不再单独携带(webview 端从 newRunState.runs.at(-1).agentId 反推)
     const agentId = sourceState.runs[runIdx].agentId
 
-    const dir = vscode.workspace.workspaceFolders?.[0].uri.fsPath
+    const dir = sourceState.cwd ?? vscode.workspace.workspaceFolders?.[0].uri.fsPath
     let newSessionId: string
     try {
       const result = await forkSession(srcSessionId, { upToMessageId, dir })
@@ -458,6 +459,7 @@ export function activate(context: vscode.ExtensionContext) {
       answeredToolPermissions: { ...sourceState.answeredToolPermissions },
       pendingToolPermissions: [],
       shareValues: { ...sourceState.shareValues },
+      cwd: sourceState.cwd,
     }
 
     const newFlowId = globalThis.crypto.randomUUID()
@@ -701,8 +703,12 @@ export function activate(context: vscode.ExtensionContext) {
           } else {
             runnerManager.handleCommand(type, data)
           }
-          // killFlow / clearFlow 不产生后续 signal，需立即触发 runStates 写盘，否则状态变更不会持久化
-          if (type === 'flow.command.clearFlow' || type === 'flow.command.killFlow') {
+          // killFlow / clearFlow / setCwd 不产生后续 signal，需立即触发 runStates 写盘，否则状态变更不会持久化
+          if (
+            type === 'flow.command.clearFlow' ||
+            type === 'flow.command.killFlow' ||
+            type === 'flow.command.setCwd'
+          ) {
             pendingProjectStatePersist = true
             flushMessages()
             flushMessages.flush()

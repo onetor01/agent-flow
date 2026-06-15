@@ -8,8 +8,9 @@ import { ExecutorEvents, ExecutorMode, ExecutorResult } from './ClaudeExecutor'
  * 延迟到首次 createQuery 时再取(尽管本期 lazy 路径不会走到 CodeExecutor —— fork
  * 不支持 code 节点)。
  *
- * runCommand: 在 VSCode workspaceFolder 下执行 shell 命令的函数,由上层 FlowRunner
- * 注入,透传给 AsyncFunction 作为第三个入参,允许用户代码直接调用系统命令。
+ * runCommand: 始终在 VSCode workspace root 下执行 shell 命令的函数，由上层 FlowRunner 注入,透传给 AsyncFunction 作为第三个入参;
+ * 如需在当前 Flow cwd 执行，用户代码应自行 cd "${cwd}" && ... （注意 shell 转义）。
+ * cwd: 当前 Flow 工作路径字符串（FlowRunState.cwd，无则为 VSCode workspace root），透传给 AsyncFunction 作为第四个入参。
  */
 export type CodeExecutorOptions = {
   initMessage: UserMessageType
@@ -18,6 +19,7 @@ export type CodeExecutorOptions = {
   shareValueKeys: readonly ShareValueKey[]
   runCommand: (command: string, timeout?: number) => Promise<string>
   events: ExecutorEvents
+  cwd?: string
 }
 
 /**
@@ -48,7 +50,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as
 /**
  * 把 code 节点的返回值规整为 ExecutorResult 形态:
  * - 顶层是字符串 → { content: 字符串 }
- * - 顶层是 { output_name?, content?, values? } → 取这三项
+ * - 顶层是 { output_name?, content?, values?, cwd? } → 取这四项
  * - undefined / null → { content: '' }
  * - 其他对象/数组 → { content: JSON.stringify(返回值) }
  */
@@ -56,12 +58,13 @@ function normalizeCodeResult(raw: unknown): {
   outputName?: string
   content: string
   values?: Record<string, string>
+  cwd?: string | null
 } {
   if (raw === undefined || raw === null) return { content: '' }
   if (typeof raw === 'string') return { content: raw }
   if (typeof raw === 'object') {
     const obj = raw as Record<string, unknown>
-    const hasShape = 'output_name' in obj || 'content' in obj || 'values' in obj
+    const hasShape = 'output_name' in obj || 'content' in obj || 'values' in obj || 'cwd' in obj
     if (hasShape) {
       return {
         outputName: typeof obj.output_name === 'string' ? obj.output_name : undefined,
@@ -70,6 +73,7 @@ function normalizeCodeResult(raw: unknown): {
           obj.values && typeof obj.values === 'object'
             ? (obj.values as Record<string, string>)
             : undefined,
+        cwd: obj.cwd === null ? null : typeof obj.cwd === 'string' ? obj.cwd : undefined,
       }
     }
     return { content: JSON.stringify(raw) }
@@ -104,7 +108,7 @@ function validateCodeOutput(
 
 /**
  * 代码节点执行器 —— 与 ClaudeExecutor 同构 ExecutorEvents,但不调 AI、不挂 MCP、
- * 不走 SDK。把 agent.code 视为 `async function (input, values, runCommand) { ... }` 函数体执行,
+ * 不走 SDK。把 agent.code 视为 `async function (input, values, runCommand, cwd) { ... }` 函数体执行,
  * 返回值映射为 ExecutorResult。
  *
  * 严格只产出 agentComplete 信号:
@@ -129,6 +133,7 @@ export class CodeExecutor {
   private currentValues!: Record<string, string>
   private runCommand!: (command: string, timeout?: number) => Promise<string>
   private initMessage!: UserMessageType
+  private currentCwd?: string
   private readonly getOptions: () => CodeExecutorOptions
   private optionsApplied = false
   private completed = false
@@ -154,6 +159,7 @@ export class CodeExecutor {
     this.currentValues = opts.currentValues
     this.runCommand = opts.runCommand
     this.initMessage = opts.initMessage
+    this.currentCwd = opts.cwd
     this.optionsApplied = true
   }
 
@@ -206,8 +212,8 @@ export class CodeExecutor {
 
     let raw: unknown
     try {
-      const fn = new AsyncFunction('input', 'values', 'runCommand', codeBody)
-      raw = await fn(inputContent, valuesArg, this.runCommand)
+      const fn = new AsyncFunction('input', 'values', 'runCommand', 'cwd', codeBody)
+      raw = await fn(inputContent, valuesArg, this.runCommand, this.currentCwd)
     } catch (err) {
       // 严格只产出 agentComplete 信号:错误路径不发 assistant 错误气泡、不发 result onMessage,
       // 错误详情走日志,直接 onError 让 reducer 切 error 终态。
@@ -240,6 +246,7 @@ export class CodeExecutor {
       outputName: normalized.outputName,
       content: normalized.content,
       values: filteredValues,
+      cwd: normalized.cwd,
       resultMessage,
     })
   }

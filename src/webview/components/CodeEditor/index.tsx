@@ -70,12 +70,18 @@ function createCompletionSource(shareValueKeys: string[], outputs: string[]): Co
           label: 'runCommand',
           type: 'function',
           detail: '(command: string, timeout?: number) => Promise<string>',
-          info: '在 VSCode workspaceFolder 下执行 shell 命令，返回 stdout + stderr 拼接的字符串',
+          info: '始终在 VSCode workspace root 下执行 shell 命令，返回 stdout + stderr 拼接的字符串；需在当前 Flow cwd 执行时请在 command 内自行 cd "${cwd}" && ...',
+        },
+        {
+          label: 'cwd',
+          type: 'variable',
+          detail: 'string | undefined',
+          info: '当前工作目录（FlowRunState.cwd，无则为 VSCode workspaceFolder）',
         },
         {
           label: 'CodeResult',
           type: 'type',
-          detail: `{ output_name?: ${outputType}; content?: string; values?: Record<string, string> }`,
+          detail: `{ output_name?: ${outputType}; content?: string; values?: Record<string, string>; cwd?: string | null }`,
           info: 'Code 节点返回值类型 — 返回对象 / 字符串 / void',
         },
         ...shareValueKeys.map((k) => ({

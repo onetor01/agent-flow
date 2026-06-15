@@ -132,6 +132,13 @@ type FlowSignalPayload = {
     /** Agent 通过 CompleteTask 写入的增量 values，由 reducer 合并到 FlowRunState.shareValues */
     values?: Record<string, string>
     /**
+     * Code 节点返回的工作目录：
+     *   string       = 设置为指定路径
+     *   null 或空串  = 清空，恢复为默认工作区
+     *   undefined    = 不更改当前 cwd
+     */
+    cwd?: string | null
+    /**
      * 本回合 SDK 最后一条 result 消息(含 modelUsage / total_cost_usd)。
      * CompleteTask 调用成功后,ClaudeExecutor 不再把这条 result 单独透传为 aiMessage
      */
@@ -248,6 +255,8 @@ type FlowCommandPayload = {
   }
   /** 清空 Flow：销毁 FlowRunner，清除全部对话记录和 shareValues，仅需 flowId */
   clearFlow: object
+  /** 设置 Flow 的工作目录；即使 Flow 未运行也可调用（state 不存在时自动创建） */
+  setCwd: { cwd?: string | null }
 }
 
 /** FlowRunner 内部指令（不含 flowId） */

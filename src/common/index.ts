@@ -91,7 +91,7 @@ export type Agent = z.infer<typeof AgentSchema>
 
 /**
  * Code 节点 —— 从 {@link AgentSchema} 派生,仅保留有向图所需字段 + 代码体。
- * 走 CodeExecutor:把 `code` 当作 `async function (input, values, runCommand) { ... }` 函数体执行,
+ * 走 CodeExecutor:把 `code` 当作 `async function (input, values, runCommand, cwd) { ... }` 函数体执行,
  * 不调用 AI、不挂 MCP、不走 SDK,运行时不读 model/effort/agent_prompt/work_mode/tools 等字段。
  */
 export const CodeSchema = AgentSchema.pick({
@@ -111,10 +111,11 @@ export const CodeSchema = AgentSchema.pick({
         '/**',
         '* @param input string 上游或用户的输入',
         '* @param values Record<string,string> 当前shareValues的全部数据',
-        '* @param runCommand (command: string)=>Promise<string> 在当前目录执行shell命令',
-        '* @return Promise<{output_name?:string, content:string, values?:Record<string,string>}> 输出分支/输出内容，values会被合并更新至当前shareValues',
+        '* @param runCommand (command: string, timeout?: number)=>Promise<string> 始终在 VSCode workspace root 执行shell命令；需在 cwd 路径执行时请在 command 内自行 cd "${cwd}" && ...',
+        '* @param cwd string|undefined 当前工作目录（FlowRunState.cwd，无则为 VSCode workspaceFolder）',
+        '* @return Promise<{output_name?:string, content?:string, values?:Record<string,string>, cwd?:string|null}> 输出分支/输出内容，values合并到shareValues，cwd写入FlowRunState.cwd（null=清空为默认工作区）',
         '*/',
-        'async function (input, values, runCommand) { /** code的值在这里 */ }',
+        'async function (input, values, runCommand, cwd) { /** code的值在这里 */ }',
       ].join('\n'),
     ),
 })

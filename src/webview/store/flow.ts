@@ -84,6 +84,7 @@ type FlowStoreType = StoreState & {
   killFlow: (flowId: string) => void
   clearFlow: (flowId: string) => void
   setShareValues: (flowId: string, values: Record<string, string>) => boolean
+  setCwd: (flowId: string, cwd: string | undefined | null) => boolean
   /**
    * 触发会话 fork —— 从源 Flow 当前 transcript 切片复制出新 Flow。
    * target.runId 已唯一定位源 RunState 中的 AgentRun;extension 从 located run 反推 agentId,
@@ -472,6 +473,13 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
       dispatchCommand({
         type: 'flow.command.setShareValues',
         data: { flowId, values },
+      })
+      return true
+    },
+    setCwd: (flowId, cwd) => {
+      dispatchCommand({
+        type: 'flow.command.setCwd',
+        data: { flowId, cwd },
       })
       return true
     },

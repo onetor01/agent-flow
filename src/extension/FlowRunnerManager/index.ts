@@ -5,21 +5,25 @@ import { FlowRunner } from './FlowRunner'
 type PostMessage = (msg: ExtensionToWebviewMessage) => void
 type GetLatestShareValues = (flowId: string) => Record<string, string>
 type GetLatestFlow = (flowId: string) => Flow | undefined
+type GetLatestCwd = (flowId: string) => string | undefined | null
 
 export class FlowRunnerManager {
   private runners = new Map<string, FlowRunner>()
   private postMessage: PostMessage
   private getLatestShareValues: GetLatestShareValues
   private getLatestFlow: GetLatestFlow
+  private getLatestCwd: GetLatestCwd
 
   constructor(
     postMessage: PostMessage,
     getLatestShareValues: GetLatestShareValues,
     getLatestFlow: GetLatestFlow,
+    getLatestCwd: GetLatestCwd,
   ) {
     this.postMessage = postMessage
     this.getLatestShareValues = getLatestShareValues
     this.getLatestFlow = getLatestFlow
+    this.getLatestCwd = getLatestCwd
   }
 
   /**
@@ -35,6 +39,7 @@ export class FlowRunnerManager {
         if (!flow) throw new Error(`[FlowRunnerManager] flow "${flowId}" not found`)
         return flow
       },
+      getLatestCwd: () => this.getLatestCwd(flowId),
     })
     runner.listenAllSignals((eventType, signalData) => {
       this.postMessage({
@@ -91,6 +96,10 @@ export class FlowRunnerManager {
       .with('flow.command.clearFlow', () => {
         const { flowId } = data as ExtensionFlowCommandEvents['flow.command.clearFlow']
         this.disposeRunner(flowId)
+      })
+      .with('flow.command.setCwd', () => {
+        // cwd state 已由 flowRunStateManager.applyCommand 处理；FlowRunner 通过
+        // getLatestCwd() 回调实时取，不需要额外派发
       })
       .exhaustive()
   }

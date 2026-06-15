@@ -465,7 +465,7 @@ export const AgentEditor: FC = () => {
               <div className='flex items-center gap-2 px-3 py-2'>
                 <span className='text-base font-medium'>代码</span>
                 <span className='text-[11px] text-[#a6adc8]'>
-                  入参 input / values / runCommand,返回 {'{ output_name?, content?, values? }'}
+                  入参 input / values / runCommand / cwd,返回 {'{ output_name?, content?, values?, cwd?: string | null }'}
                 </span>
               </div>
               {/* 外层签名只读装饰 + code 编辑区 + 闭合括号 —— 让用户只写函数体。
@@ -491,11 +491,13 @@ export const AgentEditor: FC = () => {
                               .map((n: string) => `'${n}'`)
                               .join(', ')
                       }`,
-                      '// runCommand: async (cmd: string) => Promise<string> 在 workspaceFolder 下执行命令',
+                      '// runCommand: async (cmd: string, timeout?: number) => Promise<string> 始终在 VSCode workspace root 执行；',
+                      '//   如需在当前 Flow cwd 执行，请在命令内自行 cd "${cwd}" && ...',
+                      '// cwd: string | undefined  当前工作目录（FlowRunState.cwd，无则为 VSCode workspaceFolder）',
                     ].join('\n')}
                   </div>
                   <div className='text-[#94e2d5]'>
-                    async function (input, values, runCommand) {'{'}
+                    async function (input, values, runCommand, cwd) {'{'}
                   </div>
                 </div>
                 <FormItem name='code' noStyle>
