@@ -127,7 +127,7 @@ type FlowSignalPayload = {
    */
   agentComplete: {
     runId: string
-    content?: string
+    content?: SDKUserMessage['message']['content']
     output: { name?: string; newRunId?: string }
     /** Agent 通过 CompleteTask 写入的增量 values，由 reducer 合并到 FlowRunState.shareValues */
     values?: Record<string, string>

@@ -505,7 +505,10 @@ export class FlowRunner {
         type: 'user' as const,
         message: {
           role: 'user' as const,
-          content: nextAgent.no_input || !content ? '执行任务' : content,
+          content:
+            nextAgent.no_input || !content || (Array.isArray(content) && content.length === 0)
+              ? '执行任务'
+              : content,
         },
         parent_tool_use_id: null,
       }

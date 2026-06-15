@@ -211,7 +211,7 @@ export type TurnEndMessage = Base & {
 export type AgentCompleteMessage = Base & {
   kind: 'agent_complete'
   outputName?: string
-  displayContent?: string
+  displayContent?: UserContent
   /** Agent 通过 CompleteTask 写入的 values 变更 */
   values?: Record<string, string>
   /** 截至本 session 结束的 token 累计（按模型拆分） */
@@ -971,7 +971,12 @@ export function updateFlowRunState(
             type: 'user',
             message: {
               role: 'user',
-              content: nextAgent.no_input || !data.content ? '执行任务' : data.content,
+              content:
+                nextAgent.no_input ||
+                !data.content ||
+                (Array.isArray(data.content) && data.content.length === 0)
+                  ? '执行任务'
+                  : data.content,
             },
             parent_tool_use_id: null,
           }

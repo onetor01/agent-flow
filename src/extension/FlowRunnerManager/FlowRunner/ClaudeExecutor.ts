@@ -24,7 +24,7 @@ import { log, logError } from '../../logger'
 
 export type ExecutorResult = {
   outputName?: string
-  content?: string
+  content?: SDKUserMessage['message']['content']
   values?: Record<string, string>
   /**
    * 仅Code 节点使用，返回的工作目录，透传至 agentComplete signal 后由 reducer 写入 FlowRunState.cwd
