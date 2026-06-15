@@ -5,6 +5,8 @@ import {
   UnorderedListOutlined,
   SearchOutlined,
   FolderOutlined,
+  GlobalOutlined,
+  RightOutlined,
 } from '@ant-design/icons'
 import {
   DndContext,
@@ -35,6 +37,14 @@ export const FlowListPanel: FC = () => {
   } = useFlowStore()
   const [searchText, setSearchText] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const [globalCollapsed, setGlobalCollapsed] = useState(() => {
+    const hasProjectFlows = flows.filter((f) => f.project).length > 0
+    const globalFlowsHaveMessages = flows
+      .filter((f) => !f.project)
+      .some((f) => flowRunStates[f.id]?.runs.some((r) => r.messages.length > 0))
+    return hasProjectFlows && !globalFlowsHaveMessages
+  })
+  const [projectCollapsed, setProjectCollapsed] = useState(false)
 
   const filteredFlows = searchText
     ? flows.filter((f) => f.name.toLowerCase().includes(searchText.toLowerCase()))
@@ -107,6 +117,26 @@ export const FlowListPanel: FC = () => {
       onDelete={() => onDelete(flow.id)}
       onRename={(name) => onRename(flow.id, name)}
     />
+  )
+
+  const renderGroupHeader = (opts: {
+    icon: React.ReactNode
+    label: string
+    collapsed: boolean
+    onToggle: () => void
+    hasBorderTop?: boolean
+  }) => (
+    <div
+      className={`flex cursor-pointer items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-xs text-[#4096ff] select-none hover:text-[#69b1ff] ${opts.hasBorderTop ? 'mt-1 border-t border-[#313244]' : ''}`}
+      onClick={opts.onToggle}
+    >
+      {opts.icon}
+      <span>{opts.label}</span>
+      <RightOutlined
+        className='ml-auto text-[10px] text-[#585b70] transition-transform duration-200'
+        style={{ transform: opts.collapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
+      />
+    </div>
   )
 
   return (
@@ -205,14 +235,49 @@ export const FlowListPanel: FC = () => {
                   items={displayFlows.map((f) => f.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  {globalFlows.map(renderFlowItem)}
-                  {projectFlows.length > 0 && (
-                    <div className='mt-1 flex items-center gap-1.5 border-t border-[#313244] px-2 pt-1.5 pb-0.5 text-xs text-[#4096ff]'>
-                      <FolderOutlined />
-                      <span>项目flow</span>
-                    </div>
-                  )}
-                  {projectFlows.map(renderFlowItem)}
+                  {globalFlows.length > 0 &&
+                    renderGroupHeader({
+                      icon: <GlobalOutlined />,
+                      label: '全局flow',
+                      collapsed: globalCollapsed,
+                      onToggle: () => setGlobalCollapsed((v) => !v),
+                    })}
+                  <AnimatePresence initial={false}>
+                    {!globalCollapsed && (
+                      <motion.div
+                        key='global-flows'
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        {globalFlows.map(renderFlowItem)}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  {projectFlows.length > 0 &&
+                    renderGroupHeader({
+                      icon: <FolderOutlined />,
+                      label: '项目flow',
+                      collapsed: projectCollapsed,
+                      onToggle: () => setProjectCollapsed((v) => !v),
+                      hasBorderTop: true,
+                    })}
+                  <AnimatePresence initial={false}>
+                    {!projectCollapsed && projectFlows.length > 0 && (
+                      <motion.div
+                        key='project-flows'
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        {projectFlows.map(renderFlowItem)}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </SortableContext>
               </DndContext>
             </div>
