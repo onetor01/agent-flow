@@ -134,7 +134,7 @@ type FlowSignalPayload = {
     /**
      * Code 节点返回的工作目录：
      *   string       = 设置为指定路径
-     *   null 或空串  = 清空，恢复为默认工作区
+     *   null 或空串  = 清空，恢复为主工作区
      *   undefined    = 不更改当前 cwd
      */
     cwd?: string | null

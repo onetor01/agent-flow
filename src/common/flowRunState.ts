@@ -932,7 +932,7 @@ export function updateFlowRunState(
           draft.shareValues = { ...draft.shareValues, ...data.values }
         }
         // 合并 cwd（必须在追加 nextRun 之前，nextRun 的用户代码 cwd 参数通过 getLatestCwd 取此值）
-        // 非 undefined 原样写入（含 null/空串）；使用时 null/空串/undefined 统一回退默认工作区
+        // 非 undefined 原样写入（含 null/空串）；使用时 null/空串/undefined 统一回退主工作区
         if (data.cwd !== undefined) {
           draft.cwd = data.cwd
         }

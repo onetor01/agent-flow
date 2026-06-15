@@ -361,7 +361,7 @@ export const ChatPanel: FC<Props> = ({
               className='min-w-0 flex-1 cursor-pointer truncate text-xs text-[#6c7086]'
               onClick={() => setEditingCwd(cwd ?? '')}
             >
-              {cwd || '默认工作区'}
+              {cwd || '主工作区'}
             </span>
           )}
         </div>

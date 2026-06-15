@@ -113,7 +113,7 @@ export const CodeSchema = AgentSchema.pick({
         '* @param values Record<string,string> 当前shareValues的全部数据',
         '* @param runCommand (command: string, timeout?: number)=>Promise<string> 始终在 VSCode workspace root 执行shell命令；需在 cwd 路径执行时请在 command 内自行 cd "${cwd}" && ...',
         '* @param cwd string|undefined 当前工作目录（FlowRunState.cwd，无则为 VSCode workspaceFolder）',
-        '* @return Promise<{output_name?:string, content?:string, values?:Record<string,string>, cwd?:string|null}> 输出分支/输出内容，values合并到shareValues，cwd写入FlowRunState.cwd（null=清空为默认工作区）',
+        '* @return Promise<{output_name?:string, content?:string, values?:Record<string,string>, cwd?:string|null}> 输出分支/输出内容，values合并到shareValues，cwd写入FlowRunState.cwd（null=清空为主工作区）',
         '*/',
         'async function (input, values, runCommand, cwd) { /** code的值在这里 */ }',
       ].join('\n'),
