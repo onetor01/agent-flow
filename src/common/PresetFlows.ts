@@ -8,7 +8,7 @@ export const PresetFlows: Flow[] = [
       {
         id: '0',
         node_type: 'code',
-        agent_name: '输入需求',
+        agent_name: '在worktree处理需求',
         agent_desc: '创建随机分支和worktree，设置工作目录',
         is_entry: true,
         outputs: [{ output_name: '准备完成', next_agent: '1' }],
