@@ -32,7 +32,6 @@ export const PresetFlows: Flow[] = [
         agent_name: '需求分析',
         node_type: 'agent',
         is_entry: true,
-        no_output: true,
         agent_prompt: [
           '### 你的职责',
           '总结用户需求，仅做**只读**规划',
