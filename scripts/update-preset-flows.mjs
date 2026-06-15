@@ -13,6 +13,8 @@ const arrayLiteral = src.slice(start)
 // .join('\n') 是合法 JS，直接 eval 求值
 const flows = eval(arrayLiteral)
 
-const out = join(root, 'preset-flows.json')
-writeFileSync(out, JSON.stringify(flows, null, 2), 'utf-8')
+const presetFlows = join(root, 'preset-flows.json')
+writeFileSync(presetFlows, JSON.stringify(flows, null, 2), 'utf-8')
+const agentFlows = join(root, '.agent-flows.json')
+writeFileSync(agentFlows, JSON.stringify({ flows }, null, 2), 'utf-8')
 console.log(`预设flow已更新`)
