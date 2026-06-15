@@ -123,10 +123,10 @@ const LinkBlock: FC<XMarkdownComponentProps> = ({ children, ...props }) => {
   const { href, ...htmlProps } = props as Record<string, unknown>
   const handleClick: MouseEventHandler<HTMLAnchorElement> = () => {
     if (!href || typeof href !== 'string' || href.startsWith('http')) return
-    const m = href.match(/^(.+):(\d+)$/)
+    const m = href.match(/^(.+):(\d+)(?:-(\d+))?$/)
     postMessageToExtension({
       type: 'openFile',
-      data: m ? { filename: m[1], line: [Number(m[2]), Number(m[2])] } : { filename: href },
+      data: m ? { filename: m[1], line: [Number(m[2]), Number(m[3] ?? m[2])] } : { filename: href },
     })
   }
   return (
