@@ -106,8 +106,8 @@ export const PresetFlows: Flow[] = [
       },
       {
         node_type: 'code',
-        agent_name: '节点分流',
-        agent_desc: '创建随机分支和worktree，设置工作目录',
+        agent_name: '需求收尾',
+        agent_desc: '如果需求在worktree完成，进行收尾工作',
         no_input: true,
         is_entry: false,
         outputs: [
@@ -119,13 +119,21 @@ export const PresetFlows: Flow[] = [
             output_name: '需求已完成',
           },
         ],
-        code: "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
+        code: [
+          'if (!cwd){',
+          '  const branchName = await runCommand(`git branch --show-current`)',
+          '  return {',
+          "    output_name: '需求已完成',",
+          '    content: `分支: ${branchName}  \\n代码修改已完成`',
+          ' }',
+          '}',
+          "return {  output_name: '处理分支和worktree' }",
+        ].join('\n'),
         id: '6',
       },
       {
         node_type: 'agent',
         agent_name: '分支重命名',
-        agent_desc: '执行当前任务描述，输出执行结果',
         model: 'qwen3.7-max',
         effort: 'medium',
         deny_tools: ['Bash(git merge)', 'Bash(git commit)', 'Bash(git push)', 'Edit'],
@@ -151,7 +159,13 @@ export const PresetFlows: Flow[] = [
         agent_name: '清理worktree',
         agent_desc: '输出新分支名称，清理worktree',
         no_input: true,
-        code: '// 新分支名称\nconst branchName = await runCommand(`git -C "${cwd}" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove "${cwd}"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }',
+        code: [
+          '// 新分支名称',
+          'const branchName = await runCommand(`git -C "${cwd}" branch --show-current`)',
+          '// 清理worktree',
+          'await runCommand(`git worktree remove "${cwd}"`)',
+          'return { content: `分支: ${branchName}  \\n代码修改已完成` }',
+        ].join('\n'),
         outputs: [],
         id: '8',
       },
@@ -401,8 +415,8 @@ export const PresetFlows: Flow[] = [
       },
       {
         node_type: 'code',
-        agent_name: '节点分流',
-        agent_desc: '创建随机分支和worktree，设置工作目录',
+        agent_name: '需求收尾',
+        agent_desc: '如果需求在worktree完成，进行收尾工作',
         no_input: true,
         is_entry: false,
         outputs: [
@@ -429,7 +443,6 @@ export const PresetFlows: Flow[] = [
       {
         node_type: 'agent',
         agent_name: '分支重命名',
-        agent_desc: '执行当前任务描述，输出执行结果',
         model: 'qwen3.7-max',
         effort: 'medium',
         deny_tools: ['Bash(git merge)', 'Bash(git commit)', 'Bash(git push)', 'Edit'],

@@ -41,7 +41,7 @@ const MidArrowEdge: FC<EdgeProps> = (props) => {
   const loopIndex = typeof data?.loopIndex === 'number' ? data.loopIndex : 0
   // output在input右侧大于一定距离时 走上方回环
   const edgePath =
-    sourceX - targetX > 120
+    sourceX - targetX > 250
       ? loopArcPath(sourceX, sourceY, targetX, targetY, loopIndex)
       : getBezierPath({
           sourceX,
