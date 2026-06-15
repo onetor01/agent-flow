@@ -4,7 +4,7 @@
 
 优先用 `ts-pattern` 替代嵌套的三元表达式 / `if-else` / `switch`。
 
-**功能变动后必须同步文档**：改动事件契约、reducer 行为、运行时层级、work_mode 行为、ShareValues 链路、tool permission、fork、消息派发、恢复 → 回查本文件与 [docs/](docs/) 对应模块。文档与代码不一致即视为 bug。
+**功能变动后必须同步文档**：改动事件契约、reducer 行为、运行时层级、work_mode 行为、ShareValues 链路、tool permission、fork、消息派发、恢复 → 回查本文件与 [docs/](docs/) 对应模块。文档与代码对同一功能的描述不一致即视为严重错误，应当询问用户，**不要自行决策**。
 
 **写作约定**：本文是导航地图，只留「标题 + 一句话约束 + 文件路径 / docs 链接」。模块细节与易踩坑写入 [docs/](docs/) 对应子文档。只描述当前状态，不写版本演进过程。
 
