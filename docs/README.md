@@ -22,7 +22,7 @@
 
 - [architecture.md](architecture.md) — 三层源码结构、import 边界、Flow 定义/运行态/UI 状态归属。
 - [common-domain.md](common-domain.md) — common 层 schema、校验、prompt 构建、MCP server 与 SDK 消息说明。
-- [events.md](events.md) — `flow.command.*` / `flow.signal.*`、标识符、双端派发路径。
+- [events.md](events.md) — `flow.command.*` / `flow.signal.*`、`openFile.cwd`、标识符、双端派发路径。
 - [flow-run-state.md](flow-run-state.md) — `updateFlowRunState`、phase 推断、`MessageEffect`、`cwd`、恢复。
 - [extension-runtime.md](extension-runtime.md) — extension 运行层级、ClaudeExecutor、CodeExecutor、`work_mode`。
 - [tool-permission.md](tool-permission.md) — 统一 tool permission 链路、`preToolUseHook`、权限卡片展示。

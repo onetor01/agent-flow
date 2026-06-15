@@ -5,6 +5,7 @@
 - [`../src/extension/index.ts`](../src/extension/index.ts) — load/save/fork 与运行态持久化调度。
 - [`../src/extension/PersistedDataController/index.ts`](../src/extension/PersistedDataController/index.ts) — globalStore / projectStore / workspaceStore。
 - [`../src/extension/PersistedDataController/defaultStore.ts`](../src/extension/PersistedDataController/defaultStore.ts) — 默认 flow。
+- [`../scripts/update-preset-flows.mjs`](../scripts/update-preset-flows.mjs) — 从 `PresetFlows.ts` 同步预设 Flow JSON。
 - [`../src/common/index.ts`](../src/common/index.ts) — `PersistedData` / `WorkspacePersistedData` / `stripFlowRuntimeFields`。
 
 ## 持久化文件
@@ -16,6 +17,10 @@ Flow 分三个持久化文件：
 - `<workspaceRoot>/.agent-flows.json`：项目 flows 兼容读取来源。
 
 workspaceStore 的 `runStates` 包含该 cwd 下所有 flow 的运行记录，不区分 flow 来源。
+
+## 预设 Flow 同步
+
+[`../scripts/update-preset-flows.mjs`](../scripts/update-preset-flows.mjs) 从 [`../src/common/PresetFlows.ts`](../src/common/PresetFlows.ts) 提取 `PresetFlows`，同时生成根目录 `preset-flows.json` 与 `.agent-flows.json`；前者用于 README 对外复制，后者保持与全局 flows 持久化结构一致。
 
 ## 读取规则
 

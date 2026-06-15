@@ -7,6 +7,7 @@
 - [`../src/webview/components/ChatDrawer/index.tsx`](../src/webview/components/ChatDrawer/index.tsx) — 对话抽屉与 ChatPanel key。
 - [`../src/webview/components/ChatDrawer/ChatInput.tsx`](../src/webview/components/ChatDrawer/ChatInput.tsx) — 输入框与编辑器联动。
 - [`../src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx`](../src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx) — 消息气泡、tool_use、fork 按钮。
+- [`../src/webview/components/text-components/index.tsx`](../src/webview/components/text-components/index.tsx) — Markdown / 行内 code 文件引用渲染。
 - [`../src/webview/components/AgentFlow/AgentNode/index.tsx`](../src/webview/components/AgentFlow/AgentNode/index.tsx) — 节点状态展示。
 
 ## App 结构
@@ -42,6 +43,10 @@ store 负责：
 - ChatDrawer 和 ChatInput 必须始终挂载，保证 insertSelection 事件在 webview 不可见时也能被接收。
 - ChatPanel 内部按 `key={`${flowId}-${agentId}-${runId ?? ''}`}` 切换 unmount。
 - 跨 Flow / 跨 run 切换必须 unmount，防止 AskUserQuestionCard selections 等局部状态复用。
+
+## 消息渲染
+
+[`../src/webview/components/text-components/index.tsx`](../src/webview/components/text-components/index.tsx) 负责 Markdown 组件映射。行内 code 命中 `parseFileRef` 文件引用判定时渲染为可点击跳转，发送 `openFile` 时携带当前 FlowRunState 的 `cwd`；判定必须避免把普通行内代码误判为文件路径。
 
 ## 通知
 

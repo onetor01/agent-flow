@@ -126,10 +126,7 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const uri = path.isAbsolute(filename)
         ? vscode.Uri.file(filename)
-        : vscode.Uri.joinPath(
-            cwd ? vscode.Uri.file(cwd) : folders![0].uri,
-            filename,
-          )
+        : vscode.Uri.joinPath(cwd ? vscode.Uri.file(cwd) : folders![0].uri, filename)
       const doc = await vscode.workspace.openTextDocument(uri)
       const editor = await vscode.window.showTextDocument(
         doc,

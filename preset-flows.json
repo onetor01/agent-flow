@@ -1,126 +1,227 @@
 [
   {
     "id": "1",
-    "name": "修改代码",
+    "name": "简单任务",
     "agents": [
       {
-        "id": "0",
-        "node_type": "code",
+        "id": "1",
         "agent_name": "在worktree处理需求",
         "agent_desc": "创建随机分支和worktree，设置工作目录",
-        "is_entry": true,
         "outputs": [
           {
-            "output_name": "准备完成",
-            "next_agent": "1"
+            "output_name": "worktree已创建",
+            "next_agent": "2"
           }
         ],
-        "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: '准备完成',\n  content: input,\n  cwd: absPath\n}"
+        "is_entry": true,
+        "node_type": "code",
+        "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: 'worktree已创建',\n  content: input,\n  cwd: absPath\n}"
       },
       {
-        "id": "1",
+        "node_type": "agent",
+        "agent_name": "需求分析",
+        "agent_desc": "分析用户需求，拆分为有序子任务列表",
         "model": "sonnet[1m]",
         "effort": "high",
-        "agent_name": "需求分析",
-        "node_type": "agent",
-        "is_entry": true,
-        "no_output": true,
-        "agent_prompt": "### 你的职责\n总结用户需求，仅做**只读**规划\n### 执行步骤\n#### 1. 需求分析\n分析用户需求，查看实现情况\n如果需求未实现，总结或更新需求\n#### 2.完成任务\n如果需求已经实现，调用mcp__AgentControllerMcp__CompleteTask，分支\"需求已实现\"\n否则，选择分支\"分析完成\"，如果总结或更新了需求，将其写入requirement\n### 摘要规则\n如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码\n摘要中应当包含`代码要求`、`代码验证方式`两个模块这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等\n如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行\n### 分支规则\n如果你处于主工作区，忽略此规则\n仅在你不处于主工作区且分支\"需求已实现\"时，根据需求生成分支名称，并写入branchName，确保新名称不重复\n只生成分支名，**不创建新分支，不修改已有的分支名称**",
-        "outputs": [
-          {
-            "output_name": "分析完成",
-            "output_desc": "将用户需求总结为摘要",
-            "next_agent": "2",
-            "require_confirm": true
-          },
-          {
-            "output_name": "需求已实现",
-            "output_desc": "用户需求已经实现",
-            "next_agent": "3",
-            "require_confirm": true
-          }
+        "deny_tools": [
+          "Bash(git push)",
+          "Bash(git merge)",
+          "Edit"
         ],
-        "work_mode": "task",
+        "work_mode": "silent_task",
+        "no_output": true,
+        "is_entry": true,
         "allowed_read_values_keys": [
           "requirement"
         ],
         "allowed_write_values_keys": [
           "requirement",
-          "branchName"
+          "current_task"
         ],
-        "deny_tools": [
-          "Bash(git commit)",
-          "Bash(git merge)",
-          "Bash(git push)"
-        ],
-        "must_confirm_tools": [
-          "Edit"
-        ]
-      },
-      {
-        "id": "2",
-        "model": "qwen3.7-max",
-        "node_type": "agent",
-        "effort": "high",
-        "agent_name": "修改代码",
-        "deny_tools": [
-          "Bash(git merge)",
-          "Bash(git push)"
-        ],
-        "plan_mode": true,
-        "agent_prompt": "### 你的职责\n根据需求摘要修改代码\n### 执行步骤\n#### 1.修改代码\n根据需求摘要和用户意见修改代码注意，只检查是否符合要求，不处理边界情况，不做代码优化\n如果需求内容较多，应当将其拆分为任务列表，并使用`Workflow`编排subAgent并行执行\n#### 2.提交代码\n按照不同模块分别提交代码，只在完全无关时才分开提交\ncommit message仅有`subject`和`body`两部分组成\nsubject描述了业务上的需求，body描述代码上的改动\n#### 3.完成任务\n输出你的修改内容",
         "outputs": [
           {
-            "output_name": "修改完成",
-            "next_agent": "1"
+            "output_name": "分析完成",
+            "output_desc": "分析用户需求，构造任务",
+            "next_agent": "3"
+          },
+          {
+            "output_name": "需求已实现",
+            "output_desc": "当前状况已满足用户需求，无需更改",
+            "next_agent": "6",
+            "require_confirm": true
           }
+        ],
+        "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求已实现，**commit当前变更**\n如果需求尚未实现，思考实现方式，并生成一个代码修改任务\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将代码修改任务写入task\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask",
+        "id": "2"
+      },
+      {
+        "node_type": "agent",
+        "agent_name": "任务执行",
+        "agent_desc": "执行当前任务描述，输出执行结果",
+        "model": "qwen3.7-max",
+        "effort": "high",
+        "deny_tools": [
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Bash(git merge)",
+          "Edit"
+        ],
+        "work_mode": "silent_task",
+        "plan_mode": true,
+        "allowed_read_values_keys": [
+          "current_task"
+        ],
+        "outputs": [
+          {
+            "output_name": "执行完成",
+            "next_agent": "4"
+          }
+        ],
+        "agent_prompt": "### 你的职责\n完成**current_task**描述的任务\n### 执行步骤\n#### 1. 执行任务\n参考输入，执行current_task\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告",
+        "id": "3"
+      },
+      {
+        "node_type": "agent",
+        "agent_name": "结果验证",
+        "agent_desc": "验证执行结果是否满足任务要求",
+        "model": "glm-5.1",
+        "effort": "high",
+        "deny_tools": [
+          "Bash(git merge)",
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Edit"
         ],
         "work_mode": "silent_task",
         "allowed_read_values_keys": [
-          "requirement"
-        ]
+          "current_task"
+        ],
+        "outputs": [
+          {
+            "output_name": "验证通过",
+            "next_agent": "5"
+          },
+          {
+            "output_name": "验证不通过",
+            "next_agent": "3"
+          }
+        ],
+        "agent_prompt": "### 你的职责\n根据**current_task**，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
+        "id": "4"
       },
       {
         "node_type": "code",
-        "agent_name": "收尾工作",
-        "agent_desc": "分支重命名，移除worktree",
+        "agent_name": "任务执行完毕",
         "no_input": true,
-        "code": "if(!cwd) return { content: `主工作区代码修改已完成` }\n// 重命名分支\nconst branchName = values.branchName\nif (branchName) {\n  await runCommand(`git -C \"${cwd}\" branch -m ${branchName}`)\n}\n// 清理worktree\nawait runCommand(`git worktree remove -f \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
-        "id": "3"
+        "outputs": [
+          {
+            "output_name": "验证需求",
+            "next_agent": "2"
+          }
+        ],
+        "code": "return { output_name: '验证需求', content: '验证用户需求是否实现' }",
+        "id": "5"
+      },
+      {
+        "node_type": "code",
+        "agent_name": "需求收尾",
+        "agent_desc": "如果需求在worktree完成，进行收尾工作",
+        "no_input": true,
+        "is_entry": false,
+        "outputs": [
+          {
+            "output_name": "处理分支和worktree",
+            "next_agent": "7"
+          },
+          {
+            "output_name": "需求已完成"
+          }
+        ],
+        "code": "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
+        "id": "6"
+      },
+      {
+        "node_type": "agent",
+        "agent_name": "分支重命名",
+        "model": "qwen3.7-max",
+        "effort": "medium",
+        "deny_tools": [
+          "Bash(git merge)",
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Edit"
+        ],
+        "work_mode": "silent_task",
+        "no_input": true,
+        "no_output": true,
+        "isolation_mode": true,
+        "plan_mode": false,
+        "allowed_read_values_keys": [
+          "requirement"
+        ],
+        "outputs": [
+          {
+            "output_name": "名称已修改",
+            "next_agent": "8",
+            "require_confirm": false
+          }
+        ],
+        "agent_prompt": "### 你的职责\n用户需求已经实现，但当前git分支名称是随机生成的，根据需求重命名当前分支",
+        "id": "7"
+      },
+      {
+        "node_type": "code",
+        "agent_name": "清理worktree",
+        "agent_desc": "输出新分支名称，清理worktree",
+        "no_input": true,
+        "code": "// 新分支名称\nconst branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
+        "outputs": [],
+        "id": "8"
       }
     ],
     "shareValuesKeys": [
       {
-        "key": "requirement",
-        "desc": "需求摘要"
+        "key": "current_task",
+        "desc": "任务描述"
       },
       {
-        "key": "branchName",
-        "desc": "当前工作分支名"
+        "key": "requirement",
+        "desc": "用户的原始需求"
       }
     ]
   },
   {
     "id": "2",
-    "name": "执行复杂任务",
+    "name": "复杂任务",
     "agents": [
       {
+        "id": "1",
+        "agent_name": "在worktree处理需求",
+        "agent_desc": "创建随机分支和worktree，设置工作目录",
+        "outputs": [
+          {
+            "output_name": "worktree已创建",
+            "next_agent": "2"
+          }
+        ],
         "is_entry": true,
-        "no_output": true,
+        "node_type": "code",
+        "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: 'worktree已创建',\n  content: input,\n  cwd: absPath\n}"
+      },
+      {
         "node_type": "agent",
         "agent_name": "需求分析",
-        "effort": "xhigh",
         "agent_desc": "分析用户需求，拆分为有序子任务列表",
         "model": "opus",
-        "must_confirm_tools": [
-          "Bash(git commit)",
+        "effort": "xhigh",
+        "deny_tools": [
+          "Bash(git push)",
           "Bash(git merge)",
           "Edit"
         ],
-        "deny_tools": [
-          "Bash(git push)"
-        ],
         "work_mode": "task",
+        "no_output": true,
+        "is_entry": true,
         "allowed_read_values_keys": [
           "requirement",
           "remark"
@@ -134,41 +235,56 @@
           {
             "output_name": "分析完成",
             "output_desc": "分析用户需求，用子任务列表的方式描述实现需求的方式",
-            "require_confirm": true,
-            "next_agent": "2"
+            "next_agent": "3",
+            "require_confirm": true
           },
           {
             "output_name": "需求已实现",
             "output_desc": "当前状况已满足用户需求，无需更改",
+            "next_agent": "8",
             "require_confirm": true
           }
         ],
-        "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
-        "id": "1"
-      },
-      {
-        "node_type": "code",
-        "agent_name": "初始化",
-        "no_input": true,
-        "outputs": [
-          {
-            "output_name": "初始化完成",
-            "next_agent": "4"
-          },
-          {
-            "output_name": "格式错误",
-            "next_agent": "3"
-          }
-        ],
-        "code": "try {\n  const parsed = JSON.parse(values.tasks)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}",
+        "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求已实现，**commit当前变更**\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
         "id": "2"
       },
       {
+        "id": "3",
+        "agent_name": "初始化",
+        "outputs": [
+          {
+            "output_name": "初始化完成",
+            "next_agent": "5"
+          },
+          {
+            "output_name": "格式错误",
+            "next_agent": "4"
+          }
+        ],
+        "no_input": true,
+        "node_type": "code",
+        "code": "try {\n  const parsed = JSON.parse(values.tasks)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}"
+      },
+      {
+        "id": "4",
         "node_type": "agent",
-        "agent_name": "规范数据格式",
-        "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
         "model": "glm-5.1",
         "effort": "high",
+        "agent_name": "规范数据格式",
+        "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
+        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组数组中的每一项与子任务一一对应\n如果没有子任务，可以写入空数组\n**保留task的完整内容，禁止修改，禁止执行，只读**\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将子任务列表JSON写入tasks注意，写入值必须是**合法的JSON字符串**，必须是**字符串数组**",
+        "outputs": [
+          {
+            "output_name": "格式已处理",
+            "next_agent": "3"
+          }
+        ],
+        "deny_tools": [
+          "Bash(git merge)",
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Edit"
+        ],
         "work_mode": "silent_task",
         "no_input": true,
         "no_output": true,
@@ -178,93 +294,137 @@
         ],
         "allowed_write_values_keys": [
           "tasks"
-        ],
-        "deny_tools": [
-          "Bash(git merge)",
-          "Bash(git commit)",
-          "Bash(git push)",
-          "Edit"
-        ],
-        "outputs": [
-          {
-            "output_name": "格式已处理",
-            "next_agent": "2"
-          }
-        ],
-        "agent_prompt": "### 你的职责\n将子任务列表规范化，转化为合法JSON字符串\n### 执行步骤\n#### 1. 转化JSON\n根据tasks的语义，生成JSON字符串数组数组中的每一项与子任务一一对应\n如果没有子任务，可以写入空数组\n**保留task的完整内容，禁止修改，禁止执行，只读**\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，将子任务列表JSON写入tasks注意，写入值必须是**合法的JSON字符串**，必须是**字符串数组**",
-        "id": "3"
+        ]
       },
       {
-        "node_type": "code",
+        "id": "5",
         "agent_name": "子任务调度",
-        "no_input": true,
         "outputs": [
           {
             "output_name": "执行子任务",
-            "next_agent": "5"
+            "next_agent": "6"
           },
           {
-            "output_name": "验证需求",
-            "next_agent": "1"
+            "output_name": "全部子任务执行完毕",
+            "next_agent": "2"
           }
         ],
-        "code": "const next = parseInt(values.next)\nconst tasks = JSON.parse(values.tasks)\nif(next === tasks.length || tasks.length === 0){\n  return {\n    output_name: '验证需求',\n  }\n}\nconst current_task = tasks[next>=0 && next<tasks.length ? next: 0]\nreturn {\n  content: '执行任务',\n  output_name: '执行子任务',\n  values: { current_task, next: `${next + 1}` }\n}",
-        "id": "4"
+        "no_input": true,
+        "node_type": "code",
+        "code": "const next = parseInt(values.next)\nconst tasks = JSON.parse(values.tasks)\nif(next === tasks.length || tasks.length === 0){\n  return {\n    output_name: '全部子任务执行完毕',\n  }\n}\nconst current_task = tasks[next>=0 && next<tasks.length ? next: 0]\nreturn {\n  content: '执行任务',\n  output_name: '执行子任务',\n  values: { current_task, next: `${next + 1}` }\n}"
       },
       {
+        "id": "6",
         "node_type": "agent",
+        "model": "qwen3.7-max",
+        "effort": "high",
         "agent_name": "任务执行",
         "agent_desc": "执行当前任务描述，输出执行结果",
-        "model": "qwen3.7-max",
-        "work_mode": "silent_task",
-        "effort": "high",
-        "plan_mode": true,
-        "deny_tools": [
-          "Bash(git merge)",
-          "Bash(git push)"
-        ],
-        "allowed_read_values_keys": [
-          "current_task",
-          "remark"
-        ],
+        "agent_prompt": "### 你的职责\n完成**current_task**描述的任务\n### 执行步骤\n#### 1. 执行任务\n参考输入，遵守remark，执行current_task\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告",
         "outputs": [
           {
             "output_name": "执行完成",
+            "next_agent": "7"
+          }
+        ],
+        "deny_tools": [
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Bash(git merge)",
+          "Edit"
+        ],
+        "work_mode": "silent_task",
+        "plan_mode": true,
+        "allowed_read_values_keys": [
+          "current_task",
+          "remark"
+        ]
+      },
+      {
+        "id": "7",
+        "node_type": "agent",
+        "model": "glm-5.1",
+        "effort": "high",
+        "agent_name": "结果验证",
+        "agent_desc": "验证执行结果是否满足任务要求",
+        "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
+        "outputs": [
+          {
+            "output_name": "验证通过",
+            "next_agent": "5"
+          },
+          {
+            "output_name": "验证不通过",
             "next_agent": "6"
           }
         ],
-        "agent_prompt": "### 你的职责\n完成**current_task**描述的任务\n### 执行步骤\n#### 1. 执行任务\n参考输入，遵守remark，执行current_task\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告",
-        "id": "5"
-      },
-      {
-        "node_type": "agent",
-        "agent_name": "结果验证",
-        "agent_desc": "验证执行结果是否满足任务要求",
-        "model": "glm-5.1",
-        "effort": "high",
-        "work_mode": "silent_task",
         "deny_tools": [
           "Bash(git merge)",
           "Bash(git commit)",
           "Bash(git push)",
           "Edit"
         ],
+        "work_mode": "silent_task",
         "allowed_read_values_keys": [
           "current_task",
           "remark"
+        ]
+      },
+      {
+        "node_type": "code",
+        "agent_name": "需求收尾",
+        "agent_desc": "如果需求在worktree完成，进行收尾工作",
+        "no_input": true,
+        "is_entry": false,
+        "outputs": [
+          {
+            "output_name": "处理分支和worktree",
+            "next_agent": "9"
+          },
+          {
+            "output_name": "需求已完成"
+          }
+        ],
+        "code": "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
+        "id": "8"
+      },
+      {
+        "node_type": "agent",
+        "agent_name": "分支重命名",
+        "model": "qwen3.7-max",
+        "effort": "medium",
+        "deny_tools": [
+          "Bash(git merge)",
+          "Bash(git commit)",
+          "Bash(git push)",
+          "Edit"
+        ],
+        "work_mode": "silent_task",
+        "no_input": true,
+        "no_output": true,
+        "isolation_mode": true,
+        "plan_mode": false,
+        "allowed_read_values_keys": [
+          "requirement"
         ],
         "outputs": [
           {
-            "output_name": "验证通过",
-            "next_agent": "4"
-          },
-          {
-            "output_name": "验证不通过",
-            "next_agent": "5"
+            "output_name": "名称已修改",
+            "next_agent": "10",
+            "require_confirm": false
           }
         ],
-        "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
-        "id": "6"
+        "agent_prompt": "### 你的职责\n用户需求已经实现，但当前git分支名称是随机生成的，根据需求重命名当前分支",
+        "id": "9"
+      },
+      {
+        "node_type": "code",
+        "agent_name": "清理worktree",
+        "agent_desc": "输出新分支名称，清理worktree",
+        "no_input": true,
+        "code": "// 新分支名称\nconst branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
+        "outputs": [],
+        "id": "10"
       }
     ],
     "shareValuesKeys": [
@@ -342,17 +502,17 @@
         "work_mode": "silent_task",
         "no_output": true,
         "plan_mode": true,
-        "agent_prompt": "如果当前在main分支，stash工作区变更\n如果当前不在main分支，基于main创建worktree，后续命令在工作区执行\n查看main分支上一个tag到最新提交**全部**、**完整**commit message，更新README.md/CLAUDE.md/CHANGELOG.md\nChangelog.md只保留最新版本；当归档文件（changelogs/目录下）累积到10个版本时，新建下一个归档文件，命名格式为v起始版本-v结束版本.md（如v0.0.38-v0.0.47.md）",
-        "id": "0",
+        "agent_prompt": "如果当前在main分支，stash工作区变更\n如果当前不在main分支，基于main创建worktree，后续命令在工作区执行\n查看main分支上一个tag到最新提交**全部**、**完整**commit message，更新README.md/CLAUDE.md/CHANGELOG.md，更新docs/下的文档\nChangelog.md只保留最新版本；当归档文件（changelogs/目录下）累积到10个版本时，新建下一个归档文件，命名格式为v起始版本-v结束版本.md（如v0.0.38-v0.0.47.md）",
+        "id": "6",
         "outputs": [
           {
             "output_name": "文档更新完毕",
-            "next_agent": "6"
+            "next_agent": "7"
           }
         ]
       },
       {
-        "id": "6",
+        "id": "7",
         "agent_name": "发版",
         "node_type": "code",
         "code": "return { content: await runCommand('npm run release') }",

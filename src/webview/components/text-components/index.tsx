@@ -13,9 +13,9 @@ import { Spin, Typography } from 'antd'
 import { XMarkdown, type ComponentProps as XMarkdownComponentProps } from '@ant-design/x-markdown'
 import mermaid from 'mermaid'
 import { match, P } from 'ts-pattern'
+import { useFlowStore } from '@/webview/store/flow'
 import { cn } from '@/webview/utils'
 import { postMessageToExtension } from '@/webview/utils/ExtensionMessage'
-import { useFlowStore } from '@/webview/store/flow'
 
 mermaid.initialize({
   startOnLoad: false,
@@ -47,11 +47,40 @@ const getTextContent = (node: ReactNode): string => {
 
 /** 文件引用判定白名单扩展名（小写，不含点号） */
 const FILE_EXTENSIONS = new Set([
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'md',
-  'py', 'go', 'rs', 'java', 'kt',
-  'c', 'cc', 'cpp', 'h', 'hpp', 'cs',
-  'css', 'scss', 'less', 'html', 'htm', 'vue', 'svelte',
-  'yaml', 'yml', 'toml', 'ini', 'sh', 'bash', 'sql', 'txt',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'md',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'c',
+  'cc',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'css',
+  'scss',
+  'less',
+  'html',
+  'htm',
+  'vue',
+  'svelte',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'sh',
+  'bash',
+  'sql',
+  'txt',
 ])
 
 /**
@@ -80,9 +109,7 @@ const parseFileRef = (text: string): { filename: string; line?: [number, number]
 const openFileRef = (ref: { filename: string; line?: [number, number] }) => {
   const { chatDrawer, flowRunStates } = useFlowStore.getState()
   const cwd = chatDrawer ? flowRunStates[chatDrawer.flowId]?.cwd : undefined
-  const data = ref.line
-    ? { filename: ref.filename, line: ref.line }
-    : { filename: ref.filename }
+  const data = ref.line ? { filename: ref.filename, line: ref.line } : { filename: ref.filename }
   postMessageToExtension({
     type: 'openFile',
     data: cwd ? { ...data, cwd } : data,
@@ -167,7 +194,7 @@ const CodeBlock: FC<XMarkdownComponentProps> = ({ children, lang, block, streamS
     if (ref) {
       return (
         <code
-          className='cursor-pointer underline decoration-dashed decoration-transparent transition-colors hover:decoration-current'
+          className='cursor-pointer underline decoration-transparent decoration-dashed transition-colors hover:decoration-current'
           onClick={() => openFileRef(ref)}
         >
           {children}

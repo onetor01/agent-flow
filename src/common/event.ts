@@ -52,7 +52,12 @@ export type ExtensionFromWebviewEvents = {
   /** 全量保存 flows */
   save: Flow[]
   /** 打开文件；line 存在时跳转并选中对应行；placement 说明打开位置 默认active */
-  openFile: { filename: string; line?: [number, number]; placement?: 'active' | 'beside'; cwd?: string }
+  openFile: {
+    filename: string
+    line?: [number, number]
+    placement?: 'active' | 'beside'
+    cwd?: string
+  }
   /** 在 VSCode 中预览一段外部粘入的文本附件（非文件系统文件） */
   previewAttachment: { name: string; content: string }
   /** 打开 VSCode diff 编辑器展示文件变更 */

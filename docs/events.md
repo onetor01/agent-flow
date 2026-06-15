@@ -29,6 +29,7 @@
 ## 特殊入口
 
 - `flow.signal.toolPermissionResult` 与 `flow.command.toolPermissionResult` 语义一致，入口不同：silent_task 自动应答走 signal，人工回答走 command。
+- `openFile.cwd` 用于 webview 行内 code 文件引用的相对路径解析；extension 端优先按绝对路径打开，否则以 `cwd` 或 workspace root 拼接。
 - `flow.command.fork` 由 extension 顶层 `handleFork` 处理；`flow.signal.fork` 由 webview 创建新 Flow 并切换视图，详见 [fork.md](fork.md)。
 
 ## 硬约束

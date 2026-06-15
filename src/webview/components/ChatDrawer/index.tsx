@@ -101,15 +101,7 @@ export const ChatDrawer: FC<Props> = ({
       if (started) chatPanelRef.current?.forceScrollToBottom()
       return started
     },
-    [
-      flowId,
-      effectiveAgentId,
-      inputState,
-      agentPhase,
-      activeRunId,
-      startFlow,
-      sendUserMessage,
-    ],
+    [flowId, effectiveAgentId, inputState, agentPhase, activeRunId, startFlow, sendUserMessage],
   )
 
   return (

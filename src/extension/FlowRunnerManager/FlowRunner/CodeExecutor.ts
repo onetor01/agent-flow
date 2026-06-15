@@ -1,8 +1,9 @@
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-type UserContent = SDKUserMessage['message']['content']
 import { AIMessageType, Code, ShareValueKey, UserMessageType } from '@/common'
 import { logError } from '../../logger'
 import { ExecutorEvents, ExecutorMode, ExecutorResult } from './ClaudeExecutor'
+
+type UserContent = SDKUserMessage['message']['content']
 
 /**
  * CodeExecutor 启动所需的全部数据。与 ClaudeExecutor 对齐:eager 构造时立即取,lazy
