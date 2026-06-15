@@ -1,7 +1,7 @@
 # Changelog
 
-## v0.0.72
+## v0.0.73
 
-- feat: Code 节点支持为 flow 指定 cwd（工作目录）；返回值新增 `cwd` 字段，直接写入 FlowRunState.cwd 驱动下一跳
-- feat: LinkBlock 支持 `filename:startLine-endLine` 行范围格式（正则扩展为 `/^(.+):(\d+)(?:-(\d+))?$/`）
-- 优化权限卡片：增加 loading 状态
+- feat: Code 节点 `cwd` 参数未设置时为 `undefined`（不再回退工作区根目录），用户代码可自行判断处理；Claude 节点仍回退工作区根目录
+- fix: 默认 flow 优化——"输入需求"改为"在worktree处理需求" code 节点（自动创建 worktree 并设置 cwd）；需求分析节点新增入口标记；分支规则仅在非主工作区时生成 branchName
+- UI: "默认工作区" 统一改为 "主工作区"

@@ -6,7 +6,7 @@
       {
         "id": "0",
         "node_type": "code",
-        "agent_name": "输入需求",
+        "agent_name": "在worktree处理需求",
         "agent_desc": "创建随机分支和worktree，设置工作目录",
         "is_entry": true,
         "outputs": [
@@ -15,7 +15,7 @@
             "next_agent": "1"
           }
         ],
-        "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: '准备完成',\n  content: input,\n  values: { branchName },\n  cwd: absPath\n}"
+        "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: '准备完成',\n  content: input,\n  cwd: absPath\n}"
       },
       {
         "id": "1",
@@ -23,8 +23,9 @@
         "effort": "high",
         "agent_name": "需求分析",
         "node_type": "agent",
+        "is_entry": true,
         "no_output": true,
-        "agent_prompt": "### 你的职责\n总结用户需求，仅做**只读**规划\n### 执行步骤\n#### 1. 需求分析\n分析用户需求，查看实现情况\n如果需求未实现，总结或更新需求\n#### 2.完成任务\n如果需求已经实现，调用mcp__AgentControllerMcp__CompleteTask，分支\"需求已实现\"，生成一个分支名称，写入branchName\n否则，选择分支\"分析完成\"，如果总结或更新了需求，将其写入requirement\n### 摘要规则\n如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码\n摘要中应当包含`代码要求`、`代码验证方式`两个模块这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等\n如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行\n### 分支规则\n只生成分支名，不创建新分支\n确保新名称不重复",
+        "agent_prompt": "### 你的职责\n总结用户需求，仅做**只读**规划\n### 执行步骤\n#### 1. 需求分析\n分析用户需求，查看实现情况\n如果需求未实现，总结或更新需求\n#### 2.完成任务\n如果需求已经实现，调用mcp__AgentControllerMcp__CompleteTask，分支\"需求已实现\"\n否则，选择分支\"分析完成\"，如果总结或更新了需求，将其写入requirement\n### 摘要规则\n如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码\n摘要中应当包含`代码要求`、`代码验证方式`两个模块这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等\n如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行\n### 分支规则\n如果你处于主工作区，忽略此规则\n仅在你不处于主工作区且分支\"需求已实现\"时，根据需求生成分支名称，并写入branchName，确保新名称不重复\n只生成分支名，**不创建新分支，不修改已有的分支名称**",
         "outputs": [
           {
             "output_name": "分析完成",
@@ -84,7 +85,7 @@
         "agent_name": "收尾工作",
         "agent_desc": "分支重命名，移除worktree",
         "no_input": true,
-        "code": "// 重命名分支\nconst branchName = values.branchName\nif (branchName) {\n  await runCommand(`git -C \"${cwd}\" branch -m ${branchName}`)\n}\n// 清理worktree\nawait runCommand(`git worktree remove -f \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
+        "code": "if(!cwd) return { content: `主工作区代码修改已完成` }\n// 重命名分支\nconst branchName = values.branchName\nif (branchName) {\n  await runCommand(`git -C \"${cwd}\" branch -m ${branchName}`)\n}\n// 清理worktree\nawait runCommand(`git worktree remove -f \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
         "id": "3"
       }
     ],

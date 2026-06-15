@@ -350,7 +350,7 @@ export class FlowRunner {
     const rawCwd = overrideCwd !== undefined ? overrideCwd : this.getLatestCwd()
     // code 节点允许 cwd 为 undefined（未设置时不强制回退 workspaceRoot，由用户代码自行判断）；
     // claude 节点注入 system prompt，需有明确工作目录，回退 workspaceRoot
-    const cwd = agent.node_type === 'code' ? (rawCwd || undefined) : (rawCwd || workspaceRoot)
+    const cwd = agent.node_type === 'code' ? rawCwd || undefined : rawCwd || workspaceRoot
     if (agent.node_type === 'code') {
       const executor: CodeExecutor = new CodeExecutor('eager', () => {
         const latestFlow = this.getLatestFlow()
