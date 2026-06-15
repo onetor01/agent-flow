@@ -22,26 +22,6 @@ export type CodeExecutorOptions = {
   cwd?: string
 }
 
-/**
- * 把 UserMessageType 的 content 拍平为字符串 —— 入参 `input` 仅传文本,数组形式
- * 取所有 text 块拼接;ToolResultBlockParam 等异常输入退化为空串。
- */
-function extractInputText(msg: UserMessageType): string {
-  const c = msg.message?.content
-  if (typeof c === 'string') return c
-  if (Array.isArray(c)) {
-    return c
-      .map((b: any) => {
-        if (typeof b === 'string') return b
-        if (b && typeof b === 'object' && b.type === 'text') return b.text ?? ''
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
-  }
-  return ''
-}
-
 /** AsyncFunction 构造器 —— 用 new 调用以包装 async function 体 */
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as {
   new (...args: string[]): (...a: any[]) => Promise<any>
@@ -205,7 +185,7 @@ export class CodeExecutor {
       logError('[CodeExecutor] onStarted handler threw', err)
     }
 
-    const inputContent = extractInputText(msg)
+    const inputContent = msg.message?.content
     // code 节点全量读 shareValues —— 不受 allowed_read_values_keys 约束(那只针对 node_type='agent')
     const valuesArg: Record<string, string> = { ...this.currentValues }
     const codeBody = this.agent.code ?? ''
