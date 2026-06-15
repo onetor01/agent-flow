@@ -344,7 +344,7 @@ const ThinkingContent: FC<{ text: string; itemKey: string; fork?: ReactNode }> =
   )
   if (expanded) {
     return (
-      <div className='flex'>
+      <div className='flex max-w-full'>
         {think}
         <div className='ml-1 flex flex-col items-center gap-1'>
           {fork}
@@ -354,7 +354,7 @@ const ThinkingContent: FC<{ text: string; itemKey: string; fork?: ReactNode }> =
     )
   }
   return (
-    <div className='flex items-center gap-1'>
+    <div className='flex max-w-full items-center gap-1'>
       {think}
       {fork}
       <CopyButton text={text} />
@@ -383,7 +383,7 @@ const ToolUseBubbleContent: FC<{
   )
   if (expanded) {
     return (
-      <div className='flex'>
+      <div className='flex max-w-full'>
         {details}
         <div className='ml-1 flex flex-col items-center gap-1'>
           {fork}
@@ -393,7 +393,7 @@ const ToolUseBubbleContent: FC<{
     )
   }
   return (
-    <div className='flex items-center gap-1'>
+    <div className='flex max-w-full items-center gap-1'>
       {details}
       {fork}
       <CopyButton text={copyText} />
@@ -411,7 +411,7 @@ const CompleteTaskBody: FC<{
 }> = ({ outputName, content, values, cwd }) => {
   const shareEntries = values ? Object.entries(values) : []
   return (
-    <div className='flex min-w-75 flex-col gap-2'>
+    <div className='flex max-w-full min-w-75 flex-col gap-2'>
       {cwd === undefined ? null : (
         <>
           <Tag color='green' className='m-0 self-start text-[10px]'>
@@ -610,8 +610,8 @@ export function chatMessageToBubble(
         key: message.id,
         role: 'user',
         content: (
-          <div className='flex'>
-            <div className='flex flex-col gap-1'>
+          <div className='flex max-w-full'>
+            <div className='flex max-w-full flex-col gap-1'>
               {node}
               {hasInjected && (
                 <InjectedShareValuesSection values={injectedShareValues} title={injectedTitle} />
@@ -632,9 +632,9 @@ export function chatMessageToBubble(
         key: message.id,
         role: 'ai',
         content: (
-          <div className='flex'>
+          <div className='flex max-w-full'>
             {md}
-            <div className='ml-1 flex flex-col items-center gap-1'>
+            <div className='ml-1 flex max-w-full flex-col items-center gap-1'>
               {fork}
               <CopyButton text={message.text} />
             </div>
@@ -851,8 +851,8 @@ export function chatMessageToBubble(
         key: `${message.id}-complete`,
         role: 'ai',
         content: (
-          <div className='flex'>
-            <div>
+          <div className='flex max-w-full'>
+            <div className='max-w-full'>
               <CompleteTaskBody
                 cwd={message.cwd}
                 outputName={message.outputName}
