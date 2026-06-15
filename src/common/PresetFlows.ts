@@ -40,7 +40,7 @@ export const PresetFlows: Flow[] = [
           {
             output_name: '需求已实现',
             output_desc: '当前状况已满足用户需求，无需更改',
-            next_agent: '5',
+            next_agent: '6',
             require_confirm: true,
           },
         ],
@@ -80,6 +80,7 @@ export const PresetFlows: Flow[] = [
         outputs: [
           {
             output_name: '验证通过',
+            next_agent: '5',
           },
           {
             output_name: '验证不通过',
@@ -92,6 +93,19 @@ export const PresetFlows: Flow[] = [
       },
       {
         node_type: 'code',
+        agent_name: '任务执行完毕',
+        no_input: true,
+        outputs: [
+          {
+            output_name: '验证需求',
+            next_agent: '2',
+          },
+        ],
+        code: "return { output_name: '验证需求', content: '验证用户需求是否实现' }",
+        id: '5',
+      },
+      {
+        node_type: 'code',
         agent_name: '节点分流',
         agent_desc: '创建随机分支和worktree，设置工作目录',
         no_input: true,
@@ -99,14 +113,14 @@ export const PresetFlows: Flow[] = [
         outputs: [
           {
             output_name: '处理分支和worktree',
-            next_agent: '6',
+            next_agent: '7',
           },
           {
             output_name: '需求已完成',
           },
         ],
         code: "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
-        id: '5',
+        id: '6',
       },
       {
         node_type: 'agent',
@@ -124,13 +138,13 @@ export const PresetFlows: Flow[] = [
         outputs: [
           {
             output_name: '名称已修改',
-            next_agent: '7',
+            next_agent: '8',
             require_confirm: false,
           },
         ],
         agent_prompt:
           '### 你的职责\n用户需求已经实现，但当前git分支名称是随机生成的，根据需求重命名当前分支',
-        id: '6',
+        id: '7',
       },
       {
         node_type: 'code',
@@ -139,7 +153,7 @@ export const PresetFlows: Flow[] = [
         no_input: true,
         code: '// 新分支名称\nconst branchName = await runCommand(`git -C "${cwd}" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove "${cwd}"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }',
         outputs: [],
-        id: '7',
+        id: '8',
       },
     ],
     shareValuesKeys: [
