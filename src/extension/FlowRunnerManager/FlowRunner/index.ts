@@ -1,4 +1,4 @@
-import { execaCommand } from 'execa'
+import { execa, execaCommand } from 'execa'
 import * as fs from 'fs'
 import * as path from 'path'
 import { match } from 'ts-pattern'
@@ -340,10 +340,21 @@ export class FlowRunner {
           agent,
           currentValues,
           shareValueKeys: latestFlow.shareValuesKeys ?? [],
-          runCommand: async (command: string, timeout?: number) => {
+          runCommand: async (command: string | readonly string[], timeout?: number) => {
+            // 数组形式：file + args，完全绕过 shell —— 路径含反斜杠 / 空格 / 引号都安全
+            if (Array.isArray(command)) {
+              if (command.length === 0) throw new Error('runCommand: argv 数组不能为空')
+              const [file, ...args] = command
+              const { stdout, stderr } = await execa(file, args, {
+                cwd,
+                timeout: timeout ?? 600_000,
+              })
+              return stdout + stderr
+            }
+            // 字符串形式：保持旧行为，走 shell（用户脚本里依赖管道 / 变量展开等）
             // Windows 上 `bash` 会被 WSL 拦截,需要显式定位 Git Bash
             const shell = process.platform === 'win32' ? ((await resolveGitBash()) ?? 'bash') : true
-            const { stdout, stderr } = await execaCommand(command, {
+            const { stdout, stderr } = await execaCommand(command as string, {
               cwd,
               timeout: timeout ?? 600_000,
               shell,

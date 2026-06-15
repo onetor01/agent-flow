@@ -8,15 +8,17 @@ import { ExecutorEvents, ExecutorMode, ExecutorResult } from './ClaudeExecutor'
  * 延迟到首次 createQuery 时再取(尽管本期 lazy 路径不会走到 CodeExecutor —— fork
  * 不支持 code 节点)。
  *
- * runCommand: 在 VSCode workspaceFolder 下执行 shell 命令的函数,由上层 FlowRunner
- * 注入,透传给 AsyncFunction 作为第三个入参,允许用户代码直接调用系统命令。
+ * runCommand: 在 VSCode workspaceFolder 下执行命令的函数,由上层 FlowRunner
+ * 注入,透传给 AsyncFunction 作为第三个入参,允许用户代码直接调用系统命令。支持两种
+ * 调用方式:字符串形式走 shell(可用管道、变量展开);数组形式 file+args 完全绕过
+ * shell,路径含反斜杠 / 空格 / 引号都安全 —— 跨平台路径推荐用数组形式。
  */
 export type CodeExecutorOptions = {
   initMessage: UserMessageType
   agent: Code
   currentValues: Record<string, string>
   shareValueKeys: readonly ShareValueKey[]
-  runCommand: (command: string, timeout?: number) => Promise<string>
+  runCommand: (command: string | readonly string[], timeout?: number) => Promise<string>
   events: ExecutorEvents
 }
 

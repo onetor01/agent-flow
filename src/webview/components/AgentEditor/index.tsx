@@ -515,7 +515,9 @@ export const AgentEditor: FC = () => {
                               .map((n: string) => `'${n}'`)
                               .join(', ')
                       }`,
-                      '// runCommand: async (cmd: string) => Promise<string> 在 workspaceFolder 下执行命令',
+                      '// runCommand: async (cmd: string | string[]) => Promise<string>',
+                      '//   字符串 → 走 shell（可用管道/变量展开）',
+                      "//   数组   → file+args 绕过 shell（路径含反斜杠/空格更安全，推荐 Windows 路径用此形式）",
                     ].join('\n')}
                   </div>
                   <div className='text-[#94e2d5]'>

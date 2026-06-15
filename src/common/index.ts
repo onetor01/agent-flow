@@ -131,7 +131,7 @@ export const CodeSchema = AgentSchema.pick({
         '/**',
         '* @param input string 上游或用户的输入',
         '* @param values Record<string,string> 当前shareValues的全部数据',
-        '* @param runCommand (command: string)=>Promise<string> 在当前目录执行shell命令',
+        '* @param runCommand (cmd: string | string[])=>Promise<string> 执行命令；字符串走 shell（可用管道/变量），数组走 file+args 绕过 shell（路径含反斜杠/空格更安全，推荐 Windows 路径用此形式）',
         '* @return Promise<{output_name?:string, content:string, values?:Record<string,string>}> 输出分支/输出内容，values会被合并更新至当前shareValues',
         '*/',
         'async function (input, values, runCommand) { /** code的值在这里 */ }',
