@@ -73,6 +73,7 @@ export const ToolPermissionCard: FC<Props> = ({
   const isEditDiff = !!editDiff
   const [selection, setSelection] = useState<string | undefined>(undefined)
   const [denyReason, setDenyReason] = useState('')
+  const [submitted, setSubmitted] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -86,6 +87,7 @@ export const ToolPermissionCard: FC<Props> = ({
   }, [selection, onChangeHeight])
 
   const handleSubmit = () => {
+    setSubmitted(true)
     match(selection)
       .with(ALLOW_VALUE, () => onAllow?.())
       .with(DENY_WITH_REASON_VALUE, () => onDeny?.(denyReason.trim() || undefined))
@@ -97,8 +99,8 @@ export const ToolPermissionCard: FC<Props> = ({
   const handleSelectionChange = (value: string) => {
     setSelection(value)
     match(value)
-      .with(ALLOW_VALUE, () => onAllow?.())
-      .with(DENY_VALUE, () => onDeny?.())
+      .with(ALLOW_VALUE, () => { setSubmitted(true); onAllow?.() })
+      .with(DENY_VALUE, () => { setSubmitted(true); onDeny?.() })
       .otherwise(() => {})
   }
 
@@ -212,24 +214,22 @@ export const ToolPermissionCard: FC<Props> = ({
         inputTriggerValue={DENY_WITH_REASON_VALUE}
         value={isActive ? selection : historicalValue}
         inputValue={isActive ? denyReason : answered?.reason}
-        disabled={!isActive}
+        disabled={!isActive || submitted}
         inputPlaceholder={'输入原因...'}
         onChange={handleSelectionChange}
         onInputChange={setDenyReason}
         onInputKeyDown={handleKeyDown}
       />
 
-      {isActive && (
+      {isActive && selection === DENY_WITH_REASON_VALUE && (
         <div className='flex justify-end'>
-          <Button type='primary' size='small' disabled={!selection} onClick={handleSubmit}>
-            发送
-          </Button>
-        </div>
-      )}
-      {/* 历史态：用户已回答但工具执行结果尚未到达 → 展示 loading 发送按钮 */}
-      {mode === 'historical' && loading && (
-        <div className='flex justify-end'>
-          <Button type='primary' size='small' loading>
+          <Button
+            type='primary'
+            size='small'
+            disabled={!denyReason.trim() || submitted}
+            loading={submitted}
+            onClick={handleSubmit}
+          >
             发送
           </Button>
         </div>

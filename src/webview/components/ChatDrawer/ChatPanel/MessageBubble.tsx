@@ -1,11 +1,6 @@
 import { useState, type FC, type ReactNode } from 'react'
 import { Button, Input, Radio, Tag, Tooltip } from 'antd'
-import {
-  BranchesOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
-  LoadingOutlined,
-} from '@ant-design/icons'
+import { BranchesOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { Think } from '@ant-design/x'
 import { match, P } from 'ts-pattern'
 import type { AskUserQuestionInput, ChatMessage, ModelTokenUsage, ToolResult } from '@/common'
@@ -457,7 +452,6 @@ const CompleteTaskConfirmCard: FC<{
               size='small'
               disabled={submitted || !reason.trim()}
               loading={submitted}
-              icon={<LoadingOutlined />}
               onClick={() => {
                 setSubmitted(true)
                 onDeny(reason.trim())

@@ -85,6 +85,7 @@ export const AskUserQuestionCard: FC<Props> = ({
   const isActive = mode === 'active'
   const [selections, setSelections] = useState<Selections>({})
   const [otherStates, setOtherStates] = useState<Record<number, OtherState>>({})
+  const [submitted, setSubmitted] = useState(false)
 
   const questionRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
@@ -119,6 +120,7 @@ export const AskUserQuestionCard: FC<Props> = ({
         (_q, i) => !isQuestionExplicitlyAnswered(i, curSels, curOthers),
       )
       if (firstUnanswered === -1) {
+        setSubmitted(true)
         stableOnSubmit(buildOutput(questions, curSels, curOthers))
         return
       }
@@ -179,6 +181,7 @@ export const AskUserQuestionCard: FC<Props> = ({
 
   const handleManualSend = () => {
     if (!allAnswered) return
+    setSubmitted(true)
     onSubmit?.(buildOutput(questions, selections, otherStates))
   }
 
@@ -239,7 +242,7 @@ export const AskUserQuestionCard: FC<Props> = ({
             {multi ? (
               <Checkbox.Group
                 value={value}
-                disabled={!isActive}
+                disabled={!isActive || submitted}
                 onChange={(vs) => handleCheckboxChange(qIdx, vs as string[])}
                 className='flex flex-col gap-1'
               >
@@ -255,7 +258,7 @@ export const AskUserQuestionCard: FC<Props> = ({
             ) : (
               <Radio.Group
                 value={value[0]}
-                disabled={!isActive}
+                disabled={!isActive || submitted}
                 onChange={(e) => handleRadioChange(qIdx, e.target.value)}
                 className='flex flex-col gap-1'
               >
@@ -274,7 +277,7 @@ export const AskUserQuestionCard: FC<Props> = ({
                 <Input.TextArea
                   autoSize={{ minRows: 1, maxRows: 3 }}
                   value={otherText}
-                  disabled={!isActive}
+                  disabled={!isActive || submitted}
                   onChange={(e) => handleOtherTextChange(qIdx, e.target.value)}
                   onKeyDown={(e) => handleTextAreaKeyDown(qIdx, e)}
                   placeholder='输入自定义回答...'
@@ -288,15 +291,13 @@ export const AskUserQuestionCard: FC<Props> = ({
 
       {isActive && (
         <div className='flex justify-end'>
-          <Button type='primary' size='small' disabled={!allAnswered} onClick={handleManualSend}>
-            发送
-          </Button>
-        </div>
-      )}
-      {/* 历史态：用户已回答但工具执行结果尚未到达 → 展示 loading 发送按钮 */}
-      {mode === 'historical' && loading && (
-        <div className='flex justify-end'>
-          <Button type='primary' size='small' loading>
+          <Button
+            type='primary'
+            size='small'
+            disabled={!allAnswered || submitted}
+            loading={submitted}
+            onClick={handleManualSend}
+          >
             发送
           </Button>
         </div>
