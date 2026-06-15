@@ -177,6 +177,31 @@ function userContentToText(content: unknown): string {
   return ''
 }
 
+/** 渲染富文本内容（string | ContentBlockParam[]）→ ReactNode，用于完成卡片等需要展示图片/格式化文本的场景 */
+function renderRichContent(content: string | unknown[] | undefined): ReactNode {
+  if (typeof content === 'string') return <Md content={content} />
+  if (!Array.isArray(content)) return null
+  const nodes: ReactNode[] = []
+  ;(content as Array<Record<string, unknown>>).forEach((block, i) => {
+    if (!block || typeof block !== 'object') return
+    if (block.type === 'text') {
+      const text = (block.text as string) ?? ''
+      if (text) nodes.push(<Md key={i} content={text} />)
+      return
+    }
+    if (block.type === 'image') {
+      const mime = (block.source as Record<string, unknown>)?.media_type as string ?? 'image/png'
+      const base64 = ((block.source as Record<string, unknown>)?.data as string) ?? ''
+      nodes.push(
+        <span key={i} className='mx-0.5 inline-flex align-middle'>
+          <FileRefChip data={{ id: `img-${i}`, name: '图片', mimeType: mime, base64 }} />
+        </span>,
+      )
+    }
+  })
+  return nodes.length > 0 ? <>{nodes}</> : null
+}
+
 /** 渲染用户消息内容 —— 代码片段 / 文件 / 图片均以 chip 形式内联展示，允许换行 */
 function renderUserContent(rawContent: unknown): { copyText: string; node: ReactNode } {
   if (typeof rawContent === 'string') {
@@ -200,7 +225,11 @@ function renderUserContent(rawContent: unknown): { copyText: string; node: React
   rawContent.forEach((block: any, i: number) => {
     if (!block || typeof block !== 'object') return
     if (block.type === 'text') {
-      renderTextBlockParts(block.text ?? '', String(i), copyParts, nodes)
+      const text = block.text ?? ''
+      if (text) {
+        copyParts.push(text)
+        nodes.push(<Md key={i} content={text} />)
+      }
       return
     }
     if (block.type === 'image') {
@@ -363,7 +392,6 @@ const CompleteTaskBody: FC<{
   values?: Record<string, string>
 }> = ({ outputName, content, values, cwd }) => {
   const shareEntries = values ? Object.entries(values) : []
-  const displayText = content ? userContentToText(content) : ''
   return (
     <div className='flex min-w-75 flex-col gap-2'>
       {cwd === undefined ? null : (
@@ -377,7 +405,7 @@ const CompleteTaskBody: FC<{
       <Tag color='green' className='m-0 self-start text-[10px]'>
         完成{outputName ? ` → ${outputName}` : ''}
       </Tag>
-      {displayText && <Md content={displayText} />}
+      {renderRichContent(content)}
       {shareEntries.length > 0 && (
         <div className='mt-2 border-t border-[#45475a] pt-2'>
           <div className='mb-1 text-[10px] text-[#a6adc8]'>共享数据写入</div>
