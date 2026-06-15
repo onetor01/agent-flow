@@ -79,8 +79,7 @@ export const AgentEditor: FC = () => {
       // 后只是多个 undefined→8000 的字段,反正 code 节点表单不渲染该 FormItem)。
       form.setFieldsValue({
         ...agent,
-        thinking_budget:
-          agent.node_type === 'agent' ? (agent.thinking_budget ?? 8000) : undefined,
+        thinking_budget: agent.node_type === 'agent' ? (agent.thinking_budget ?? 8000) : undefined,
       })
     } else {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -216,12 +215,7 @@ export const AgentEditor: FC = () => {
                     tooltip='Extended thinking 上限（tokens）。0 = 禁用思考；默认 8000 覆盖大多数推理场景，并对 Bedrock 1M context 网关流式 tool_use 解析失败提供兜底。'
                     className='w-36'
                   >
-                    <InputNumber
-                      min={0}
-                      step={1000}
-                      placeholder='8000'
-                      className='w-full'
-                    />
+                    <InputNumber min={0} step={1000} placeholder='8000' className='w-full' />
                   </FormItem>
                 </Flex>
               )}
@@ -517,7 +511,7 @@ export const AgentEditor: FC = () => {
                       }`,
                       '// runCommand: async (cmd: string | string[]) => Promise<string>',
                       '//   字符串 → 走 shell（可用管道/变量展开）',
-                      "//   数组   → file+args 绕过 shell（路径含反斜杠/空格更安全，推荐 Windows 路径用此形式）",
+                      '//   数组   → file+args 绕过 shell（路径含反斜杠/空格更安全，推荐 Windows 路径用此形式）',
                     ].join('\n')}
                   </div>
                   <div className='text-[#94e2d5]'>

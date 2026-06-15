@@ -108,7 +108,7 @@
         "agent_name": "释放资源",
         "agent_desc": "移除worktree",
         "no_input": true,
-        "code": "if(values.worktreePath){\n  await runCommand(`git worktree remove -f ${values.worktreePath}`)\n}\nreturn { content: '代码修改已完成' }",
+        "code": "if(values.worktreePath){\n  // argv 数组形式绕过 shell，路径含反斜杠 / 空格都安全\n  await runCommand(['git', 'worktree', 'remove', '-f', values.worktreePath])\n}\nreturn { content: '代码修改已完成' }",
         "id": "4"
       }
     ],
