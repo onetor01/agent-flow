@@ -21,7 +21,6 @@ export const PresetFlows: Flow[] = [
           'return {',
           "  output_name: '准备完成',",
           '  content: input,',
-          '  values: { branchName },',
           '  cwd: absPath',
           '}',
         ].join('\n'),
@@ -32,6 +31,7 @@ export const PresetFlows: Flow[] = [
         effort: 'high',
         agent_name: '需求分析',
         node_type: 'agent',
+        is_entry: true,
         no_output: true,
         agent_prompt: [
           '### 你的职责',
@@ -41,15 +41,16 @@ export const PresetFlows: Flow[] = [
           '分析用户需求，查看实现情况',
           '如果需求未实现，总结或更新需求',
           '#### 2.完成任务',
-          '如果需求已经实现，调用mcp__AgentControllerMcp__CompleteTask，分支"需求已实现"，生成一个分支名称，写入branchName',
+          '如果需求已经实现，调用mcp__AgentControllerMcp__CompleteTask，分支"需求已实现"',
           '否则，选择分支"分析完成"，如果总结或更新了需求，将其写入requirement',
           '### 摘要规则',
           '如果用户输入里包含了具体的业务要求，将其置于`业务要求`、`业务验证方式`模块这两个模块*必须*存在，应当以`项目使用者`视角描述，无关代码',
           '摘要中应当包含`代码要求`、`代码验证方式`两个模块这两个模块*必须*存在，应当以`项目开发者`视角描述，关注代码逻辑的正确性、变动范围和影响等',
           '如果需求内容较多，应当将其拆分为独立的任务列表，并注明执行顺序、能否并行',
           '### 分支规则',
-          '只生成分支名，不创建新分支',
-          '确保新名称不重复',
+          '如果你处于主工作区，忽略此规则',
+          '仅在你不处于主工作区且分支"需求已实现"时，根据需求生成分支名称，并写入branchName，确保新名称不重复',
+          '只生成分支名，**不创建新分支，不修改已有的分支名称**',
         ].join('\n'),
         outputs: [
           {
@@ -108,6 +109,7 @@ export const PresetFlows: Flow[] = [
         agent_desc: '分支重命名，移除worktree',
         no_input: true,
         code: [
+          'if(!cwd) return { content: `主工作区代码修改已完成` }',
           '// 重命名分支',
           'const branchName = values.branchName',
           'if (branchName) {',
