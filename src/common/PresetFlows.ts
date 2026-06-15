@@ -148,7 +148,9 @@ export const PresetFlows: Flow[] = [
         no_input: true,
         code: [
           'if(values.worktreePath){',
-          '  await runCommand(`git worktree remove -f ${values.worktreePath}`)',
+          '  // Windows 路径含反斜杠，sh 会将 \\X 当转义吞掉；统一转正斜杠 + 单引号包裹后再交给 sh',
+          "  const p = values.worktreePath.replace(/\\\\/g, '/')",
+          "  await runCommand(`git worktree remove -f '${p}'`)",
           '}',
           "return { content: '代码修改已完成' }",
         ].join('\n'),
