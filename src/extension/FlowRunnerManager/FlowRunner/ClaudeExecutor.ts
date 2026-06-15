@@ -7,9 +7,7 @@ import {
   type PreToolUseHookInput,
   type Query,
   type SDKUserMessage,
-  type SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk'
-import * as vscode from 'vscode'
 import {
   Agent,
   AIMessageType,
@@ -111,9 +109,9 @@ export class ClaudeExecutor {
   private mcpServer: ReturnType<typeof buildAgentMcpServer> | null = null
   private readonly userInputStream: ReturnType<typeof createMessageChannel<SDKUserMessage>>
   /**
-   * 取最新 options 的回调。preToolUseHook / createQuery 每次调用时重新取 agent / events,
-   * 确保运行中改 agent 配置(如 work_mode / must_confirm_tools)立即生效。
-   * 仅 prompt / resumeSessionId 在 ensureInit 内一次性缓存。
+   * 取最新 options 的回调。preToolUseHook / canUseTool / createQuery 每次调用时
+   * 重新取 agent / events,确保运行中改 agent 配置(如 work_mode / must_confirm_tools)
+   * 立即生效。仅 prompt / resumeSessionId 在 ensureInit 内一次性缓存。
    */
   private readonly getOptions: () => ExecutorOptions
   /** ensureInit 是否已执行 —— eager 在构造时即 true,lazy 在首次 ensureInit 时翻 true */
@@ -152,12 +150,12 @@ export class ClaudeExecutor {
 
   /**
    * 挂起中的工具权限请求：toolUseId -> { resolve, input }。
-   * preToolUseHook 路径(AskUserQuestion / CompleteTask(require_confirm) / ExitPlanMode / must_confirm)
+   * canUseTool 路径(AskUserQuestion / CompleteTask(require_confirm) / ExitPlanMode / must_confirm)
    * 统一入此 Map,回答统一走 answerToolPermission。
    */
   private pendingToolPermissions = new Map<
     string,
-    { resolve: (result: SyncHookJSONOutput) => void; input: Record<string, unknown> }
+    { resolve: (result: PermissionResult) => void; input: Record<string, unknown> }
   >()
 
   /**
@@ -167,8 +165,8 @@ export class ClaudeExecutor {
    *   - lazy: 构造时不调用,首次 ensureInit / createQuery 时调用 —— 调用方可动态返回最新
    *     agent / shareValues,把构造到首次启动间的外部改动应用到本次启动
    *
-   *   **运行时行为**:preToolUseHook / createQuery 每次调用时重新取 agent,
-   *   确保运行中改 agent 配置(如 work_mode / must_confirm_tools / outputs)立即生效。
+   *   **运行时行为**:preToolUseHook / canUseTool / createQuery 每次调用时重新取 agent,
+   *   确保运行中改 agent 配置(如 work_mode / must_confirm_tools / deny_tools / outputs)立即生效。
    */
   constructor(mode: ExecutorMode, getOptions: () => ExecutorOptions) {
     this.userInputStream = createMessageChannel<SDKUserMessage>()
@@ -183,8 +181,8 @@ export class ClaudeExecutor {
   /**
    * 一次性初始化:计算 prompt 快照 + 设置 resumeSessionId。
    * eager 在构造时调用;lazy 在首次 ensureInit 时调用。
-   * agent / events / baseUrl / apiKey 不在此缓存 —— 每次 preToolUseHook / createQuery
-   * 通过 getOptions() 实时取,确保运行中改配置立即生效。
+   * agent / events / baseUrl / apiKey 不在此缓存 —— 每次 preToolUseHook / canUseTool /
+   * createQuery 通过 getOptions() 实时取,确保运行中改配置立即生效。
    */
   private init(): void {
     if (this.initialized) return
@@ -277,46 +275,35 @@ export class ClaudeExecutor {
     allow: boolean,
     opts?: { updatedInput?: unknown; message?: string },
   ): void {
-    // hook 路径：返回 SyncHookJSONOutput
     const pending = this.pendingToolPermissions.get(toolUseId)
     if (pending) {
       this.pendingToolPermissions.delete(toolUseId)
-      if (allow) {
-        pending.resolve({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'allow',
-            updatedInput: (opts?.updatedInput ?? pending.input) as Record<string, unknown>,
-          },
-        })
-      } else {
-        pending.resolve({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'deny',
-            permissionDecisionReason: opts?.message,
-          },
-        })
-      }
+      pending.resolve(
+        allow
+          ? {
+              behavior: 'allow',
+              updatedInput: (opts?.updatedInput ?? pending.input) as Record<string, unknown>,
+              toolUseID: toolUseId,
+            }
+          : {
+              behavior: 'deny',
+              message: opts?.message ?? 'user denied',
+              toolUseID: toolUseId,
+            },
+      )
       return
     }
   }
 
   private rejectAllPendingPermissions(reason: string): void {
     for (const [, pending] of this.pendingToolPermissions) {
-      pending.resolve({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: reason,
-        },
-      })
+      pending.resolve({ behavior: 'deny', message: reason })
     }
     this.pendingToolPermissions.clear()
   }
 
   /**
-   * silent_task 自动回复(自动续轮 + AskUserQuestion/ExitPlanMode 自动应答)统一计数。
+   * silent_task 自动回复(自动续轮 + AskUserQuestion/ExitPlanMode 自动应答 + must_confirm 自动拒绝)统一计数。
    * 每次自动回复前调用:自增计数,超过 SILENT_MAX_AUTO_REPLIES 时标记 disposed +
    * fire onError 把 run 推到 agent-error 终态并 interrupt SDK 让流尽快收尾
    * (与 onTerminate 错误路径同构),返回 false 让调用方放弃本次自动回复。
@@ -339,14 +326,11 @@ export class ClaudeExecutor {
     return true
   }
 
-  // 按照用户规则&agent-flow规则禁止/询问/自动应答
-  // 不在规则中的放行 按照ClaudeCode规则判断
-  // 若还不能决定 由canUseTool询问用户
+  // preToolUseHook 只处理高于 Claude Code 原生鉴权的硬拒绝。
   private preToolUseHook: HookCallback = (input) => {
     const hookInput = input as PreToolUseHookInput
     const toolName = hookInput.tool_name
     const toolInput = hookInput.tool_input as Record<string, unknown>
-    const toolUseId = hookInput.tool_use_id
 
     // subagent 不可调用 AgentControllerMcp 工具
     if (hookInput.agent_id && toolName.includes('AgentControllerMcp')) {
@@ -358,9 +342,8 @@ export class ClaudeExecutor {
         },
       })
     }
-    // 每次工具调用实时取最新 agent / events,运行中改 agent 配置(work_mode /
-    // must_confirm_tools / deny_tools / outputs)立即生效,不依赖缓存快照。
-    const { agent, events } = this.getOptions()
+    // 每次工具调用实时取最新 agent,运行中改 deny_tools 立即生效,不依赖缓存快照。
+    const { agent } = this.getOptions()
 
     // deny_tools —— 命中即拒绝，不挂起不弹窗。
     // matchToolRule 统一处理：裸工具名精确匹配 + Bash(pattern) 任一子命令命中即拒绝(防组合命令绕过)
@@ -380,19 +363,25 @@ export class ClaudeExecutor {
       })
     }
 
+    // 其余工具交给 Claude Code 原生鉴权；未决策时再进入 canUseTool。
+    return Promise.resolve({
+      continue: true,
+    })
+  }
+
+  // Claude Code 原生鉴权未决策的工具在此处理 Agent Flow 确认 / silent 自动应答。
+  private canUseTool: CanUseTool = (toolName, input, options) => {
+    const toolInput = input as Record<string, unknown>
+    const toolUseId = options.toolUseID
+    const { agent, events } = this.getOptions()
+
     if (toolName.includes('AskUserQuestion')) {
       // silent_task 是无人值守模式：直接以占位字符串自动应答，不挂起。
       // 同步 fire onToolPermissionResult 让 webview 通过 flow.signal.toolPermissionResult
       // 回显自动答案,与人工回答的展示路径(answeredToolPermissions)保持一致。
       if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
-          return Promise.resolve({
-            hookSpecificOutput: {
-              hookEventName: 'PreToolUse' as const,
-              permissionDecision: 'deny' as const,
-              permissionDecisionReason: 'silent auto-reply limit exceeded',
-            },
-          })
+          return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         const askInput = toolInput as unknown as AskUserQuestionInput
         const questions = askInput.questions ?? []
         const answers: Record<string, string> = {}
@@ -401,15 +390,8 @@ export class ClaudeExecutor {
         }
         const updatedInput = { questions, answers }
         events.onToolPermissionResult({ toolUseId, allow: true, updatedInput })
-        return Promise.resolve({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse' as const,
-            permissionDecision: 'allow' as const,
-            updatedInput,
-          },
-        })
+        return Promise.resolve({ behavior: 'allow', updatedInput })
       }
-      // 非 silent：挂起，等待 answerToolPermission() 被调用
       return this.requestToolPermission(toolUseId, toolName, toolInput)
     }
     // require_confirm 粒度按 output 配置：根据 CompleteTask 入参里的 output_name
@@ -423,19 +405,13 @@ export class ClaudeExecutor {
           ? agent.outputs?.find((o) => o.output_name === outputName)
           : undefined
       if (matchedOutput?.require_confirm === true) {
-        log('[ClaudeExecutor] preToolUseHook CompleteTask pending confirm', {
+        log('[ClaudeExecutor] canUseTool CompleteTask pending confirm', {
           toolUseId,
           outputName,
         })
         return this.requestToolPermission(toolUseId, toolName, completeInput)
       }
-      return Promise.resolve({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse' as const,
-          permissionDecision: 'allow' as const,
-          updatedInput: toolInput,
-        },
-      })
+      return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
     }
     // plan_mode agent 的 ExitPlanMode 工具：拦截并挂起，等待用户确认计划。
     // 确认后 SDK 收到 allow，模型继续执行；拒绝则收到 deny（isError tool_result）。
@@ -443,25 +419,13 @@ export class ClaudeExecutor {
     if (toolName.includes('ExitPlanMode')) {
       if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
-          return Promise.resolve({
-            hookSpecificOutput: {
-              hookEventName: 'PreToolUse' as const,
-              permissionDecision: 'deny' as const,
-              permissionDecisionReason: 'silent auto-reply limit exceeded',
-            },
-          })
+          return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
         events.onToolPermissionResult({
           toolUseId,
           allow: true,
           updatedInput: toolInput,
         })
-        return Promise.resolve({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse' as const,
-            permissionDecision: 'allow' as const,
-            updatedInput: toolInput,
-          },
-        })
+        return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
       }
       return this.requestToolPermission(toolUseId, toolName, toolInput)
     }
@@ -470,41 +434,31 @@ export class ClaudeExecutor {
     // 命中 must_confirm 列表 → 挂起等待用户确认;silent_task 无人确认 → 自动拒绝
     // matchToolRule 统一处理:见 deny_tools 注释
     if (must_confirm_tools && matchToolRule(toolName, must_confirm_tools, toolInput)) {
-      // silent_task 无人值守，must_confirm 无法获得人工确认，自动拒绝
+      const matchedPatterns = must_confirm_tools.filter((p) =>
+        matchToolRule(toolName, [p], toolInput),
+      )
+      const denyDesc =
+        matchedPatterns.length > 0
+          ? matchedPatterns.reduce((a, b) => (a.length <= b.length ? a : b))
+          : toolName
       if (agent.work_mode === 'silent_task') {
-        const matchedPatterns = must_confirm_tools.filter((p) =>
-          matchToolRule(toolName, [p], toolInput),
-        )
-        const denyDesc =
-          matchedPatterns.length > 0
-            ? matchedPatterns.reduce((a, b) => (a.length <= b.length ? a : b))
-            : toolName
-        return Promise.resolve({
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse' as const,
-            permissionDecision: 'deny' as const,
-            permissionDecisionReason: `禁止使用 ${denyDesc}`,
-          },
-        })
+        if (!this.tryAutoReply())
+          return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
+        const message = `禁止使用 ${denyDesc}`
+        events.onToolPermissionResult({ toolUseId, allow: false, message })
+        return Promise.resolve({ behavior: 'deny', message })
       }
       return this.requestToolPermission(toolUseId, toolName, toolInput)
     }
-    // 不决定是否放行 由claude code自身的权限体系
-    return Promise.resolve({
-      continue: true,
-    })
-  }
-  // Claude Code 内置规则未决策的工具全部放行
-  private canUseTool: CanUseTool = (_toolName, input) => {
-    return Promise.resolve({ behavior: 'allow', updatedInput: input as Record<string, unknown> })
+    return Promise.resolve({ behavior: 'allow', updatedInput: toolInput })
   }
 
   private requestToolPermission(
     toolUseId: string,
     toolName: string,
     input: Record<string, unknown>,
-  ): Promise<SyncHookJSONOutput> {
-    return new Promise<SyncHookJSONOutput>((resolve) => {
+  ): Promise<PermissionResult> {
+    return new Promise<PermissionResult>((resolve) => {
       this.pendingToolPermissions.set(toolUseId, { resolve, input })
       this.getOptions().events.onToolPermissionRequest({ toolUseId, toolName, input })
     })
@@ -706,7 +660,7 @@ function createMessageChannel<T>() {
 const SILENT_ASK_AUTO_ANSWER =
   '自行处理，继续**执行任务**，任务完成调用mcp__AgentControllerMcp__CompleteTask，无法完成则调用mcp__AgentControllerMcp__TerminateTask'
 const SILENT_CONTINUE_TEXT = SILENT_ASK_AUTO_ANSWER
-/** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答)次数上限,超过抛异常;如需调整改此值 */
+/** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答 + must_confirm 自动拒绝)次数上限,超过抛异常;如需调整改此值 */
 const SILENT_MAX_AUTO_REPLIES = 30
 
 /** silent_task 自动续轮用的 user 消息。session_id 在 result 之后已确定。 */

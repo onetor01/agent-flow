@@ -203,17 +203,18 @@ export const AgentEditor: FC = () => {
               )}
               {!isCodeNode && (
                 <FormItem
-                  name='must_confirm_tools'
-                  label='必须确认的工具'
+                  name='deny_tools'
+                  label='禁止使用的工具'
                   tooltip={{
                     classNames: {
                       container: 'w-max whitespace-pre',
                     },
                     title: [
-                      `每次调用都必须用户确认的工具，优先级高于「自动允许」`,
+                      `优先级高于Claude Code原生权限体系`,
+                      `禁止 Agent 调用的工具，优先级最高，命中即直接拒绝`,
                       `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
                       `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
-                      `组合命令中任一子命令命中即要求确认`,
+                      `组合命令中任一子命令命中即禁止`,
                     ].join('\n'),
                   }}
                 >
@@ -226,17 +227,15 @@ export const AgentEditor: FC = () => {
               )}
               {!isCodeNode && (
                 <FormItem
-                  name='deny_tools'
-                  label='禁止使用的工具'
+                  name='must_confirm_tools'
+                  label='必须确认的工具'
                   tooltip={{
                     classNames: {
                       container: 'w-max whitespace-pre',
                     },
                     title: [
-                      `禁止 Agent 调用的工具，优先级最高，命中即直接拒绝`,
-                      `特殊值 "${MCP_WILDCARD}" 匹配所有 mcp__* 工具`,
-                      `Bash匹配所有命令，"Bash(cmd)" 匹配命令前缀。`,
-                      `组合命令中任一子命令命中即禁止`,
+                      `优先级低于Claude Code原生权限体系`,
+                      `其余规则与禁止使用的工具相同`,
                     ].join('\n'),
                   }}
                 >
