@@ -127,18 +127,18 @@ function codeRefToXml(meta: CodeRefMeta, text: string): string {
   const [start, end] = meta.line!
   const lines = start === end ? `${start}` : `${start}-${end}`
   const body = text.replace(/\n+$/, '')
-  return `<!-- 代码片段，内容已内联，无需读取文件 -->\n<code_snippet path="${escapeAttr(meta.filename)}" lines="${lines}" language="${escapeAttr(meta.languageId)}">\n${body}\n</code_snippet>`
+  return `<code_snippet path="${escapeAttr(meta.filename)}" lines="${lines}" language="${escapeAttr(meta.languageId)}">\n${body}\n</code_snippet>`
 }
 
 /** 整个文件：只发路径，交给 AI 按需 Read */
 function fileRefToXml(meta: CodeRefMeta): string {
-  return `<!-- 文件引用，请使用 Read 工具读取其完整内容 -->\n<file_ref path="${escapeAttr(meta.filename)}" />`
+  return `<file_ref path="${escapeAttr(meta.filename)}" />`
 }
 
 /** 外部粘入的文本文件：内容内联 */
 function attachmentToXml(meta: FileRefMeta, content: string): string {
   const body = content.replace(/\n+$/, '')
-  return `<!-- 粘贴的文件内容，已内联，无法通过 Read 工具读取 -->\n<attachment name="${escapeAttr(meta.name)}" mime="${escapeAttr(meta.mimeType)}">\n${body}\n</attachment>`
+  return `<attachment name="${escapeAttr(meta.name)}" mime="${escapeAttr(meta.mimeType)}">\n${body}\n</attachment>`
 }
 
 /**
