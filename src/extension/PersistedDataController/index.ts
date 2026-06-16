@@ -73,13 +73,9 @@ export class PersistedDataController {
     const content = JSON.stringify(data, null, 2)
     await fs.mkdir(path.dirname(this.filePath), { recursive: true })
     await fs.writeFile(tmpPath, content, 'utf-8')
-    // Windows 上 rename 在目标文件已存在时会失败，先尝试删除旧文件
-    try {
-      await fs.unlink(this.filePath)
-    } catch {
-      // 旧文件不存在，忽略
-    }
-    await fs.rename(tmpPath, this.filePath)
+    // copyFile 原子覆盖目标文件，避免 Windows 上 unlink→rename 的文件名占用竞态
+    await fs.copyFile(tmpPath, this.filePath)
+    await fs.unlink(tmpPath)
   }
 }
 
@@ -138,11 +134,7 @@ export class WorkspacePersistedDataController {
     const content = JSON.stringify(data, null, 2)
     await fs.mkdir(path.dirname(this.filePath), { recursive: true })
     await fs.writeFile(tmpPath, content, 'utf-8')
-    try {
-      await fs.unlink(this.filePath)
-    } catch {
-      // 旧文件不存在，忽略
-    }
-    await fs.rename(tmpPath, this.filePath)
+    await fs.copyFile(tmpPath, this.filePath)
+    await fs.unlink(tmpPath)
   }
 }

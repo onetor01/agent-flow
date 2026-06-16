@@ -537,11 +537,9 @@ export function activate(context: vscode.ExtensionContext) {
 
           // 项目 flows 标 project: true，全局保持原样
           const projectFlows = projectFlowsRaw.map((f) => ({ ...f, project: true as const }))
-          // 仅当全局与项目 flows 同时为空，才使用 defaultStore.flows 作为全局 flows 初始值
+          // 当全局flows为空，使用 defaultStore.flows 作为全局 flows 初始值
           const rawGlobalFlows =
-            globalData.flows.length === 0 && projectFlowsRaw.length === 0
-              ? defaultStore.flows
-              : globalData.flows
+            globalData.flows.length === 0 ? defaultStore.flows : globalData.flows
           const globalFlows = rawGlobalFlows.map((f) => {
             const { project: _, ...rest } = f
             return rest
@@ -622,14 +620,22 @@ export function activate(context: vscode.ExtensionContext) {
             runnerManager.disposeRunner(flowId),
           )
 
-          // 全局文件只写全局 flows
-          await globalStore.save({ flows: strippedGlobal })
+          // 写全局 flows
+          try {
+            await globalStore.save({ flows: strippedGlobal })
+          } catch (err) {
+            logError('[save] globalStore.save failed', err)
+          }
           // workspaceStore 写项目 flows + 全量 runStates（不区分 flow 来源）
           if (workspaceStore) {
-            await workspaceStore.save({
-              flows: strippedProject,
-              runStates: flowRunStateManager.getFlowRunStates(),
-            })
+            try {
+              await workspaceStore.save({
+                flows: strippedProject,
+                runStates: flowRunStateManager.getFlowRunStates(),
+              })
+            } catch (err) {
+              logError('[save] workspaceStore.save failed', err)
+            }
           }
         })
         .with({ type: 'previewAttachment' }, async ({ data }) => {
