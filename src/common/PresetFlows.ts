@@ -345,6 +345,7 @@ export const PresetFlows: Flow[] = [
           'if(next === tasks.length || tasks.length === 0){',
           '  return {',
           "    output_name: '全部子任务执行完毕',",
+          "    content: '验证用户需求是否实现'",
           '  }',
           '}',
           'const current_task = tasks[next>=0 && next<tasks.length ? next: 0]',
