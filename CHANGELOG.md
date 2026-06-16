@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.0.76
+
+- 默认选中project flow
+- 调整脚本
+
 ## v0.0.75
 
 - 优化fallback逻辑
