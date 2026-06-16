@@ -245,7 +245,8 @@ export const useFlowStore = create<FlowStoreType>((set, get) => {
             draft.loading = false
             draft.flows = msg.data.flows
             draft.flowRunStates = msg.data.flowRunStates
-            draft.activeFlowId = msg.data.flows[0]?.id
+            const firstProjectFlow = msg.data.flows.find((f) => f.project)
+            draft.activeFlowId = firstProjectFlow ? firstProjectFlow.id : msg.data.flows[0]?.id
           })
           return
         }
