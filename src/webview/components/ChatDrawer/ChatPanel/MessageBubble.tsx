@@ -660,6 +660,10 @@ export function chatMessageToBubble(
     case 'tool_use': {
       const isPending = ctx?.pendingToolPermissionToolUseIds?.has(message.toolUseId) ?? false
       const answered = ctx?.answeredToolPermissions?.[message.toolUseId]
+      // answered 用 message 存拒绝理由，ToolPermissionCard 用 reason —— 做字段映射
+      const answeredForCard = answered
+        ? { allow: answered.allow, reason: answered.message }
+        : undefined
       const fork = buildForkIcon()
 
       // loading 判定：用户已显式回答（answeredToolPermissions 有记录）但工具执行结果尚未到达
@@ -700,7 +704,9 @@ export function chatMessageToBubble(
               toolName='Edit'
               input={message.input}
               mode='historical'
-              answered={!message.result?.isError && !answered ? defaultSuccessAnswered : answered}
+              answered={
+                !message.result?.isError && !answered ? defaultSuccessAnswered : answeredForCard
+              }
               loading={isAnsweredAwaitingResult}
               editDiff={{
                 filePath: input.file_path ?? '',
@@ -726,7 +732,9 @@ export function chatMessageToBubble(
               toolName='ExitPlanMode'
               input={message.input}
               mode='historical'
-              answered={!message.result?.isError && !answered ? defaultSuccessAnswered : answered}
+              answered={
+                !message.result?.isError && !answered ? defaultSuccessAnswered : answeredForCard
+              }
               loading={isAnsweredAwaitingResult}
               exitPlan={{ planFilePath, onViewPlan: () => ctx!.onViewPlan?.(planFilePath) }}
               fork={fork}
