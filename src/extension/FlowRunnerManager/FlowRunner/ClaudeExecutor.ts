@@ -365,7 +365,7 @@ export class ClaudeExecutor {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse' as const,
           permissionDecision: 'deny' as const,
-          permissionDecisionReason: `禁止使用 ${denyDesc}`,
+          permissionDecisionReason: `禁止使用 ${denyDesc}，${agent.agent_prompt && agent.work_mode !== 'chat' ? '依据<task_description>执行任务' : '执行用户指定的任务'}`,
         },
       })
     }
@@ -451,7 +451,7 @@ export class ClaudeExecutor {
       if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
-        const message = `禁止使用 ${denyDesc}`
+        const message = `禁止使用 ${denyDesc}，${agent.agent_prompt ? '依据<task_description>执行任务' : '执行用户指定的任务'}`
         events.onToolPermissionResult({ toolUseId, allow: false, message })
         return Promise.resolve({ behavior: 'deny', message })
       }
