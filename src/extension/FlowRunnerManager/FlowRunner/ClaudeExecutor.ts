@@ -393,7 +393,7 @@ export class ClaudeExecutor {
         const questions = askInput.questions ?? []
         const answers: Record<string, string> = {}
         for (const q of questions) {
-          answers[q.question] = SILENT_ASK_AUTO_ANSWER
+          answers[q.question] = buildSilentAutoText(!!agent.agent_prompt)
         }
         const updatedInput = { questions, answers }
         events.onToolPermissionResult({ toolUseId, allow: true, updatedInput })
@@ -609,7 +609,7 @@ export class ClaudeExecutor {
             if (!this.tryAutoReply()) {
               // 超限:已 fire onError + interrupt + disposed,不再 push 续轮
             } else {
-              const continueMsg = buildSilentContinueMessage(this._sessionId)
+              const continueMsg = buildSilentContinueMessage(this._sessionId, !!agent.agent_prompt)
               // 同步透传给上层,让 webview 通过 flow.signal.aiMessage 看到自动「继续」消息
               // (SDK 不会 mirror 通过 input stream push 的 user message,这里手动 echo)。
               events.onMessage(continueMsg)
@@ -664,23 +664,23 @@ function createMessageChannel<T>() {
 }
 
 /**
- * silent_task 模式自动应答 / 续轮 / 兜底常量。
- * - SILENT_ASK_AUTO_ANSWER: AskUserQuestion 被调用时填给每个 question 的 answer。
- *   语义上让模型知道用户不在场,继续自行决策即可。
- * - SILENT_CONTINUE_TEXT: 每轮 result 后系统自动注入的用户消息内容,推动模型推进下一步。
- * - SILENT_MAX_TURNS: 给 SDK options.maxTurns 兜底,防止模型不调 CompleteTask 无限循环。
+ * silent_task 模式自动应答 / 续轮文本。
+ * hasPrompt=true 时引用 <task_description> 让模型重新锚定任务目标；
+ * hasPrompt=false 时 agent_prompt 为空，该标签不存在，省略引用。
  */
-const SILENT_ASK_AUTO_ANSWER =
-  '自行处理，继续**执行任务**，任务完成调用mcp__AgentControllerMcp__CompleteTask，无法完成则调用mcp__AgentControllerMcp__TerminateTask'
-const SILENT_CONTINUE_TEXT = SILENT_ASK_AUTO_ANSWER
+function buildSilentAutoText(hasPrompt: boolean): string {
+  const taskRef = hasPrompt ? '依据<task_description>' : ''
+  return `自行处理，${taskRef}继续**执行任务**，任务完成调用mcp__AgentControllerMcp__CompleteTask，无法完成则调用mcp__AgentControllerMcp__TerminateTask`
+}
+
 /** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答 + must_confirm 自动拒绝)次数上限,超过抛异常;如需调整改此值 */
 const SILENT_MAX_AUTO_REPLIES = 30
 
 /** silent_task 自动续轮用的 user 消息。session_id 在 result 之后已确定。 */
-function buildSilentContinueMessage(sessionId: string | null): SDKUserMessage {
+function buildSilentContinueMessage(sessionId: string | null, hasPrompt: boolean): SDKUserMessage {
   return {
     type: 'user',
-    message: { role: 'user', content: SILENT_CONTINUE_TEXT },
+    message: { role: 'user', content: buildSilentAutoText(hasPrompt) },
     parent_tool_use_id: null,
     session_id: sessionId ?? '',
   }
