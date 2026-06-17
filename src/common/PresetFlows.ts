@@ -637,7 +637,11 @@ export const PresetFlows: Flow[] = [
         id: '7',
         agent_name: '发版',
         node_type: 'code',
-        code: "async function run(input, values, runCommand, cwd) {\nreturn { content: await runCommand('npm run release') }\n}",
+        code: [
+          'async function run(input, values, runCommand, cwd) {',
+          "  return { content: await runCommand('npm run release') }",
+          '}',
+        ].join('\n'),
         no_input: true,
       },
     ],
