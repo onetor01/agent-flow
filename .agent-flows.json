@@ -1,7 +1,7 @@
 {
   "flows": [
     {
-      "id": "fd134f30-c387-4231-9c41-81e63849e9f3",
+      "id": "a7244d51-f46c-4e9a-984d-b03ac437c32a",
       "name": "简单任务",
       "agents": [
         {
@@ -16,7 +16,7 @@
           ],
           "is_entry": true,
           "node_type": "code",
-          "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: 'worktree已创建',\n  content: input,\n  cwd: absPath\n}"
+          "code": "async function run(input, values, runCommand, cwd) {\n  const suffix = Math.random().toString(36).slice(2, 10)\n  const branchName = `agent-flow-dev/${suffix}`\n  const worktreePath = `.claude/worktrees/${suffix}`\n  await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\n  const absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  return {\n    output_name: 'worktree已创建',\n    content: input,\n    cwd: absPath\n  }\n}"
         },
         {
           "node_type": "agent",
@@ -25,8 +25,9 @@
           "model": "sonnet[1m]",
           "effort": "high",
           "deny_tools": [
-            "Bash(git push)",
             "Bash(git merge)",
+            "Bash(git commit)",
+            "Bash(git push)",
             "Edit"
           ],
           "work_mode": "silent_task",
@@ -52,7 +53,7 @@
               "require_confirm": true
             }
           ],
-          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求已实现，**commit当前变更**\n如果需求尚未实现，思考实现方式，并生成一个代码修改任务\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将代码修改任务写入task\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask",
+          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求尚未实现，思考实现方式，并生成一个代码修改任务\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将代码修改任务写入current_task\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 需求规范\n写入需求时，应当注明本轮已验证的需求，以及尚未实现的需求\n验证需求时，可以不深入分析已验证的需求，仅确保其不被新的变更破坏，也不需要向用户展示这部分需求",
           "id": "2"
         },
         {
@@ -62,10 +63,9 @@
           "model": "qwen3.7-max",
           "effort": "high",
           "deny_tools": [
-            "Bash(git commit)",
-            "Bash(git push)",
             "Bash(git merge)",
-            "Edit"
+            "Bash(git commit)",
+            "Bash(git push)"
           ],
           "work_mode": "silent_task",
           "plan_mode": true,
@@ -89,7 +89,6 @@
           "effort": "high",
           "deny_tools": [
             "Bash(git merge)",
-            "Bash(git commit)",
             "Bash(git push)",
             "Edit"
           ],
@@ -107,7 +106,7 @@
               "next_agent": "3"
             }
           ],
-          "agent_prompt": "### 你的职责\n根据**current_task**，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
+          "agent_prompt": "### 你的职责\n根据**current_task**，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成\n如果验证通过，commit当前任务修改的文件，这一操作应当在CompleteTask之前完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
           "id": "4"
         },
         {
@@ -120,7 +119,7 @@
               "next_agent": "2"
             }
           ],
-          "code": "return { output_name: '验证需求', content: '验证用户需求是否实现' }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  return { output_name: '验证需求', content: '验证用户需求是否实现' }\n}",
           "id": "5"
         },
         {
@@ -138,7 +137,7 @@
               "output_name": "需求已完成"
             }
           ],
-          "code": "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  if (!cwd) {\n    const branchName = await runCommand(`git branch --show-current`)\n    return {\n      output_name: '需求已完成',\n      content: `分支: ${branchName}  \\n代码修改已完成`\n    }\n  }\n  return {  output_name: '处理分支和worktree' }\n}",
           "id": "6"
         },
         {
@@ -150,7 +149,8 @@
             "Bash(git merge)",
             "Bash(git commit)",
             "Bash(git push)",
-            "Edit"
+            "Edit",
+            "Write"
           ],
           "work_mode": "silent_task",
           "no_input": true,
@@ -175,7 +175,7 @@
           "agent_name": "清理worktree",
           "agent_desc": "输出新分支名称，清理worktree",
           "no_input": true,
-          "code": "// 新分支名称\nconst branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  // 新分支名称\n  const branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n  // 清理worktree\n  await runCommand(`git worktree remove \"${cwd}\"`)\n  return { content: `分支: ${branchName}  \\n代码修改已完成` }\n}",
           "outputs": [],
           "id": "8"
         }
@@ -192,7 +192,7 @@
       ]
     },
     {
-      "id": "df4caa8a-21c0-4d0d-a9f5-9daa1e79bb9a",
+      "id": "ebfa6875-1d74-4c9a-bd7d-84c194af0a50",
       "name": "复杂任务",
       "agents": [
         {
@@ -207,7 +207,7 @@
           ],
           "is_entry": true,
           "node_type": "code",
-          "code": "const suffix = Math.random().toString(36).slice(2, 10)\nconst branchName = `agent-flow-dev/${suffix}`\nconst worktreePath = `.claude/worktrees/${suffix}`\nawait runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\nconst absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\nreturn {\n  output_name: 'worktree已创建',\n  content: input,\n  cwd: absPath\n}"
+          "code": "async function run(input, values, runCommand, cwd) {\n  const suffix = Math.random().toString(36).slice(2, 10)\n  const branchName = `agent-flow-dev/${suffix}`\n  const worktreePath = `.claude/worktrees/${suffix}`\n  await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}`)\n  const absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  return {\n    output_name: 'worktree已创建',\n    content: input,\n    cwd: absPath\n  }\n}"
         },
         {
           "node_type": "agent",
@@ -216,8 +216,9 @@
           "model": "opus",
           "effort": "xhigh",
           "deny_tools": [
-            "Bash(git push)",
             "Bash(git merge)",
+            "Bash(git commit)",
+            "Bash(git push)",
             "Edit"
           ],
           "work_mode": "task",
@@ -246,7 +247,7 @@
               "require_confirm": true
             }
           ],
-          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求已实现，**commit当前变更**\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
+          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 需求规范\n写入需求时，应当注明本轮已验证的需求，以及尚未实现的需求\n验证需求时，可以不深入分析已验证的需求，仅确保其不被新的变更破坏，也不需要向用户展示这部分需求\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
           "id": "2"
         },
         {
@@ -264,7 +265,7 @@
           ],
           "no_input": true,
           "node_type": "code",
-          "code": "try {\n  const parsed = JSON.parse(values.tasks)\n  if(!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')){\n    throw new Error('')\n  }\n  return {\n    output_name:'初始化完成',\n    values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n  }\n} catch{\n  return {\n    output_name: '格式错误'\n  }\n}"
+          "code": "async function run(input, values, runCommand, cwd) {\n  try {\n    const parsed = JSON.parse(values.tasks)\n    if (!Array.isArray(parsed) || parsed.some(v => typeof v !== 'string')) {\n      throw new Error('')\n    }\n    return {\n      output_name:'初始化完成',\n      values: { tasks: JSON.stringify(parsed, null, 2), next: '0'}\n    }\n  } catch {\n    return {\n      output_name: '格式错误'\n    }\n  }\n}"
         },
         {
           "id": "4",
@@ -312,7 +313,7 @@
           ],
           "no_input": true,
           "node_type": "code",
-          "code": "const next = parseInt(values.next)\nconst tasks = JSON.parse(values.tasks)\nif(next === tasks.length || tasks.length === 0){\n  return {\n    output_name: '全部子任务执行完毕',\n  }\n}\nconst current_task = tasks[next>=0 && next<tasks.length ? next: 0]\nreturn {\n  content: '执行任务',\n  output_name: '执行子任务',\n  values: { current_task, next: `${next + 1}` }\n}"
+          "code": "async function run(input, values, runCommand, cwd) {\n  const next = parseInt(values.next)\n  const tasks = JSON.parse(values.tasks)\n  if(next === tasks.length || tasks.length === 0){\n    return {\n      output_name: '全部子任务执行完毕',\n      content: '验证用户需求是否实现'\n    }\n  }\n  const current_task = tasks[next>=0 && next<tasks.length ? next: 0]\n  return {\n    content: '执行任务',\n    output_name: '执行子任务',\n    values: { current_task, next: `${next + 1}` }\n  }\n}"
         },
         {
           "id": "6",
@@ -331,8 +332,7 @@
           "deny_tools": [
             "Bash(git commit)",
             "Bash(git push)",
-            "Bash(git merge)",
-            "Edit"
+            "Bash(git merge)"
           ],
           "work_mode": "silent_task",
           "plan_mode": true,
@@ -348,7 +348,7 @@
           "effort": "high",
           "agent_name": "结果验证",
           "agent_desc": "验证执行结果是否满足任务要求",
-          "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
+          "agent_prompt": "### 你的职责\n根据**current_task**和remark，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成，且遵守remark\n如果验证通过，commit当前任务修改的文件，这一操作应当在CompleteTask之前完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
           "outputs": [
             {
               "output_name": "验证通过",
@@ -361,7 +361,6 @@
           ],
           "deny_tools": [
             "Bash(git merge)",
-            "Bash(git commit)",
             "Bash(git push)",
             "Edit"
           ],
@@ -386,7 +385,7 @@
               "output_name": "需求已完成"
             }
           ],
-          "code": "if (!cwd){\n  const branchName = await runCommand(`git branch --show-current`)\n  return {\n    output_name: '需求已完成',\n    content: `分支: ${branchName}  \\n代码修改已完成`\n }\n}\nreturn {  output_name: '处理分支和worktree' }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  if (!cwd) {\n    const branchName = await runCommand(`git branch --show-current`)\n    return {\n      output_name: '需求已完成',\n      content: `分支: ${branchName}  \\n代码修改已完成`\n   }\n  }\n  return {  output_name: '处理分支和worktree' }\n}",
           "id": "8"
         },
         {
@@ -398,7 +397,8 @@
             "Bash(git merge)",
             "Bash(git commit)",
             "Bash(git push)",
-            "Edit"
+            "Edit",
+            "Write"
           ],
           "work_mode": "silent_task",
           "no_input": true,
@@ -423,7 +423,7 @@
           "agent_name": "清理worktree",
           "agent_desc": "输出新分支名称，清理worktree",
           "no_input": true,
-          "code": "// 新分支名称\nconst branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n// 清理worktree\nawait runCommand(`git worktree remove \"${cwd}\"`)\nreturn { content: `分支: ${branchName}  \\n代码修改已完成` }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  // 新分支名称\n  const branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n  // 清理worktree\n  await runCommand(`git worktree remove \"${cwd}\"`)\n  return { content: `分支: ${branchName}  \\n代码修改已完成` }\n}",
           "outputs": [],
           "id": "10"
         }
@@ -452,7 +452,7 @@
       ]
     },
     {
-      "id": "8ae41e8b-aff5-4d3f-8651-9daf174106bd",
+      "id": "74371aa3-44f0-4ef5-9185-65b5d93cbd50",
       "name": "常用Agent",
       "agents": [
         {
@@ -516,13 +516,13 @@
           "id": "7",
           "agent_name": "发版",
           "node_type": "code",
-          "code": "return { content: await runCommand('npm run release') }",
+          "code": "async function run(input, values, runCommand, cwd) {\n  return { content: await runCommand('npm run release') }\n}",
           "no_input": true
         }
       ]
     },
     {
-      "id": "9a234289-3bee-421a-9fae-a5826d80ccc3",
+      "id": "9ef8d0aa-50fa-4adb-bf61-72b5b31aeb98",
       "name": "生成工作流",
       "agents": [
         {
@@ -544,7 +544,7 @@
           ],
           "isolation_mode": true,
           "no_output": true,
-          "agent_prompt": "### 你的职责\n将用户需求拆成步骤列表\n### 执行步骤\n#### 1.需求分析\n通过多轮对话生成需求摘要，由用户确认\n#### 2.步骤拆解\n将新的需求摘要拆解为步骤列表，由用户确认\n#### 3.完成任务\n将新的需求摘要写入requirement，步骤列表写入steps\n### 拆分规则\n1. 步骤列表是`以步骤为节点的有向图`：从任意入口步骤开始，根据执行情况选定下一步骤并串行推进，没有下一跳即结束本次执行\n2. 拆步骤的目的是**隔离上下文**和**让每一步语义更聚焦**——不是切得越碎越好紧密协作的子动作放同一步骤里用备注说明，仅在上下文需隔离或职责差异明显时才拆开\n3. 步骤名称简洁；备注必须显式声明：是否依赖用户消息或上一步输出、本步输出内容、可能的下一跳\n4. \"共享存储\"是每次步骤执行时，所有步骤可以共用一个键值对存储每次运行都会被清空仅在步骤开始时可以按key读共享存储，仅在步骤结束时可以按key写共享存储\n5. 共享存储读不对数据有效性做保证，必须考虑空值的情况**注意**，如果用户希望可以从一个步骤直接开始执行，那么此步骤必须在共享存储为空时执行有意义的行为\n6. 共享存储可以用于跨步骤传递数据，或者成环的迭代时存放上一轮产物**注意**，不要滥用共享存储，如果一个数据仅在两个连续步骤间传递，就没必要使用共享存储\n7. 允许并推荐成环迭代（如\"修改 → 验证\"循环）和多入口（如发版流程的\"完整发版\"与\"指定分支发版\"）\n8. 加入预检测规避可预见异常（如\"创建分支\"前先校验同名分支是否存在）运行中异常直接向用户求助；无法处理则结束当前步骤，必要时跳到兜底步骤（如释放资源）",
+          "agent_prompt": "### 你的职责\n将用户的需求拆成步骤列表\n### 执行步骤\n#### 1.需求分析\n通过多轮对话生成需求摘要，由用户确认\n#### 2.步骤拆解\n将新的需求摘要拆解为步骤列表，由用户确认\n#### 3.完成任务\n将新的需求摘要写入requirement，步骤列表写入steps\n### 拆分规则\n1. 步骤列表是`以步骤为节点的有向图`：从任意入口步骤开始，根据执行情况选定下一步骤并串行推进，没有下一跳即结束本次执行\n2. 拆步骤的目的是**隔离上下文**和**让每一步语义更聚焦**——不是切得越碎越好紧密协作的子动作放同一步骤里用备注说明，仅在上下文需隔离或职责差异明显时才拆开\n3. 步骤名称简洁；备注必须显式声明：是否依赖用户消息或上一步输出、本步输出内容、可能的下一跳\n4. \"共享存储\"是每次步骤执行时，所有步骤可以共用一个键值对存储每次运行都会被清空仅在步骤开始时可以按key读共享存储，仅在步骤结束时可以按key写共享存储\n5. 共享存储读不对数据有效性做保证，必须考虑空值的情况**注意**，如果用户希望可以从一个步骤直接开始执行，那么此步骤必须在共享存储为空时执行有意义的行为\n6. 共享存储可以用于跨步骤传递数据，或者成环的迭代时存放上一轮产物**注意**，不要滥用共享存储，如果一个数据仅在两个连续步骤间传递，就没必要使用共享存储\n7. 允许并推荐成环迭代（如\"修改 → 验证\"循环）和多入口（如发版流程的\"完整发版\"与\"指定分支发版\"）\n8. 加入预检测规避可预见异常（如\"创建分支\"前先校验同名分支是否存在）运行中异常直接向用户求助；无法处理则结束当前步骤，必要时跳到兜底步骤（如释放资源）",
           "outputs": [
             {
               "output_name": "分析完毕",
@@ -576,7 +576,7 @@
             "Edit"
           ],
           "isolation_mode": true,
-          "agent_prompt": "### 你的职责\n生成符合 FlowSchema 的工作流 JSON\n### 执行步骤\n#### 1.获取JSON Schema\n调用GetFlowJSONSchema\n#### 2.生成Flow\n参考`数据策略`和`设计规范`，生成Flow JSON\n#### 3.校验Flow\n调用ValidateFlow，确保生成的Flow合法\n#### 4.完成任务\n任务完成后，输出内容\"设计完成\"\n将你生成的JSON写入generatedFlow\n将空字符串写入feedback\n如果你新生成了Flow JSON，将空字符串写入changeList\n如果你基于过往的Flow生成了新Flow，将你的变更部分追加到changeList得到新的字符串，并将其写入changeList\n### 数据策略\n如果你从输入和generatedFlow中能获取与Flow Schema语义相近的JSON字符串，将其视作你生成JSON时的基准，在其基础上进行变更\n如果你从输入和feedback中能获取用户的意见或指令，生成JSON时应当尽力满足它们\nchangeList代表着基线过往的变更记录，作为参考\nsteps是用户原始需求的拆分，是最直接有效的参考一般情况下每一步都应当映射为一个Agent，但允许根据语义的拆分和聚合\n### changeList规范\nchangeList是以换行符分隔的变更记录每条记录格式为：\n`[动作] 对象：说明`\n- 动作：新增 / 修改 / 删除\n- 对象：Agent名称、连边或shareValuesKeys等具体目标\n- 说明：简要描述变更内容或原因\n### 设计规范\n1. Agent内使用的\"共享存储\"，应当被Flow的shareValuesKeys收集\n2. 关于Agent字段：\n   - `allowed_read_values_keys`/`allowed_write_values_keys`：需读写共享存储时配置所有key都必须出现在shareValuesKeys中\n3. **不**考虑极端情况导致的执行错误，不需要兜底\n4. 跨节点传值：相邻交接，前驱直接\"将xxx作为输出\"；非相邻 / 多消费者 / 循环状态用 `shareValues`，并在 `shareValuesKeys` 中声明\n5. 不要把具体业务数据硬编码进 `agent_prompt`\n6. `agent_prompt` 由以下 `###` 章节组成：\n   - 「你的职责」：一句话说清做什么+产出什么，列关键规则；**禁止出现** Agent / 工作流 / 上游 / 下游 / 首轮 / 回环 等拓扑词\n   - 「执行步骤」：`####` 章节的编号流程；最后一步必须是\"完成任务\"，明确如何调用 mcp__AgentControllerMcp__CompleteTask，content是什么，要把哪些值写入哪些key**注意**，允许提前mcp__AgentControllerMcp__CompleteTask，\"完成任务\"不必涵盖所有情况\n   - 额外章节（输入约束 / 数据流 等）：按需添加建议增加`数据策略`章节指导Agent如何应为共享存储的不同情况\n7. `agent_prompt`不要出现Flow/Agent/共享存储相关的词，将其视作仅有输入输出的独立节点",
+          "agent_prompt": "### 你的职责\n生成符合 FlowSchema 的工作流 JSON\n### 执行步骤\n#### 1.获取JSON Schema\n调用GetFlowJSONSchema\n#### 2.生成Flow\n参考`数据策略`和`设计规范`，生成Flow JSON\n#### 3.校验Flow\n调用ValidateFlow，确保生成的Flow合法\n#### 4.完成任务\n任务完成后，输出内容\"设计完成\"\n将你生成的JSON写入generatedFlow\n将空字符串写入feedback\n如果你新生成了Flow JSON，将空字符串写入changeList\n如果你基于过往的Flow生成了新Flow，将你的变更部分追加到changeList得到新的字符串，并将其写入changeList\n### 数据策略\n如果你从输入和generatedFlow中能获取与Flow Schema语义相近的JSON字符串，将其视作你生成JSON时的基准，在其基础上进行变更\n如果你从输入和feedback中能获取用户的意见或指令，生成JSON时应当尽力满足它们\nchangeList代表着基线过往的变更记录，作为参考\nsteps是用户原始需求的拆分，是最直接有效的参考一般情况下每一步都应当映射为一个Agent，但允许根据语义的拆分和聚合\n### changeList规范\nchangeList是以换行符分隔的变更记录每条记录格式为：\n`[动作] 对象：说明`\n- 动作：新增 / 修改 / 删除\n- 对象：Agent名称、连边或shareValuesKeys等具体目标\n- 说明：简要描述变更内容或原因\n### 设计规范\n1. Agent内使用的\"共享存储\"，应当被Flow的shareValuesKeys收集\n2. 关于Agent字段：\n   - `allowed_read_values_keys`/`allowed_write_values_keys`：需读写共享存储时配置所有key都必须出现在shareValuesKeys中\n3. **不**考虑极端情况导致的执行错误，不需要兜底\n4. 跨节点传值：相邻交接，前驱直接\"将xxx作为输出\"；非相邻 / 多消费者 / 循环状态用 `shareValues`，并在 `shareValuesKeys` 中声明\n5. 不要把具体业务数据硬编码进 `agent_prompt`\n6. `agent_prompt` 由以下 `###` 章节组成：\n   - 「你的职责」：一句话说清做什么+产出什么，列关键规则；**禁止出现** Agent / 工作流 / 上游 / 下游 / 首轮 / 回环 等拓扑词；\n   - 「执行步骤」：`####` 章节的编号流程；最后一步必须是\"完成任务\"，明确如何调用 mcp__AgentControllerMcp__CompleteTask，content是什么，要把哪些值写入哪些key**注意**，允许提前mcp__AgentControllerMcp__CompleteTask，\"完成任务\"不必涵盖所有情况\n   - 额外章节（输入约束 / 数据流 等）：按需添加建议增加`数据策略`章节指导Agent如何应为共享存储的不同情况\n7. `agent_prompt`不要出现Flow/Agent/共享存储相关的词，将其视作仅有输入输出的独立节点",
           "outputs": [
             {
               "output_name": "设计完毕",

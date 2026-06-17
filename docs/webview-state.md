@@ -46,7 +46,7 @@ store 负责：
 
 ## 消息渲染
 
-[`../src/webview/components/text-components/index.tsx`](../src/webview/components/text-components/index.tsx) 负责 Markdown 组件映射。行内 code 命中 `parseFileRef` 文件引用判定时渲染为可点击跳转，发送 `openFile` 时携带当前 FlowRunState 的 `cwd`；判定必须避免把普通行内代码误判为文件路径。
+[`../src/webview/components/text-components/index.tsx`](../src/webview/components/text-components/index.tsx) 负责 Markdown 组件映射。行内 code 命中 `parseFileRef` 文件引用判定时渲染为可点击跳转，支持 `path:line`、`path:startLine-endLine` 及 `path#L639` / `path#L639-L644` GitHub 锚点格式，发送 `openFile` 时携带当前 FlowRunState 的 `cwd`；判定必须避免把普通行内代码误判为文件路径。
 
 ## 通知
 
