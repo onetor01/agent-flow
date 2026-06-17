@@ -411,7 +411,7 @@ export const PresetFlows: Flow[] = [
           '  }',
           '  const current_task = tasks[next>=0 && next<tasks.length ? next: 0]',
           '  return {',
-          "    content: '执行任务',",
+          "    content: '依据<task_description>执行任务',",
           "    output_name: '执行子任务',",
           '    values: { current_task, next: `${next + 1}` }',
           '  }',
