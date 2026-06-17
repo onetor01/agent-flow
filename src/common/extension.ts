@@ -3,10 +3,8 @@ import { z } from 'zod'
 import { toJSONSchema } from 'zod/v4/core'
 import {
   type Agent,
-  type Code,
   type Flow,
   AgentSchema,
-  CodeSchema,
   FlowSchema,
   OutputSchema,
   stripFlowRuntimeFields,
@@ -262,10 +260,10 @@ export function buildAgentMcpServer({
         shareValuesKeys: true,
       }).extend({
         agents: z
-          .array(z.union([LiteAgent, CodeSchema]))
+          .array(LiteAgent)
           .optional()
           .describe(
-            '当前 Flow 内的 agent，其 outputs 定义了连接边。Agent节点会唤起AI,Code节点会执行js代码',
+            '当前 Flow 内的 agent，其 outputs 定义了连接边。',
           ),
       }) satisfies z.ZodType<Flow>
       return {
@@ -278,7 +276,6 @@ export function buildAgentMcpServer({
                   .registry<{ id?: string }>()
                   .add(OutputSchema, { id: 'Output' })
                   .add(LiteAgent, { id: 'Agent' })
-                  .add(CodeSchema, { id: 'Code' })
                   .add(LiteFlow, { id: 'Flow' }),
               ).schemas,
               null,
