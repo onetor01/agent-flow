@@ -1,6 +1,10 @@
 # Changelog
 
-## v0.0.79
+## v0.0.81
+
+- 更新模型
+
+## v0.0.80
 
 - refactor: 精简可选模型列表——`MODELS` 收敛为 `opus[1m]` / `sonnet[1m]` / `qwen3.7-max[1m]` / `glm-5.1[1m]` / `gpt-5.5[1m]`，并同步优化默认 Flow 各节点的模型搭配
 - fix: Agent 节点 "Other" 选项无法正确展示——AskUserQuestion 的 `showOther`（默认隐藏）反转为 `hiddenOther`（默认展示，置 true 隐藏），common schema / `buildCodeJSDoc` / CodeExecutor / AskUserQuestionCard 同步

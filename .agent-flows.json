@@ -1,7 +1,7 @@
 {
   "flows": [
     {
-      "id": "45e5707f-0246-41fd-bd18-ba9f79acd0ad",
+      "id": "4d250e6c-4735-4834-98dd-67466c29feac",
       "name": "简单任务",
       "agents": [
         {
@@ -84,7 +84,7 @@
           "node_type": "agent",
           "agent_name": "结果验证",
           "agent_desc": "验证执行结果是否满足任务要求",
-          "model": "glm-5.1[1m]",
+          "model": "glm-5.2[1m]",
           "effort": "high",
           "deny_tools": [
             "Bash(git merge)",
@@ -191,7 +191,7 @@
       ]
     },
     {
-      "id": "1ca970d5-f0e0-48b3-ad13-cc4061a19485",
+      "id": "50d8ceac-3862-4b39-85ae-d7b45972da62",
       "name": "复杂任务",
       "agents": [
         {
@@ -267,7 +267,7 @@
         {
           "id": "4",
           "node_type": "agent",
-          "model": "glm-5.1[1m]",
+          "model": "glm-5.2[1m]",
           "effort": "high",
           "agent_name": "规范数据格式",
           "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
@@ -341,7 +341,7 @@
         {
           "id": "7",
           "node_type": "agent",
-          "model": "glm-5.1[1m]",
+          "model": "glm-5.2[1m]",
           "effort": "high",
           "agent_name": "结果验证",
           "agent_desc": "验证执行结果是否满足任务要求",
@@ -449,7 +449,7 @@
       ]
     },
     {
-      "id": "652944ce-d75f-4d45-a967-099298cfa06c",
+      "id": "79d9136b-1dda-47e1-afe4-2d639b8761b5",
       "name": "常用Agent",
       "agents": [
         {
@@ -487,7 +487,7 @@
         {
           "node_type": "agent",
           "agent_name": "用户对话-glm",
-          "model": "glm-5.1[1m]",
+          "model": "glm-5.2[1m]",
           "effort": "max",
           "work_mode": "chat",
           "id": "5"
@@ -519,7 +519,7 @@
       ]
     },
     {
-      "id": "88115a61-2d25-49f9-a298-789cad0c7b48",
+      "id": "53528437-1fc7-4037-aab8-7377ea38320b",
       "name": "生成工作流",
       "agents": [
         {
@@ -585,7 +585,7 @@
         {
           "node_type": "agent",
           "agent_name": "审查工作流",
-          "model": "glm-5.1[1m]",
+          "model": "glm-5.2[1m]",
           "effort": "high",
           "work_mode": "silent_task",
           "allowed_read_values_keys": [
