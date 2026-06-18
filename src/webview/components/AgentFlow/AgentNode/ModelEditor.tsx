@@ -41,9 +41,16 @@ export const ModelEditor: FC<ModelEditorProps> = ({ model, flowId, agentId }) =>
         style={{ fontSize: 10, width, minWidth: 80 }}
         className='nodrag nopan !h-[22px] [&_.ant-select-selection-search-input]:!h-[22px] [&_.ant-select-selector]:!h-[22px] [&_.ant-select-selector]:!min-h-[22px]'
         options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
-        filterOption={(input, option) =>
-          (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
-        }
+        filterOption={(input, option) => {
+          if (
+            Array.from(MODELS).some(
+              (m) => m.replace('[1m]', '').toLowerCase() === input.toLowerCase(),
+            )
+          ) {
+            return true
+          }
+          return (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ?? false
+        }}
         onSelect={(val) => {
           save(val)
           setEditing(false)
@@ -54,6 +61,10 @@ export const ModelEditor: FC<ModelEditorProps> = ({ model, flowId, agentId }) =>
         }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') setEditing(false)
+          if (e.key === 'Enter') {
+            save((e.target as HTMLInputElement).value)
+            setEditing(false)
+          }
           e.stopPropagation()
         }}
         onClick={(e) => e.stopPropagation()}

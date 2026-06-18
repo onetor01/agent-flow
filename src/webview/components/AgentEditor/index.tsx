@@ -206,13 +206,22 @@ export const AgentEditor: FC = () => {
                       placeholder='选择或输入模型名称'
                       allowClear
                       options={Array.from(MODELS).map((m) => ({ value: m, label: m }))}
-                      filterOption={(inputValue, option) =>
-                        (option?.label as string)
-                          ?.toLowerCase()
-                          ?.includes(inputValue.toLowerCase()) ??
-                        option?.value?.toLowerCase().includes(inputValue.toLowerCase()) ??
-                        false
-                      }
+                      filterOption={(inputValue, option) => {
+                        if (
+                          Array.from(MODELS).some(
+                            (m) =>
+                              m.replace('[1m]', '').toLowerCase() ===
+                              inputValue.toLowerCase(),
+                          )
+                        ) {
+                          return true
+                        }
+                        return (
+                          (option?.label as string)?.toLowerCase()?.includes(inputValue.toLowerCase()) ??
+                          option?.value?.toLowerCase().includes(inputValue.toLowerCase()) ??
+                          false
+                        )
+                      }}
                     />
                   </FormItem>
 
