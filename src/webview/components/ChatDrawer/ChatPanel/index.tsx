@@ -3,6 +3,7 @@ import { App, Button, Input, Skeleton, Tag, Tooltip } from 'antd'
 import {
   ClearOutlined,
   CloseOutlined,
+  DiffOutlined,
   EditOutlined,
   PauseCircleOutlined,
   RobotOutlined,
@@ -124,6 +125,28 @@ export const ChatPanel: FC<Props> = ({
     }
     return allRuns.filter((r) => r.agentId === agentId)
   }, [allRuns, agentId, runId])
+
+  // hasAnyEditRun 检查口径需与 extension showRunDiff handler 一致：
+  // runId 视图 = 单 run；无 runId = 全 flow 所有 runs（不限 agentId）
+  const hasAnyEditRunSource = runId ? runs : allRuns
+  const hasAnyEditRun = useMemo(() => {
+    if (!hasAnyEditRunSource) return false
+    for (let i = hasAnyEditRunSource.length - 1; i >= 0; i--) {
+      const r = hasAnyEditRunSource[i]
+      if (
+        r.messages.some(
+          (m) =>
+            m.kind === 'tool_use' &&
+            m.status === 'done' &&
+            !m.result?.isError &&
+            (m.toolName === 'Edit' || m.toolName === 'Write'),
+        )
+      ) {
+        return true
+      }
+    }
+    return false
+  }, [hasAnyEditRunSource])
 
   // Token / cost 累计:tokenMode = 'flow' 跨 Flow 全部 runs;'view' 用当前视图选出的 runs。
   // 新累加态模型把 session 累计快照存进 run.acc:prevModelUsage(最后一条 result 的 modelUsage 累计,
@@ -295,6 +318,22 @@ export const ChatPanel: FC<Props> = ({
                 {formatTokenCount(totalTokens)} tokens
                 {totalCost > 0 ? ` · ${formatTokenCost(totalCost)}` : ''}
               </Tag>
+            )}
+            {hasAnyEditRun && (
+              <Tooltip title='查看文件变更'>
+                <Button
+                  size='small'
+                  type='text'
+                  icon={<DiffOutlined />}
+                  onClick={() =>
+                    postMessageToExtension({
+                      type: 'showRunDiff',
+                      data: { flowId },
+                    })
+                  }
+                  style={{ color: '#89b4fa' }}
+                />
+              </Tooltip>
             )}
             {canKillFlow && (
               <Tooltip title='停止工作流，允许基于当前状态开启新会话'>

@@ -111,6 +111,19 @@ export function activate(context: vscode.ExtensionContext) {
     workspaceStore = WorkspacePersistedDataController.workspaceStore(workspaceRoot)
   }
   const flowRunStateManager = new FlowRunStateManager()
+
+  /**
+   * 规范化文件路径为绝对路径：
+   * - 相对路径以 baseDir（agent cwd / workspaceRoot）为基准 resolve
+   * - Windows 驱动器号统一大写（c:\ → C:\），避免同一文件因大小写 / 分隔符产生重复 key
+   */
+  const normalizeFilePath = (rawPath: string, baseDir?: string | null): string => {
+    const abs = path.isAbsolute(rawPath)
+      ? path.resolve(rawPath)
+      : path.resolve(baseDir ?? '', rawPath)
+    return abs.replace(/^[a-z]:/, (d) => d.toUpperCase())
+  }
+
   let currentFlows: PersistedData = { flows: [] }
   const diffVirtualDocs = new Map<string, string>()
   /** Code 节点临时编辑器文件：key = `${flowId}:${agentId}` */
@@ -696,37 +709,58 @@ export function activate(context: vscode.ExtensionContext) {
           await openDiffInEditor(data)
         })
         .with({ type: 'showRunDiff' }, async ({ data }) => {
-          // 从运行态取该 run 的 messages
-          const flowState = flowRunStateManager.getFlowRunStates()[data.flowId]
-          const messages = flowState?.runs.find((r) => r.runId === data.runId)?.messages
-          if (!messages) return
-
-          // 聚合成功 Edit/Write 改动的文件
-          const map = new Map<string, RunChangedFile>()
-          for (const m of messages) {
-            if (m.kind !== 'tool_use') continue
-            if (m.toolName !== 'Edit' && m.toolName !== 'Write') continue
-            if (m.status !== 'done' || m.result === undefined || m.result.isError) continue
-            const input = m.input as Record<string, unknown>
-            const filePath = input.file_path
-            if (typeof filePath !== 'string') continue
-
-            if (!map.has(filePath)) {
-              map.set(filePath, { filePath, changeKind: 'new', edits: [] })
+          try {
+            // 从运行态取 messages：runId 存在时取单 run，缺省时汇总所有 run
+            const flowState = flowRunStateManager.getFlowRunStates()[data.flowId]
+            if (!flowState) {
+              log(`showRunDiff: no flowState found for flowId=${data.flowId}`)
+              return
             }
-            const entry = map.get(filePath)!
-            if (m.toolName === 'Edit') {
-              entry.edits.push({
-                old_string: String(input.old_string ?? ''),
-                new_string: String(input.new_string ?? ''),
-                replace_all: !!input.replace_all,
-              })
-              entry.changeKind = 'modified'
+            const messages = data.runId
+              ? flowState.runs.find((r) => r.runId === data.runId)?.messages
+              : flowState.runs.flatMap((r) => r.messages)
+            if (!messages || messages.length === 0) {
+              log(`showRunDiff: no messages found`)
+              return
             }
-            // Write：此前无 Edit 则 changeKind 保持 'new'；已含 Edit 则保持 'modified'
+
+            // 聚合成功 Edit/Write 改动的文件
+            const map = new Map<string, RunChangedFile>()
+            for (const m of messages) {
+              if (m.kind !== 'tool_use') continue
+              if (m.toolName !== 'Edit' && m.toolName !== 'Write') continue
+              if (m.status !== 'done' || m.result === undefined || m.result.isError) continue
+              const input = m.input as Record<string, unknown>
+              const rawPath = input.file_path
+              if (typeof rawPath !== 'string') continue
+              const filePath = normalizeFilePath(rawPath, flowState.cwd ?? workspaceRoot)
+
+              if (!map.has(filePath)) {
+                map.set(filePath, { filePath, changeKind: 'new', edits: [] })
+              }
+              const entry = map.get(filePath)!
+              if (m.toolName === 'Edit') {
+                entry.edits.push({
+                  old_string: String(input.old_string ?? ''),
+                  new_string: String(input.new_string ?? ''),
+                  replace_all: !!input.replace_all,
+                })
+                entry.changeKind = 'modified'
+              } else {
+                entry.changeKind = 'new'
+                entry.edits = []
+              }
+            }
+            log(`showRunDiff: found ${map.size} changed files`)
+            if (!fileChangeTreeProvider) {
+              logError('showRunDiff: fileChangeTreeProvider not initialized')
+              return
+            }
+            fileChangeTreeProvider.setChanges([...map.values()])
+            await vscode.commands.executeCommand('agent-flow.runChanges.focus')
+          } catch (err) {
+            logError('showRunDiff failed', err)
           }
-          fileChangeTreeProvider.setChanges([...map.values()])
-          await vscode.commands.executeCommand('agent-flow.runChanges.focus')
         })
         .with({ type: 'openCodeEditor' }, async ({ data }) => {
           const { flowId, agentId, code, shareValueKeys, outputs } = data

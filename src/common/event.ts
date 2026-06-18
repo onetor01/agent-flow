@@ -67,8 +67,8 @@ export type ExtensionFromWebviewEvents = {
     new_string: string
     status: 'pending' | 'success' | 'error'
   }
-  /** 展示指定 run 的文件变更侧边栏视图 */
-  showRunDiff: { flowId: string; runId: string }
+  /** 展示指定 run 的文件变更侧边栏视图；runId 缺省时汇总整个 flow 所有 run */
+  showRunDiff: { flowId: string; runId?: string }
   /** 在 VSCode 编辑器中打开 Code 节点代码 */
   openCodeEditor: {
     flowId: string

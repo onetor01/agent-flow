@@ -328,15 +328,19 @@ function MessageListInner({ flowId, agentId, runId, onSend, ref }: Props) {
     }),
     [focusLatestRun, scrollToEnd],
   )
-  const lastRunHasSuccessfulEdit = runs
-    .at(-1)
-    ?.messages.some(
-      (m) =>
-        m.kind === 'tool_use' &&
-        m.status === 'done' &&
-        !m.result?.isError &&
-        (m.toolName === 'Edit' || m.toolName === 'Write'),
-    )
+  const currentRunHasSuccessfulEdit = useMemo(
+    () =>
+      runs
+        .find((r) => r.runId === effectiveExpanded)
+        ?.messages.some(
+          (m) =>
+            m.kind === 'tool_use' &&
+            m.status === 'done' &&
+            !m.result?.isError &&
+            (m.toolName === 'Edit' || m.toolName === 'Write'),
+        ) ?? false,
+    [runs, effectiveExpanded],
+  )
   return (
     // 包装层持有 relative，FloatButton 放此层避免被滚动容器的 overflow 裁剪
     <div className='relative flex min-h-0 flex-1 flex-col'>
@@ -386,42 +390,42 @@ function MessageListInner({ flowId, agentId, runId, onSend, ref }: Props) {
           })}
         </div>
       </div>
-      {/* 快捷确认/继续悬浮按钮组 最后一个run展开时可用 */}
-      {effectiveExpanded === lastRunId && (
-        <FloatButton.Group
-          className='absolute right-3 bottom-1 text-xs [&_.ant-float-btn]:!h-7 [&_.ant-float-btn]:!min-h-0 [&_.ant-float-btn]:!w-7 [&_.ant-float-btn-body]:!h-7 [&_.ant-float-btn-body]:!w-7 [&_.ant-float-btn-icon]:!text-sm'
-          shape='square'
-        >
-          {lastRunHasSuccessfulEdit ? (
-            // 最后一个run进行了文件变更时展示
-            <FloatButton
-              type='primary'
-              icon={<EyeOutlined />}
-              tooltip={{ title: '查看文件变更', placement: 'left' }}
-              onClick={() => {
-                postMessageToExtension({
-                  type: 'showRunDiff',
-                  data: { flowId, runId: lastRunId! },
-                })
-              }}
-            />
-          ) : null}
-          {lastRunPhase === 'result' || lastRunPhase === 'interrupted' ? (
-            <FloatButton
-              type='primary'
-              icon={<SendOutlined rotate={-90} />}
-              tooltip={{
-                title: `快捷回复：${lastRunPhase === 'result' ? '确认' : '继续'}`,
-                placement: 'left',
-              }}
-              onClick={() => {
-                const text = lastRunPhase === 'result' ? '确认' : '继续'
-                onSend!(text)
-              }}
-            />
-          ) : null}
-        </FloatButton.Group>
-      )}
+      {/* 快捷确认/继续悬浮按钮组 */}
+
+      <FloatButton.Group
+        className='absolute right-3 bottom-1 text-xs [&_.ant-float-btn]:!h-7 [&_.ant-float-btn]:!min-h-0 [&_.ant-float-btn]:!w-7 [&_.ant-float-btn-body]:!h-7 [&_.ant-float-btn-body]:!w-7 [&_.ant-float-btn-icon]:!text-sm'
+        shape='square'
+      >
+        {currentRunHasSuccessfulEdit ? (
+          // 当前run进行了文件变更时展示
+          <FloatButton
+            type='primary'
+            icon={<EyeOutlined />}
+            tooltip={{ title: '查看文件变更', placement: 'left' }}
+            onClick={() => {
+              postMessageToExtension({
+                type: 'showRunDiff',
+                data: { flowId, runId: effectiveExpanded! },
+              })
+            }}
+          />
+        ) : null}
+        {effectiveExpanded === lastRunId &&
+        (lastRunPhase === 'result' || lastRunPhase === 'interrupted') ? (
+          <FloatButton
+            type='primary'
+            icon={<SendOutlined rotate={-90} />}
+            tooltip={{
+              title: `快捷回复：${lastRunPhase === 'result' ? '确认' : '继续'}`,
+              placement: 'left',
+            }}
+            onClick={() => {
+              const text = lastRunPhase === 'result' ? '确认' : '继续'
+              onSend!(text)
+            }}
+          />
+        ) : null}
+      </FloatButton.Group>
     </div>
   )
 }
