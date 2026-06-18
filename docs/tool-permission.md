@@ -34,8 +34,8 @@ AskUserQuestion、CompleteTask(require_confirm)、ExitPlanMode、must_confirm_to
 **canUseTool**（Claude Code 原生鉴权未决策时）：
 
 1. AskUserQuestion：silent_task 自动应答；其余挂起等用户确认。
-2. CompleteTask require_confirm：挂起等用户确认；否则直接放行。
-3. ExitPlanMode：silent_task 自动接受；其余挂起等用户确认。
+2. CompleteTask：先用 `buildCompleteTaskInputShape(agent)` 构建 schema 做 Zod `safeParse`，非法即 deny（消息前缀「参数错误：」）；require_confirm 时挂起等用户确认；否则直接放行。
+3. ExitPlanMode：先校验 `{ planFilePath: string, allowedPrompts?: any[] }`，非法即 deny（消息前缀「参数错误：」）；silent_task 自动接受；其余挂起等用户确认。
 4. `must_confirm_tools`：`matchToolRule`；silent_task 自动拒绝，其余挂起。
 5. 其余工具：直接放行。
 

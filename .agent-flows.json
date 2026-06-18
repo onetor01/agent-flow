@@ -1,7 +1,7 @@
 {
   "flows": [
     {
-      "id": "0b927c0d-8581-431a-ba98-668907caedfc",
+      "id": "d192537d-5923-4916-9915-040bdd527ce9",
       "name": "简单任务",
       "agents": [
         {
@@ -171,10 +171,10 @@
         },
         {
           "node_type": "code",
-          "agent_name": "清理worktree",
-          "agent_desc": "输出新分支名称，清理worktree",
+          "agent_name": "分支操作与清理",
+          "agent_desc": "处理分支（push/删除/保留）并清理worktree",
           "no_input": true,
-          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  // 新分支名称\n  const branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n  // 清理worktree\n  await runCommand(`git worktree remove \"${cwd}\"`)\n  return { content: `分支: ${branchName}  \\n代码修改已完成` }\n}",
+          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const branchName = (await runCommand(`git -C \"${cwd}\" branch --show-current`)).trim()\n  const [[action]] = await askUserQuestion([{\n    question: `分支 ${branchName} 如何处理？`,\n    options: [\n      { label: 'push到远程', desc: 'git push -u origin 后清理worktree' },\n      { label: '删除本地分支', desc: '清理worktree后删除本地分支' },\n      { label: '保留分支', desc: '仅清理worktree，保留本地分支' },\n    ],\n    hiddenOther: true,\n  }])\n  const results = []\n  let branchDisplay = branchName\n  if (action === 'push到远程') {\n    try {\n      await runCommand(`git -C \"${cwd}\" push -u origin ${branchName}`)\n      branchDisplay = branchName + '（已push）'\n    } catch (e) {\n      results.push('push 失败：' + e.message)\n    }\n  } else if (action === '删除本地分支') {\n    try {\n      await runCommand(`git worktree remove \"${cwd}\"`)\n      results.push('worktree 已清理')\n    } catch (e) {\n      const list = await runCommand(`git worktree list`)\n      if (!list.includes(cwd)) {\n        results.push('worktree 已清理')\n      } else {\n        results.push('worktree 清理失败：' + e.message)\n      }\n    }\n    try {\n      await runCommand(`git branch -d ${branchName}`)\n      branchDisplay = branchName + '（已删除）'\n    } catch (e) {\n      results.push('分支删除失败：' + e.message)\n    }\n    return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n  }\n  try {\n    await runCommand(`git worktree remove \"${cwd}\"`)\n    results.push('worktree 已清理')\n  } catch (e) {\n    const list = await runCommand(`git worktree list`)\n    if (!list.includes(cwd)) {\n      results.push('worktree 已清理')\n    } else {\n      results.push('worktree 清理失败：' + e.message)\n    }\n  }\n  return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n}",
           "outputs": [],
           "id": "8"
         }
@@ -191,7 +191,7 @@
       ]
     },
     {
-      "id": "cf69738b-8bbb-4acd-8939-5ca8a6a09c96",
+      "id": "69db0a14-d790-4cf9-9846-114b12d9bb04",
       "name": "复杂任务",
       "agents": [
         {
@@ -417,10 +417,10 @@
         },
         {
           "node_type": "code",
-          "agent_name": "清理worktree",
-          "agent_desc": "输出新分支名称，清理worktree",
+          "agent_name": "分支操作与清理",
+          "agent_desc": "处理分支（push/删除/保留）并清理worktree",
           "no_input": true,
-          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  // 新分支名称\n  const branchName = await runCommand(`git -C \"${cwd}\" branch --show-current`)\n  // 清理worktree\n  await runCommand(`git worktree remove \"${cwd}\"`)\n  return { content: `分支: ${branchName}  \\n代码修改已完成` }\n}",
+          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const branchName = (await runCommand(`git -C \"${cwd}\" branch --show-current`)).trim()\n  const [[action]] = await askUserQuestion([{\n    question: `分支 ${branchName} 如何处理？`,\n    options: [\n      { label: 'push到远程', desc: 'git push -u origin 后清理worktree' },\n      { label: '删除本地分支', desc: '清理worktree后删除本地分支' },\n      { label: '保留分支', desc: '仅清理worktree，保留本地分支' },\n    ],\n    hiddenOther: true,\n  }])\n  const results = []\n  let branchDisplay = branchName\n  if (action === 'push到远程') {\n    try {\n      await runCommand(`git -C \"${cwd}\" push -u origin ${branchName}`)\n      branchDisplay = branchName + '（已push）'\n    } catch (e) {\n      results.push('push 失败：' + e.message)\n    }\n  } else if (action === '删除本地分支') {\n    try {\n      await runCommand(`git worktree remove \"${cwd}\"`)\n      results.push('worktree 已清理')\n    } catch (e) {\n      const list = await runCommand(`git worktree list`)\n      if (!list.includes(cwd)) {\n        results.push('worktree 已清理')\n      } else {\n        results.push('worktree 清理失败：' + e.message)\n      }\n    }\n    try {\n      await runCommand(`git branch -d ${branchName}`)\n      branchDisplay = branchName + '（已删除）'\n    } catch (e) {\n      results.push('分支删除失败：' + e.message)\n    }\n    return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n  }\n  try {\n    await runCommand(`git worktree remove \"${cwd}\"`)\n    results.push('worktree 已清理')\n  } catch (e) {\n    const list = await runCommand(`git worktree list`)\n    if (!list.includes(cwd)) {\n      results.push('worktree 已清理')\n    } else {\n      results.push('worktree 清理失败：' + e.message)\n    }\n  }\n  return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n}",
           "outputs": [],
           "id": "10"
         }
@@ -449,7 +449,7 @@
       ]
     },
     {
-      "id": "c85c3192-6d01-4231-878e-dc293efd6ff4",
+      "id": "7b7682f0-53eb-4023-946b-11efb38ecf69",
       "name": "常用Agent",
       "agents": [
         {
@@ -519,7 +519,7 @@
       ]
     },
     {
-      "id": "9e7c5676-d4f7-481a-b1b2-f22234cddc48",
+      "id": "d5b1e02e-a368-406d-8e06-a1406045f056",
       "name": "生成工作流",
       "agents": [
         {

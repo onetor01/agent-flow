@@ -26,7 +26,7 @@
 
 [`../src/common/extension.ts`](../src/common/extension.ts) 构建 per-Agent MCP server：
 
-- `CompleteTask`：task / silent_task 完成任务与写入 `values` 的入口；chat 不挂载。
+- `CompleteTask`：task / silent_task 完成任务与写入 `values` 的入口；chat 不挂载。`buildCompleteTaskInputShape(agent)` 构建其 Zod input shape，供 `canUseTool` 校验复用。
 - `TerminateTask`：task / silent_task 可用的中止工具。
 - `validateFlow`：校验 Flow 定义。
 - `getFlowJSONSchema`：暴露 Flow JSON Schema；`agents` 字段仅包含 `LiteAgent`（`node_type='agent'` 节点），Code 节点不包含在 AI 可见 schema 中。

@@ -38,6 +38,7 @@ extension 运行时层级：
 - `lazy`：用于 fork 和崩溃恢复，首次 `ensureInit` / `createQuery` 时初始化。
 - `canUseTool` / `createQuery` 每次通过 `getOptions()` 取最新 agent / events；运行中修改 `work_mode`、`must_confirm_tools`、`deny_tools`、`outputs`、`model` 立即参与决策。
 - system prompt 是 `init()` 时点快照。
+- SDK `result` 消息中 `subtype !== 'success'` 且无 `pendingCompleteResult` 时，直接触发 `onError(new Error('SDK result error: <subtype>'))` 使 flow 进入 error 终态。
 
 ## CompleteTask
 
