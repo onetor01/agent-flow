@@ -205,6 +205,9 @@ const AgentFlowInner: FC<{ flowId: string; hidden?: boolean }> = memo(({ flowId,
     )
       return
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      // 存在文本选区时让浏览器正常复制文本,不劫持为复制节点
+      const selection = window.getSelection()
+      if (selection && !selection.isCollapsed && selection.toString().trim()) return
       const selectedNodes = nodes.filter((n) => n.selected)
       if (selectedNodes.length === 0) return
       e.preventDefault()
