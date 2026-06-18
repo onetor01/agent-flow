@@ -300,7 +300,7 @@ export const AgentEditor: FC = () => {
                 <FormItem
                   name='no_input'
                   label='无输入'
-                  tooltip='开启后节点操作区显示启动按钮，点击时始终以"执行任务"为初始消息自动运行（忽略用户实际输入）'
+                  tooltip='忽略用户实际输入'
                   valuePropName='checked'
                 >
                   <Switch />

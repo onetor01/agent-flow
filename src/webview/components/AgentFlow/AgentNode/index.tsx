@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { match } from 'ts-pattern'
-import { type Agent, type Code } from '@/common'
+import { buildNoInputInitMessage, type Agent, type Code } from '@/common'
 import { useSilentTaskModeNotification } from '@/webview/hooks/useSilentTaskModeNotification'
 import { useStartFlow } from '@/webview/hooks/useStartFlow'
 import { useFlowStore } from '@/webview/store/flow'
@@ -180,6 +180,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
             <PlayCircleOutlined
               className='text-xs text-[#a6adc8] transition-colors hover:text-[#52c41a]'
               onClick={(e) => {
+                if (!agent) return
                 e.stopPropagation()
                 const { openChatDrawer } = useFlowStore.getState()
                 openChatDrawer({ flowId, agentId })
@@ -187,7 +188,7 @@ const AgentNodeInner: FC<NodeProps<AgentNode>> = (props) => {
                   type: 'user',
                   message: {
                     role: 'user',
-                    content: '执行任务',
+                    content: buildNoInputInitMessage(agent),
                   },
                   parent_tool_use_id: null,
                 })
