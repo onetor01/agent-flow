@@ -657,7 +657,7 @@ export const PresetFlows: Flow[] = [
         node_type: 'agent',
         agent_name: '用户对话-glm',
         model: 'glm-5.2[1m]',
-        effort: 'max',
+        effort: 'high',
         work_mode: 'chat',
         id: '5',
       },
