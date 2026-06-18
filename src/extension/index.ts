@@ -561,17 +561,15 @@ export function activate(context: vscode.ExtensionContext) {
           ])
 
           let projectFlowsRaw: typeof globalData.flows
-          let restoredRunStates: Record<string, FlowRunState>
+          const restoredRunStates: Record<string, FlowRunState> = workspaceData?.runStates ?? {}
 
           if (!workspaceData?.flows.length) {
             // workspaceStore 文件不存在或没有flow：fallback 到 projectStore 只读 flows，runStates 视为空
             const projectData = await (projectStore?.load() ??
               Promise.resolve({ flows: [] } as PersistedData))
             projectFlowsRaw = projectData.flows
-            restoredRunStates = {}
           } else {
             projectFlowsRaw = workspaceData.flows
-            restoredRunStates = workspaceData.runStates ?? {}
           }
 
           // 项目 flows 标 project: true，全局保持原样
@@ -897,6 +895,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       const newRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
       projectStore = newRoot ? PersistedDataController.projectStore(newRoot) : undefined
+      workspaceStore = newRoot
+        ? WorkspacePersistedDataController.workspaceStore(newRoot)
+        : undefined
     }),
   )
 }
