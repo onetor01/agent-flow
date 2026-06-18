@@ -15,7 +15,7 @@
         ],
         "is_entry": true,
         "node_type": "code",
-        "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n        showOther: true,\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
+        "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
       },
       {
         "node_type": "agent",
@@ -58,7 +58,7 @@
         "node_type": "agent",
         "agent_name": "任务执行",
         "agent_desc": "执行当前任务描述，输出执行结果",
-        "model": "qwen3.7-max",
+        "model": "qwen3.7-max[1m]",
         "effort": "high",
         "deny_tools": [
           "Bash(git merge)",
@@ -83,7 +83,7 @@
         "node_type": "agent",
         "agent_name": "结果验证",
         "agent_desc": "验证执行结果是否满足任务要求",
-        "model": "glm-5.1",
+        "model": "glm-5.1[1m]",
         "effort": "high",
         "deny_tools": [
           "Bash(git merge)",
@@ -141,7 +141,7 @@
       {
         "node_type": "agent",
         "agent_name": "分支重命名",
-        "model": "qwen3.7-max",
+        "model": "qwen3.7-max[1m]",
         "effort": "medium",
         "deny_tools": [
           "Bash(git merge)",
@@ -205,13 +205,13 @@
         ],
         "is_entry": true,
         "node_type": "code",
-        "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n        showOther: true,\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
+        "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
       },
       {
         "node_type": "agent",
         "agent_name": "需求分析",
         "agent_desc": "分析用户需求，拆分为有序子任务列表",
-        "model": "opus",
+        "model": "opus[1m]",
         "effort": "xhigh",
         "deny_tools": [
           "Bash(git merge)",
@@ -266,7 +266,7 @@
       {
         "id": "4",
         "node_type": "agent",
-        "model": "glm-5.1",
+        "model": "glm-5.1[1m]",
         "effort": "high",
         "agent_name": "规范数据格式",
         "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
@@ -314,7 +314,7 @@
       {
         "id": "6",
         "node_type": "agent",
-        "model": "qwen3.7-max",
+        "model": "qwen3.7-max[1m]",
         "effort": "high",
         "agent_name": "任务执行",
         "agent_desc": "执行当前任务描述，输出执行结果",
@@ -340,7 +340,7 @@
       {
         "id": "7",
         "node_type": "agent",
-        "model": "glm-5.1",
+        "model": "glm-5.1[1m]",
         "effort": "high",
         "agent_name": "结果验证",
         "agent_desc": "验证执行结果是否满足任务要求",
@@ -387,7 +387,7 @@
       {
         "node_type": "agent",
         "agent_name": "分支重命名",
-        "model": "qwen3.7-max",
+        "model": "qwen3.7-max[1m]",
         "effort": "medium",
         "deny_tools": [
           "Bash(git merge)",
@@ -454,7 +454,7 @@
       {
         "node_type": "agent",
         "agent_name": "用户对话-qwen",
-        "model": "qwen3.7-max",
+        "model": "qwen3.7-max[1m]",
         "effort": "high",
         "work_mode": "chat",
         "id": "1"
@@ -470,23 +470,23 @@
       {
         "node_type": "agent",
         "agent_name": "用户对话-opus",
-        "model": "opus",
+        "model": "opus[1m]",
         "effort": "high",
         "work_mode": "chat",
         "id": "3"
       },
       {
         "node_type": "agent",
-        "agent_name": "用户对话-opus-max",
-        "model": "opus",
-        "effort": "max",
+        "agent_name": "用户对话-gpt",
+        "model": "gpt-5.5[1m]",
+        "effort": "high",
         "work_mode": "chat",
         "id": "4"
       },
       {
         "node_type": "agent",
         "agent_name": "用户对话-glm",
-        "model": "glm-5.1",
+        "model": "glm-5.1[1m]",
         "effort": "max",
         "work_mode": "chat",
         "id": "5"
@@ -524,7 +524,7 @@
       {
         "node_type": "agent",
         "agent_name": "需求分析",
-        "model": "opus",
+        "model": "opus[1m]",
         "effort": "max",
         "work_mode": "task",
         "is_entry": true,
@@ -553,7 +553,7 @@
       {
         "node_type": "agent",
         "agent_name": "工作流设计",
-        "model": "opus",
+        "model": "opus[1m]",
         "effort": "max",
         "work_mode": "silent_task",
         "allowed_read_values_keys": [
@@ -584,8 +584,8 @@
       {
         "node_type": "agent",
         "agent_name": "审查工作流",
-        "model": "glm-5.1",
-        "effort": "max",
+        "model": "glm-5.1[1m]",
+        "effort": "high",
         "work_mode": "silent_task",
         "allowed_read_values_keys": [
           "generatedFlow",
