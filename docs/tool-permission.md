@@ -28,7 +28,7 @@ AskUserQuestion、CompleteTask(require_confirm)、ExitPlanMode、must_confirm_to
 **preToolUseHook**：
 
 1. subAgent 调用 AgentControllerMcp：直接拒绝。
-2. `deny_tools`：`matchToolRule` 黑名单语义，任一子命令命中即拒绝；拒绝理由为 `禁止使用 <denyDesc>，依据<task_description>执行任务`（有 `agent_prompt` 且非 chat 模式）或 `禁止使用 <denyDesc>，执行用户指定的任务`（其他情况）。
+2. `deny_tools`：`matchToolRule` 黑名单语义，任一子命令命中即拒绝；拒绝理由由「任务引用 + 收尾引用」拼成，两部分条件独立：任务引用为 `依据<task_description>执行任务`（有 `agent_prompt` 且非 chat）或 `执行用户指定的任务`（无 `agent_prompt` 或 chat）；非 chat（task/silent_task 必有 `<completion_contract>`）时追加 `，按<completion_contract>收尾`，chat 不追加。整体形如 `禁止使用 <denyDesc>，<任务引用><收尾引用?>`。
 3. 其余 `{ continue: true }`，交给 Claude Code 原生鉴权。
 
 **canUseTool**（Claude Code 原生鉴权未决策时）：

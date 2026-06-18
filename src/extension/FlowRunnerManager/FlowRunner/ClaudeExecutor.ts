@@ -370,7 +370,7 @@ export class ClaudeExecutor {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse' as const,
           permissionDecision: 'deny' as const,
-          permissionDecisionReason: `禁止使用 ${denyDesc}，${agent.agent_prompt && agent.work_mode !== 'chat' ? '依据<task_description>执行任务' : '执行用户指定的任务'}`,
+          permissionDecisionReason: `禁止使用 ${denyDesc}，${agent.agent_prompt && agent.work_mode !== 'chat' ? '依据<task_description>执行任务' : '执行用户指定的任务'}${agent.work_mode !== 'chat' ? '，按<completion_contract>收尾' : ''}`,
         },
       })
     }
@@ -456,7 +456,7 @@ export class ClaudeExecutor {
       if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
-        const message = `禁止使用 ${denyDesc}，${agent.agent_prompt ? '依据<task_description>执行任务' : '执行用户指定的任务'}`
+        const message = `禁止使用 ${denyDesc}，${agent.agent_prompt ? '依据<task_description>执行任务' : '执行用户指定的任务'}，按<completion_contract>收尾`
         events.onToolPermissionResult({ toolUseId, allow: false, message })
         return Promise.resolve({ behavior: 'deny', message })
       }
@@ -672,10 +672,11 @@ function createMessageChannel<T>() {
  * silent_task 模式自动应答 / 续轮文本。
  * hasPrompt=true 时引用 <task_description> 让模型重新锚定任务目标；
  * hasPrompt=false 时 agent_prompt 为空，该标签不存在，省略引用。
+ * silent_task 必有 <completion_contract>，引用它提示收尾动作（CompleteTask / TerminateTask）。
  */
 function buildSilentAutoText(hasPrompt: boolean): string {
   const taskRef = hasPrompt ? '依据<task_description>' : ''
-  return `自行处理，${taskRef}继续**执行任务**，任务完成调用mcp__AgentControllerMcp__CompleteTask，无法完成则调用mcp__AgentControllerMcp__TerminateTask`
+  return `自行处理，${taskRef}继续**执行任务**，按<completion_contract>收尾`
 }
 
 /** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答 + must_confirm 自动拒绝)次数上限,超过抛异常;如需调整改此值 */
