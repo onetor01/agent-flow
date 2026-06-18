@@ -51,7 +51,7 @@ load 时并行读取 globalStore 与 workspaceStore：
 
 ## 硬约束
 
-- `project` 字段禁止入库；`LiteFlow` 不含 `project` 见 [common-domain.md](common-domain.md)。
-- `workspaceStore(cwd)` 路径通过 sanitizeCwd 转义路径分隔符与非法字符。
+- `project` 字段是内存 / UI 标记，保存前由 `stripFlowRuntimeFields` 剥离；`LiteFlow` 不含 `project` 见 [common-domain.md](common-domain.md)。
+- `workspaceStore(cwd)` 路径通过 `sanitizeCwd(cwd)` 生成：路径分隔符与非法字符替换为 `-`，再去除首尾破折号并合并连续破折号。
 - runStates 只写 workspaceStore。
 - load 后恢复 runState 必须先归一化，详见 [flow-run-state.md](flow-run-state.md)。

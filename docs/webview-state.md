@@ -42,6 +42,7 @@ store 负责：
 
 - ChatDrawer 和 ChatInput 必须始终挂载，保证 insertSelection 事件在 webview 不可见时也能被接收。
 - ChatPanel 内部按 `key={`${flowId}-${agentId}-${runId ?? ''}`}` 切换 unmount。
+- `runId` 非空表示单 run 视图；`runId` 为空表示 agent 级视图。
 - 跨 Flow / 跨 run 切换必须 unmount，防止 AskUserQuestionCard selections 等局部状态复用。
 
 ## 消息渲染

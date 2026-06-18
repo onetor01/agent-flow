@@ -46,8 +46,8 @@ AskUserQuestion、CompleteTask(require_confirm)、ExitPlanMode、must_confirm_to
 - AskUserQuestion：自动回答，走 `flow.signal.toolPermissionResult` 回显卡片。
 - ExitPlanMode：自动接受，走 `flow.signal.toolPermissionResult` 回显卡片，不触发 `pushEffect`。
 - must_confirm_tools：自动拒绝，因无人确认禁止使用。
-- 普通工具授权：静默处理。
-- 自动续轮、AskUserQuestion 自动应答、ExitPlanMode 自动接受、must_confirm 自动拒绝共享 `SILENT_MAX_AUTO_REPLIES` per-run 上限。
+- 普通工具授权：不命中 `must_confirm_tools` 时走 `canUseTool` 第 5 条直接 allow，静默处理。
+- 自动续轮、AskUserQuestion 自动应答、ExitPlanMode 自动接受、must_confirm 自动拒绝共享 `SILENT_MAX_AUTO_REPLIES = 30` per-run 上限；如需调整改 `ClaudeExecutor.ts` 底部常量。
 
 ## webview 展示规则
 

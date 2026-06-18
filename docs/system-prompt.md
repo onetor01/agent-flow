@@ -3,7 +3,7 @@
 ## 关键文件
 
 - [`../src/common/index.ts:540`](../src/common/index.ts) — `pickInjectedShareValues`：可读值分层（≤500 字符内联 / >500 字符 deferred 摘要）。
-- [`../src/common/index.ts:556`](../src/common/index.ts) — `buildAgentSystemPrompt`：按变动频率分顶/中/底三层构建 system prompt。
+- [`../src/common/index.ts:574`](../src/common/index.ts) — `buildAgentSystemPrompt`：按变动频率分顶/中/底三层构建 system prompt。
 
 ## 提示词区块顺序
 

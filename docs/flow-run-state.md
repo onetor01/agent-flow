@@ -18,10 +18,9 @@
 
 phase 不存字段，由 [`../src/common/flowRunState.ts`](../src/common/flowRunState.ts) 中的 helper 推断：
 
-- `getRunPhase`
-- `getAgentPhase`
-- `getFlowPhase`
-- `aggregatePhase(runs)`：按 run 追加顺序跟随末位 run。
+- `getRunPhase`：推断单个 run 的 phase。
+- `getFlowPhase(state)`：按 run 追加顺序取末位 run 的 phase。
+- `getAgentPhase(state, agentId)`：取该 agent 最后一个 run 的 phase。
 
 ## 消息累加模型
 

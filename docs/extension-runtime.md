@@ -21,13 +21,15 @@ extension 运行时层级：
 
 ## FlowRunnerOptions
 
-`FlowRunnerManager.createRunner` 在 `flowId` 闭包内绑定三个实时回调：
+`FlowRunnerManager.createRunner` 在 `flowId` 闭包内绑定实时回调：
 
 - `getLatestShareValues`：读取 `FlowRunState.shareValues`。
 - `getLatestFlow`：读取当前 Flow 定义。
 - `getLatestCwd`：读取 `FlowRunState.cwd`。
+- `getRunSnapshot`：读取指定 run 的 `AgentRun.shareValuesSnapshot`，供 fork / restore 的 lazy executor 复现源 run 的 shareValues 快照。
+- `getRunOverwrite`：读取指定 run 的 `AgentRun.overwrite`，供 fork / restore 的 lazy executor 复现源 run 的临时改写配置。
 
-`FlowRunner` 不缓存 Flow 字段；查 agent、shareValueKeys、cwd 时走回调取最新值。
+`FlowRunner` 不缓存 Flow 字段；查 agent、shareValueKeys、cwd、fork / restore 快照时走回调取最新值。
 
 ## ClaudeExecutor
 
