@@ -95,8 +95,16 @@ export const FlowListPanel: FC = () => {
       if (idx >= 0) flows.splice(idx, 1)
     })
     if (activeFlowId === id) {
-      const next = flows.find((f) => f.id !== id)
-      setActiveFlowId(next?.id ?? '')
+      // 从全量 flows（不受搜索过滤）中选取下一个 activeFlow
+      const allGlobal = flows.filter((f) => !f.project)
+      const allProject = flows.filter((f) => f.project)
+      const remainingGlobal = allGlobal.filter((f) => f.id !== id)
+      const remainingProject = allProject.filter((f) => f.id !== id)
+      const next =
+        remainingProject.length === 0 || (!globalCollapsed && projectCollapsed)
+          ? remainingGlobal[0]
+          : remainingProject[0]
+      setActiveFlowId(next?.id)
     }
   }
 
@@ -238,7 +246,7 @@ export const FlowListPanel: FC = () => {
                   {globalFlows.length > 0 &&
                     renderGroupHeader({
                       icon: <GlobalOutlined />,
-                      label: '全局flow',
+                      label: '全局工作流',
                       collapsed: globalCollapsed,
                       onToggle: () => setGlobalCollapsed((v) => !v),
                     })}
@@ -259,7 +267,7 @@ export const FlowListPanel: FC = () => {
                   {projectFlows.length > 0 &&
                     renderGroupHeader({
                       icon: <FolderOutlined />,
-                      label: '项目flow',
+                      label: '项目工作流',
                       collapsed: projectCollapsed,
                       onToggle: () => setProjectCollapsed((v) => !v),
                       hasBorderTop: true,
