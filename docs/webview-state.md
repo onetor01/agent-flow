@@ -44,6 +44,7 @@ store 负责：
 - ChatPanel 内部按 `key={`${flowId}-${agentId}-${runId ?? ''}`}` 切换 unmount。
 - `runId` 非空表示单 run 视图；`runId` 为空表示 agent 级视图。
 - 跨 Flow / 跨 run 切换必须 unmount，防止 AskUserQuestionCard selections 等局部状态复用。
+- ChatPanel 顶部展示当前 `cwd`，右侧 openFolder 图标点击后在新 VSCode 窗口打开该目录。
 
 ## 消息渲染
 
