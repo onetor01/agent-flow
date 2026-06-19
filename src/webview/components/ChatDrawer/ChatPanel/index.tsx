@@ -385,6 +385,7 @@ export const ChatPanel: FC<Props> = ({
                 setEditingCwd(null)
               }}
               onBlur={() => {
+                setCwd(flowId, editingCwd.trim())
                 setEditingCwd(null)
               }}
               onKeyDown={(e) => {
