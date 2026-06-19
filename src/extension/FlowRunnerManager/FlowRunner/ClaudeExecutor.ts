@@ -644,7 +644,12 @@ export class ClaudeExecutor {
             }
           }
           // 如果 subtype 不是 'success' 且没有 pendingCompleteResult，fire onError 让 flow 进入 error 终态
-          if (msg.subtype !== 'success' && !this.pendingCompleteResult && !this.completed && !this.interruptRequested) {
+          if (
+            msg.subtype !== 'success' &&
+            !this.pendingCompleteResult &&
+            !this.completed &&
+            !this.interruptRequested
+          ) {
             this.disposed = true
             events.onError(new Error(`SDK result error: ${msg.subtype}`))
           }
