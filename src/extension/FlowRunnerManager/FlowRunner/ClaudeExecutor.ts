@@ -581,9 +581,6 @@ export class ClaudeExecutor {
         ...(apiKey ? { ANTHROPIC_AUTH_TOKEN: apiKey } : {}),
       }
     }
-    if (agent.work_mode === 'silent_task') {
-      options.maxTurns = 60
-    }
     if (this._sessionId) {
       options.resume = this._sessionId
     }
@@ -712,7 +709,7 @@ function buildSilentAutoText(hasPrompt: boolean): string {
 }
 
 /** silent_task 每个 run 允许的自动回复(续轮 + AskUserQuestion/ExitPlanMode 自动应答 + must_confirm 自动拒绝)次数上限,超过抛异常;如需调整改此值 */
-const SILENT_MAX_AUTO_REPLIES = 30
+const SILENT_MAX_AUTO_REPLIES = 5
 
 /** silent_task 自动续轮用的 user 消息。session_id 在 result 之后已确定。 */
 function buildSilentContinueMessage(sessionId: string | null, hasPrompt: boolean): SDKUserMessage {
