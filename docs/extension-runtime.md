@@ -94,7 +94,7 @@ CodeExecutor 严格只产出 `agentComplete` signal：不发 assistant 文本气
 - `chat`：长期对话；CompleteTask 不挂载，可写 values 节不注入，`agent_prompt` 视为长期规则。
 - `silent_task`：无人值守；result 自动续轮，暴露 TerminateTask；各工具的自动应答 / 接受 / 拒绝明细详见 [tool-permission.md](tool-permission.md)。AgentEditor 首次切换到 silent_task 弹 warning。
 
-silent_task 自动回复（自动续轮 + AskUserQuestion 自动应答 + ExitPlanMode 自动接受 + must_confirm 自动拒绝）受 `SILENT_MAX_AUTO_REPLIES`（默认 30）per-run 上限约束，超过 fire onError 推 agent-error 终态；SDK `maxTurns=60` 作双重兜底。`pushEffect` 过滤白名单只放行 `agent-error`、`flow-completed`、命中 `CompleteTask(require_confirm)` 或 `ExitPlanMode` 确认的 `awaiting-tool-permission`。
+silent_task 自动回复（自动续轮 + AskUserQuestion 自动应答 + ExitPlanMode 自动接受 + must_confirm 自动拒绝）受 `SILENT_MAX_AUTO_REPLIES`（默认 5）per-run 上限约束，超过 fire onError 推 agent-error 终态。`pushEffect` 过滤白名单只放行 `agent-error`、`flow-completed`、命中 `CompleteTask(require_confirm)` 或 `ExitPlanMode` 确认的 `awaiting-tool-permission`。
 
 ## MCP server
 

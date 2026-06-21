@@ -1,11 +1,7 @@
 # Changelog
 
-## v0.0.7
+## v0.0.87
 
-- 优化交互
-
-## v0.0.86
-
-- fix: interrupt 后屏蔽 SDK error_during_execution 误报——新增 `interruptRequested` 标志，用户主动 interrupt() 时置 true，SDK result 非 success 时不再触发 onError
-- fix: 完整打印错误日志
-- 优化样式
+- 调整静默模式行为：`SILENT_MAX_AUTO_REPLIES` 从 30 降至 5；移除 silent_task 的 SDK `maxTurns=60` 特殊处理
+- 优化删除 flow 后的 activeFlow 选择逻辑（考虑项目/全局分组和折叠状态）
+- UI 文本：将"全局flow"/"项目flow"统一改为"全局工作流"/"项目工作流"
