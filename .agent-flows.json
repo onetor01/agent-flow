@@ -1,7 +1,7 @@
 {
   "flows": [
     {
-      "id": "eceb84fd-33f6-472a-aedc-bf0380947d75",
+      "id": "ecef818f-ff21-4221-82a4-481a13cd113e",
       "name": "简单任务",
       "agents": [
         {
@@ -16,12 +16,12 @@
           ],
           "is_entry": true,
           "node_type": "code",
-          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
+          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n  }\n}"
         },
         {
           "node_type": "agent",
           "agent_name": "需求分析",
-          "agent_desc": "分析用户需求，拆分为有序子任务列表",
+          "agent_desc": "分析用户需求",
           "model": "sonnet[1m]",
           "effort": "high",
           "deny_tools": [
@@ -30,29 +30,19 @@
             "Bash(git push)",
             "Edit"
           ],
-          "work_mode": "silent_task",
+          "work_mode": "task",
           "no_output": true,
-          "allowed_read_values_keys": [
-            "requirement"
-          ],
           "allowed_write_values_keys": [
-            "requirement",
-            "current_task"
+            "requirement"
           ],
           "outputs": [
             {
               "output_name": "分析完成",
-              "output_desc": "分析用户需求，构造任务",
-              "next_agent": "3"
-            },
-            {
-              "output_name": "需求已实现",
-              "output_desc": "当前状况已满足用户需求，无需更改",
-              "next_agent": "6",
+              "next_agent": "3",
               "require_confirm": true
             }
           ],
-          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求尚未实现，思考实现方式，并生成一个代码修改任务\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将代码修改任务写入current_task\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 需求规范\n写入需求时，应当注明本轮已验证的需求，以及尚未实现的需求\n验证需求时，可以不深入分析已验证的需求，仅确保其不被新的变更破坏，也不需要向用户展示这部分需求",
+          "agent_prompt": "### 你的职责\n分析用户需求\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析\n根据输入，帮助用户澄清需求，将需求与实际的项目文件关联起来\n需求中未明确的，**不**猜测，直接询问用户\n**不**需要思考代码的具体变更方案\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n将用户需求写入requirement\n### 分析规范\n针对用户输入的所有部分，持续不断地提问提问，直到与用户达成共识。\n沿着设计决策树的每一个分支向下探索，逐一解决各个决策之间的依赖关系。\n充分分析代码、获取信息，仅在需求不明确时提问。",
           "id": "2"
         },
         {
@@ -69,7 +59,7 @@
           "work_mode": "silent_task",
           "plan_mode": true,
           "allowed_read_values_keys": [
-            "current_task"
+            "requirement"
           ],
           "outputs": [
             {
@@ -77,7 +67,7 @@
               "next_agent": "4"
             }
           ],
-          "agent_prompt": "### 你的职责\n完成**current_task**描述的任务\n### 执行步骤\n#### 1. 执行任务\n参考输入，执行current_task\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告",
+          "agent_prompt": "### 你的职责\n完成用户需求\n### 执行步骤\n#### 1. 执行任务\n参考输入，完成**requirement**描述的任务\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，content 为详细的执行报告",
           "id": "3"
         },
         {
@@ -93,7 +83,7 @@
           ],
           "work_mode": "silent_task",
           "allowed_read_values_keys": [
-            "current_task"
+            "requirement"
           ],
           "outputs": [
             {
@@ -105,21 +95,8 @@
               "next_agent": "3"
             }
           ],
-          "agent_prompt": "### 你的职责\n根据**current_task**，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证current_task是否被完成\n如果验证通过，commit当前任务修改的文件，这一操作应当在CompleteTask之前完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
+          "agent_prompt": "### 你的职责\n根据**requirement**，验证执行结果\n仅做**只读**验证，**禁止修改文件**\n### 执行步骤\n#### 1. 验证结果\n参考输入，验证requirement是否被完成\n如果验证通过，commit当前任务修改的文件，这一操作应当在CompleteTask之前完成\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask，根据验证结果选择对应分支，content 为详细的验证报告",
           "id": "4"
-        },
-        {
-          "node_type": "code",
-          "agent_name": "任务执行完毕",
-          "no_input": true,
-          "outputs": [
-            {
-              "output_name": "验证需求",
-              "next_agent": "2"
-            }
-          ],
-          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  return { output_name: '验证需求', content: '验证用户需求是否实现' }\n}",
-          "id": "5"
         },
         {
           "node_type": "code",
@@ -130,14 +107,14 @@
           "outputs": [
             {
               "output_name": "处理分支和worktree",
-              "next_agent": "7"
+              "next_agent": "6"
             },
             {
               "output_name": "需求已完成"
             }
           ],
           "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  if (!cwd) {\n    const branchName = await runCommand(`git branch --show-current`)\n    return {\n      output_name: '需求已完成',\n      content: `分支: ${branchName}  \\n代码修改已完成`\n    }\n  }\n  return {  output_name: '处理分支和worktree' }\n}",
-          "id": "6"
+          "id": "5"
         },
         {
           "node_type": "agent",
@@ -162,12 +139,12 @@
           "outputs": [
             {
               "output_name": "名称已修改",
-              "next_agent": "8",
+              "next_agent": "7",
               "require_confirm": false
             }
           ],
           "agent_prompt": "### 你的职责\n用户需求已经实现，但当前git分支名称是随机生成的，根据需求重命名当前分支",
-          "id": "7"
+          "id": "6"
         },
         {
           "node_type": "code",
@@ -176,7 +153,7 @@
           "no_input": true,
           "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const branchName = (await runCommand(`git -C \"${cwd}\" branch --show-current`)).trim()\n  const [[action]] = await askUserQuestion([{\n    question: `分支 ${branchName} 如何处理？`,\n    options: [\n      { label: 'push到远程', desc: 'git push -u origin 后清理worktree' },\n      { label: '删除本地分支', desc: '强制删除本地分支，无论是否有未合并的commit' },\n      { label: '保留分支', desc: '仅清理worktree，保留本地分支' },\n    ],\n    hiddenOther: true,\n  }])\n  const results = []\n  let branchDisplay = branchName\n  if (action === 'push到远程') {\n    try {\n      await runCommand(`git -C \"${cwd}\" push -u origin ${branchName}`)\n      branchDisplay = branchName + '（已push）'\n    } catch (e) {\n      results.push('push 失败：' + e.message)\n    }\n  } else if (action === '删除本地分支') {\n    try {\n      await runCommand(`git worktree remove \"${cwd}\"`)\n      results.push('worktree 已清理')\n    } catch (e) {\n      const list = await runCommand(`git worktree list`)\n      if (!list.includes(cwd)) {\n        results.push('worktree 已清理')\n      } else {\n        results.push('worktree 清理失败：' + e.message)\n      }\n    }\n    try {\n      await runCommand(`git branch -D ${branchName}`)\n      branchDisplay = branchName + '（已删除）'\n    } catch (e) {\n      results.push('分支删除失败：' + e.message)\n    }\n    return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n  }\n  try {\n    await runCommand(`git worktree remove \"${cwd}\"`)\n    results.push('worktree 已清理')\n  } catch (e) {\n    const list = await runCommand(`git worktree list`)\n    if (!list.includes(cwd)) {\n      results.push('worktree 已清理')\n    } else {\n      results.push('worktree 清理失败：' + e.message)\n    }\n  }\n  return { content: '分支: ' + branchDisplay + '  \\n' + results.join('  \\n') }\n}",
           "outputs": [],
-          "id": "8"
+          "id": "7"
         }
       ],
       "shareValuesKeys": [
@@ -186,12 +163,12 @@
         },
         {
           "key": "requirement",
-          "desc": "用户的原始需求"
+          "desc": "用户需求"
         }
       ]
     },
     {
-      "id": "bb4f5d25-480b-4b13-a8c9-c04458258781",
+      "id": "cc963d58-87a3-4c72-817d-2afafecdd22f",
       "name": "复杂任务",
       "agents": [
         {
@@ -201,17 +178,44 @@
           "outputs": [
             {
               "output_name": "准备完成",
-              "next_agent": "2"
+              "next_agent": "1.5"
             }
           ],
           "is_entry": true,
           "node_type": "code",
-          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n    overwrite: {\n      work_mode: 'task',\n      outputs: [{ output_name: '分析完成', require_confirm: true }],\n    },\n  }\n}"
+          "code": "async function run(input, values, runCommand, cwd, askUserQuestion, vscode) {\n  const [[env]] = await askUserQuestion([\n    {\n      question: '工作流执行环境',\n      options: [\n        { label: '主工作区', desc: '在当前目录执行' },\n        { label: 'worktree', desc: '创建worktree执行' },\n      ],\n      hiddenOther: true,\n    },\n  ])\n  let absPath = undefined\n  if (env === 'worktree') {\n    let [[base]] = await askUserQuestion([\n      {\n        question: 'worktree基准分支，将创建worktree和新分支',\n        options: [{ label: '当前分支' }, { label: 'main' }, { label: 'develop' }],\n      },\n    ])\n    base = base === '当前分支' ? '' : ' ' + base\n    const suffix = Math.random().toString(36).slice(2, 10)\n    const branchName = `agent-flow-dev/${suffix}`\n    const worktreePath = `.claude/worktrees/${suffix}`\n    await runCommand(`git worktree add --no-track -b ${branchName} ${worktreePath}` + base)\n    absPath = (await runCommand(`git -C ${worktreePath} rev-parse --show-toplevel`)).trim()\n  }\n  return {\n    output_name: '准备完成',\n    content: input,\n    cwd: absPath,\n  }\n}"
         },
         {
           "node_type": "agent",
           "agent_name": "需求分析",
-          "agent_desc": "分析用户需求，拆分为有序子任务列表",
+          "agent_desc": "分析用户需求",
+          "model": "opus[1m]",
+          "effort": "xhigh",
+          "deny_tools": [
+            "Bash(git merge)",
+            "Bash(git commit)",
+            "Bash(git push)",
+            "Edit"
+          ],
+          "work_mode": "task",
+          "no_output": true,
+          "allowed_write_values_keys": [
+            "requirement"
+          ],
+          "outputs": [
+            {
+              "output_name": "分析完成",
+              "next_agent": "2",
+              "require_confirm": true
+            }
+          ],
+          "agent_prompt": "### 你的职责\n分析用户需求\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据输入，帮助用户澄清需求，将需求与实际的项目文件关联起来\n需求中未明确的，**不**猜测，直接询问用户\n**不**需要思考代码的具体变更方案\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n将用户需求写入requirement\n### 分析规范\n针对用户输入的所有部分，持续不断地提问提问，直到与用户达成共识。\n沿着设计决策树的每一个分支向下探索，逐一解决各个决策之间的依赖关系。\n充分分析代码、获取信息，仅在需求不明确时提问。",
+          "id": "1.5"
+        },
+        {
+          "node_type": "agent",
+          "agent_name": "需求拆分",
+          "agent_desc": "将用户需求拆分为有序子任务列表",
           "model": "opus[1m]",
           "effort": "xhigh",
           "deny_tools": [
@@ -233,8 +237,8 @@
           ],
           "outputs": [
             {
-              "output_name": "分析完成",
-              "output_desc": "分析用户需求，用子任务列表的方式描述实现需求的方式",
+              "output_name": "拆分完成",
+              "output_desc": "将需求拆分为穿行子任务列表",
               "next_agent": "3"
             },
             {
@@ -244,7 +248,7 @@
               "require_confirm": true
             }
           ],
-          "agent_prompt": "### 你的职责\n分析用户需求，判断完成情况如果没有完成，生成子任务列表\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n根据requirement和用户输入，分析用户需求\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"分析完成\",将你分析得到的用户需求写入requirement，将子任务列表写入tasks\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 需求规范\n写入需求时，应当注明本轮已验证的需求，以及尚未实现的需求\n验证需求时，可以不深入分析已验证的需求，仅确保其不被新的变更破坏，也不需要向用户展示这部分需求\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当尽可能详细，包含执行任务所需的所有信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
+          "agent_prompt": "### 你的职责\n分析用户需求，判断实现情况，执行选择不同的输出分支\n仅做**只读**规划，不要修改文件\n### 执行步骤\n#### 1. 需求分析与拆分\n分析当前项目情况，判断需求是否实现\n如果需求尚未实现，思考实现方式，并生成子任务列表\n#### 2. 完成任务\n调用 mcp__AgentControllerMcp__CompleteTask\n如果需求已实现，选择分支\"需求已实现\"\n如果需求未实现，选择分支\"拆分完成\"，将子任务列表写入tasks\n如果存在所有任务执行时共用的注意事项，将其写入remark，部分任务的注意事项只写入任务体\n如果用户质询你的结论，与用户讨论得到最终结论后，按照上述规则再次调用mcp__AgentControllerMcp__CompleteTask\n### 子任务列表规范\n**必须**设计任务列表，**不要**执行\n子任务列表由串行的子任务构成，逐个执行可以实现用户需求在变更较少时，列表中允许只有一个子任务\n每个子任务由背景、具体执行方式、验证方式组成，并按照模块、语义、涉及范围划分，大小适中\n子任务执行时无法感知其他子任务和需求，因此每个子任务应当包含执行任务所需的所有信息，**不**包含整体需求和其他子任务的信息\n写入子任务列表时，格式应当是**字符串数组**，且是**合法JSON**",
           "id": "2"
         },
         {
@@ -440,7 +444,7 @@
         },
         {
           "key": "requirement",
-          "desc": "用户的原始需求"
+          "desc": "用户需求"
         },
         {
           "key": "remark",
@@ -449,7 +453,7 @@
       ]
     },
     {
-      "id": "5c3c6754-f6e2-493c-be4b-b10008f47360",
+      "id": "d0e5112d-4e67-4c6e-a80c-fe4c62860b21",
       "name": "常用Agent",
       "agents": [
         {
@@ -519,7 +523,7 @@
       ]
     },
     {
-      "id": "71d95bb7-b8af-45f4-be47-5b9fc0292cdb",
+      "id": "ed5f7909-97c3-4e78-9a69-643bdd9344b8",
       "name": "生成工作流",
       "agents": [
         {
