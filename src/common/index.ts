@@ -842,10 +842,4 @@ export function buildCodeJSDoc(shareValueKeys: string[], outputs: string[]): str
   return lines.join('\n')
 }
 
-export const MODELS = new Set([
-  'opus[1m]',
-  'sonnet[1m]',
-  'qwen3.7-max[1m]',
-  'glm-5.2[1m]',
-  'gpt-5.5[1m]',
-])
+export const MODELS = new Set(['opus[1m]', 'sonnet[1m]', 'qwen3.7-max[1m]', 'gpt-5.5[1m]'])

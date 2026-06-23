@@ -1,7 +1,7 @@
 {
   "flows": [
     {
-      "id": "ecef818f-ff21-4221-82a4-481a13cd113e",
+      "id": "6848dd70-793c-4ee3-888b-581bd0253b63",
       "name": "简单任务",
       "agents": [
         {
@@ -74,7 +74,7 @@
           "node_type": "agent",
           "agent_name": "结果验证",
           "agent_desc": "验证执行结果是否满足任务要求",
-          "model": "glm-5.2[1m]",
+          "model": "sonnet[1m]",
           "effort": "high",
           "deny_tools": [
             "Bash(git merge)",
@@ -88,6 +88,7 @@
           "outputs": [
             {
               "output_name": "验证通过",
+              "require_confirm": true,
               "next_agent": "5"
             },
             {
@@ -168,7 +169,7 @@
       ]
     },
     {
-      "id": "cc963d58-87a3-4c72-817d-2afafecdd22f",
+      "id": "d050063b-0f6c-431b-8748-03bdc7e91494",
       "name": "复杂任务",
       "agents": [
         {
@@ -271,7 +272,7 @@
         {
           "id": "4",
           "node_type": "agent",
-          "model": "glm-5.2[1m]",
+          "model": "sonnet[1m]",
           "effort": "high",
           "agent_name": "规范数据格式",
           "agent_desc": "将子任务列表转化为合法的字符串数组JSON",
@@ -345,7 +346,7 @@
         {
           "id": "7",
           "node_type": "agent",
-          "model": "glm-5.2[1m]",
+          "model": "sonnet[1m]",
           "effort": "high",
           "agent_name": "结果验证",
           "agent_desc": "验证执行结果是否满足任务要求",
@@ -453,7 +454,7 @@
       ]
     },
     {
-      "id": "d0e5112d-4e67-4c6e-a80c-fe4c62860b21",
+      "id": "8886a43f-7fb1-4a6c-912a-9ec688556513",
       "name": "常用Agent",
       "agents": [
         {
@@ -490,14 +491,6 @@
         },
         {
           "node_type": "agent",
-          "agent_name": "用户对话-glm",
-          "model": "glm-5.2[1m]",
-          "effort": "high",
-          "work_mode": "chat",
-          "id": "5"
-        },
-        {
-          "node_type": "agent",
           "agent_name": "agent-flow发版",
           "model": "sonnet[1m]",
           "effort": "high",
@@ -523,7 +516,7 @@
       ]
     },
     {
-      "id": "ed5f7909-97c3-4e78-9a69-643bdd9344b8",
+      "id": "46f81c9f-e03c-4ec9-a4a0-070b441cb8f6",
       "name": "生成工作流",
       "agents": [
         {
@@ -589,7 +582,7 @@
         {
           "node_type": "agent",
           "agent_name": "审查工作流",
-          "model": "glm-5.2[1m]",
+          "model": "sonnet[1m]",
           "effort": "high",
           "work_mode": "silent_task",
           "allowed_read_values_keys": [
