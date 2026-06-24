@@ -442,15 +442,6 @@ export class ClaudeExecutor {
     // 确认后 SDK 收到 allow，模型继续执行；拒绝则收到 deny（isError tool_result）。
     // silent_task 无人值守：自动接受，fire onToolPermissionResult 供 webview 历史卡片回显。
     if (toolName.includes('ExitPlanMode')) {
-      const exitPlanParseResult = z
-        .object({ planFilePath: z.string().min(1), allowedPrompts: z.array(z.any()).optional() })
-        .safeParse(toolInput)
-      if (!exitPlanParseResult.success) {
-        return Promise.resolve({
-          behavior: 'deny',
-          message: `参数错误：${exitPlanParseResult.error.message}`,
-        })
-      }
       if (agent.work_mode === 'silent_task') {
         if (!this.tryAutoReply())
           return Promise.resolve({ behavior: 'deny', message: 'silent auto-reply limit exceeded' })
