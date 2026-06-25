@@ -1,7 +1,8 @@
 # Changelog
 
-## v0.0.87
+## v0.0.89
 
-- 调整静默模式行为：`SILENT_MAX_AUTO_REPLIES` 从 30 降至 5；移除 silent_task 的 SDK `maxTurns=60` 特殊处理
-- 优化删除 flow 后的 activeFlow 选择逻辑（考虑项目/全局分组和折叠状态）
-- UI 文本：将"全局flow"/"项目flow"统一改为"全局工作流"/"项目工作流"
+- fix fork: `ToolUseMessage` 新增 `toolResultUuid` 字段，fork 锚点改为 tool result 所在 SDK 消息；`locateFork` 同时匹配 `uuid` 和 `toolResultUuid`；tool result 未到达时不展示 fork 按钮
+- fix: `ExitPlanMode` 工具 schema 移除不存在的 `filePath` 参数校验
+- 更新模型列表：移除 `glm-5.2[1m]`，预设模型精简为 `opus[1m]` / `sonnet[1m]` / `qwen3.7-max[1m]` / `gpt-5.5[1m]`
+- 优化默认 flow 配置
