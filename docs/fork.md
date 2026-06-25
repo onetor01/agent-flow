@@ -7,7 +7,7 @@
 - [`../src/extension/FlowRunnerManager/FlowRunner/index.ts`](../src/extension/FlowRunnerManager/FlowRunner/index.ts) — lazy executor。
 - [`../src/webview/store/flow.ts`](../src/webview/store/flow.ts) — `flow.signal.fork` 后注入新 Flow 与切换 active。
 - [`../src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx`](../src/webview/components/ChatDrawer/ChatPanel/MessageBubble.tsx) — `ForkButton` / `buildForkIcon` 渲染 fork 按钮。
-- [`../src/webview/components/ChatDrawer/ChatPanel/MessageList.tsx`](../src/webview/components/ChatDrawer/ChatPanel/MessageList.tsx) — 传 `message.uuid` 作 `forkUuid`。
+- [`../src/webview/components/ChatDrawer/ChatPanel/MessageList.tsx`](../src/webview/components/ChatDrawer/ChatPanel/MessageList.tsx) — `tool_use` 消息传 `toolResultUuid` 作 `forkUuid`，其余消息传 `message.uuid`。
 - [`../src/webview/components/ChatDrawer/index.tsx`](../src/webview/components/ChatDrawer/index.tsx) — ChatPanel key unmount。
 
 ## command / signal
@@ -48,12 +48,14 @@ webview 收到 `flow.signal.fork` 后：
 
 ## fork 锚点
 
-fork 按钮由 `buildForkIcon` 决定是否渲染，`forkUuid` 直接来自当前 `ChatMessage` 的 `uuid` 字段：
+fork 按钮由 `buildForkIcon` 决定是否渲染：
 
 - `buildForkIcon` 只在 `ctx.onFork`、`runId`、`forkUuid` 都存在时才可能展示 fork 按钮。
 - `parentToolUseId` 非空的 subAgent 消息不展示 fork 按钮。
-- `thinking / text / tool_use` 且 `status = done` 时展示 fork 按钮。
+- `thinking / text` 且 `status = done` 时展示 fork 按钮，`forkUuid` 来自 `ChatMessage.uuid`。
+- `tool_use` 且 `status = done` 时展示 fork 按钮，`forkUuid` 来自 `ToolUseMessage.toolResultUuid`（tool_result 所在 SDK 消息的 uuid）；tool result 未到达时 `toolResultUuid` 不存在，`!forkUuid` 提前 return，不显示 fork 按钮。
 - `user / turn_end / agent_complete / error` 与 `status = streaming / interrupted` 的消息不展示 fork 按钮。
+- `locateFork` 同时匹配 `uuid` 和 `toolResultUuid`，确保 tool_use 消息的 fork 锚点能在 tool result 到达后的 SDK 消息处切片。
 
 ## 限制
 

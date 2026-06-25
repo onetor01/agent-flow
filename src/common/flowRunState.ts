@@ -191,6 +191,8 @@ export type ToolUseMessage = Base & {
   input: unknown
   /** tool_result 合并后填充 */
   result?: ToolResult
+  /** tool_result 到达时所在 SDK 消息的 uuid（user 消息或 assistant mcp 消息） */
+  toolResultUuid?: string
 }
 export type UserMessage = Base & {
   kind: 'user'
@@ -523,6 +525,7 @@ function mergeToolResult(
   toolUseId: string,
   isError: boolean,
   content: unknown,
+  uuid?: string,
 ): void {
   const idx = run.acc.toolUseIndex[toolUseId]
   if (idx === undefined) return
@@ -531,6 +534,7 @@ function mergeToolResult(
   if (it.status === 'interrupted') return
   it.status = 'done'
   it.result = { isError: !!isError, text: extractToolResultText(content) }
+  if (uuid) it.toolResultUuid = uuid
 }
 
 /** 中断:streaming 的 text/thinking、pending 的 tool_use 置 interrupted;done 不回退 */
@@ -606,7 +610,7 @@ function appendSdkMessage(
             finalizeTool(run, b.id, `${b.server_name}::${b.name}`, b.input, parent, uuid),
           )
           .with({ type: 'mcp_tool_result' }, (b) =>
-            mergeToolResult(run, b.tool_use_id, b.is_error, b.content),
+            mergeToolResult(run, b.tool_use_id, b.is_error, b.content, uuid),
           )
           .otherwise(() => {})
       })
@@ -633,7 +637,7 @@ function appendSdkMessage(
             content?: unknown
           }
           if (blk.type === 'tool_result' && blk.tool_use_id) {
-            mergeToolResult(run, blk.tool_use_id, !!blk.is_error, blk.content)
+            mergeToolResult(run, blk.tool_use_id, !!blk.is_error, blk.content, m.uuid)
           }
         }
         return

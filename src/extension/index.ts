@@ -368,7 +368,10 @@ export function activate(context: vscode.ExtensionContext) {
     let messageIdx = -1
     for (let j = 0; j < run.messages.length; j++) {
       const curMessage = run.messages[j]
-      if (run.messages[j].uuid === target.messageUuid) {
+      if (
+        run.messages[j].uuid === target.messageUuid ||
+        (curMessage.kind === 'tool_use' && curMessage.toolResultUuid === target.messageUuid)
+      ) {
         messageIdx = j
         if (curMessage.kind === 'tool_use') {
           messageToolUseId = curMessage.toolUseId
